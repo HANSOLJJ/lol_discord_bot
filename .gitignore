@@ -1,0 +1,33 @@
+# 환경변수 (민감한 정보)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# 로그
+logs/
+*.log
+
+# 백업
+backup/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.code-workspace
+
+# 실제 전적 데이터 (템플릿만 커밋)
+wins.json
+wins_dev.json
+
+# OS
+.DS_Store
+Thumbs.db
