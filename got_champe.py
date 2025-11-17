@@ -46,10 +46,11 @@ overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
 wins_data = {}  # user_id: {'name': str, 'wins': int}
 pick_order = []  # 픽 순서 (member 객체 리스트)
 current_pick_index = 0  # 현재 픽 순서
-config = {}  # 설정 (pick_timeout, champion_count)
+config = {}  # 설정 (pick_timeout, champion_count, channels)
 current_timer_task = None  # 현재 실행 중인 타이머 Task
-champion_message = None  # 챔피언 선택 메시지 (edit용)
-champion_view = None  # 챔피언 선택 View
+champion_messages = {}  # {channel_id: message} - 여러 채널의 챔피언 선택 메시지
+champion_views = {}  # {channel_id: view} - 여러 채널의 View
+current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
 current_game_champions = []  # 현재 게임에서 제시된 챔피언 리스트
 game_started = False  # 게임이 시작되었는지 여부 (시작 버튼 눌렀는지)
 
@@ -60,7 +61,7 @@ def load_config():
     config.json에서 게임 설정 로드
 
     Returns:
-        dict: pick_timeout(초 단위), champion_count 설정값
+        dict: pick_timeout(초 단위), champion_count, channels 설정값
               파일이 없으면 기본값 반환
     """
     try:
@@ -68,7 +69,43 @@ def load_config():
             return json.load(f)
     except FileNotFoundError:
         print("[WARNING] config.json not found, using defaults")
-        return {"pick_timeout": 60, "champion_count": 8}
+        return {
+            "pick_timeout": 60,
+            "champion_count": 8,
+            "channels": {"team1": "team1", "team2": "team2"},
+        }
+
+
+def get_game_channels(guild, command_channel):
+    """
+    명령 실행 채널 + config에 설정된 team 채널들을 반환
+
+    Args:
+        guild: Discord 길드(서버) 객체
+        command_channel: 명령이 실행된 채널
+
+    Returns:
+        list: [command_channel, team1_channel, team2_channel] 채널 객체 리스트
+              중복 제거됨
+    """
+    channel_config = config.get("channels", {})
+    channels = [command_channel]  # 명령 실행 채널 무조건 포함
+
+    for key in ["team1", "team2"]:
+        channel_name = channel_config.get(key)
+        if channel_name:
+            # 채널 이름으로 검색
+            channel = discord.utils.get(guild.channels, name=channel_name)
+            if channel:
+                # 중복 체크 (명령 채널과 같으면 추가 안 함)
+                if channel.id not in [ch.id for ch in channels]:
+                    channels.append(channel)
+            else:
+                print(f"[WARNING] 채널 '{channel_name}' ({key})을 찾을 수 없습니다!")
+        else:
+            print(f"[WARNING] config.json에 '{key}' 채널 설정이 없습니다!")
+
+    return channels
 
 
 # === 전적 데이터 로드/저장 ===
@@ -254,76 +291,78 @@ def get_selection_status():
         wins = user_data.get("wins", 0) if isinstance(user_data, dict) else 0
 
         if member.id in selected_users:
-            # 이미 선택 완료 (팀별 이모지)
+            # 이미 선택 완료 (팀별 이모지 + 챔피언)
             champ_name = selected_users[member.id]
             status += f"{check_emoji} {member.mention} ({wins}승): **{champ_name}**\n"
-        elif i == current_pick_index:
-            # 현재 선택 중
-            status += f"⏳ {member.mention} ({wins}승)\n"
         else:
-            # 대기 중
-            status += f"⏱️ {member.mention} ({wins}승)\n"
+            # 선택 대기 중 (팀별 이모지만 표시)
+            status += f"{check_emoji} {member.mention} ({wins}승)\n"
     return status
 
 
 async def update_champion_message():
     """
-    챔피언 선택 메시지의 embed를 업데이트
+    모든 채널의 챔피언 선택 메시지 embed를 업데이트 (병렬 처리)
     - Description: 현재 차례 플레이어 + 남은 시간 (큰 폰트 강조)
     - Field 1: 선택 현황 및 픽순 (get_selection_status)
 
     Note:
         Discord embed의 description은 일반 field보다 폰트가 크게 표시됨
+        asyncio.gather()로 모든 채널을 동시에 업데이트하여 지연 최소화
     """
-    if not champion_message or not pick_order:
+    if not champion_messages or not pick_order:
         return
 
-    embed = champion_message.embeds[0]
-
-    # Description 업데이트 (현재 차례 + 시간 - 큰 폰트)
+    # Description 및 필드 값 미리 계산 (모든 채널에 동일하게 적용)
     if current_pick_index < len(pick_order):
         current_picker = pick_order[current_pick_index]
         timeout_val = config.get("pick_timeout", 15)
-        # description을 사용하여 큰 폰트로 표시
-        embed.description = (
+        description = (
             f"## 🎯 현재 차례\n"
             f"**{current_picker.mention}** 님의 차례입니다!\n\n"
             f"## ⏰ 남은 시간: **{timeout_val}초**"
         )
     else:
-        embed.description = "## ✅ 모든 선택 완료!"
+        description = "## ✅ 모든 선택 완료!"
 
-    # 선택 현황 필드 업데이트
-    embed.set_field_at(
-        1,  # 선택 현황 필드 (챔피언 목록이 field 0으로 이동)
-        name="선택 현황 및 픽순",
-        value=get_selection_status(),
-        inline=False,
-    )
+    selection_status = get_selection_status()
 
-    try:
-        await champion_message.edit(embed=embed, view=champion_view)
-    except:
-        pass
+    # 각 채널 업데이트 태스크 생성
+    async def update_single_channel(channel_id, message):
+        try:
+            embed = message.embeds[0].copy()  # embed 복사하여 독립적으로 수정
+            embed.description = description
+            embed.set_field_at(
+                1,  # 선택 현황 필드
+                name="선택 현황 및 픽순",
+                value=selection_status,
+                inline=False,
+            )
+            view = champion_views.get(channel_id)
+            await message.edit(embed=embed, view=view)
+        except Exception as e:
+            print(f"[ERROR] Failed to update message in channel {channel_id}: {e}")
+
+    # 모든 채널 동시 업데이트 (병렬 처리)
+    tasks = [update_single_channel(cid, msg) for cid, msg in champion_messages.items()]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 # === 개인별 선택 타이머 ===
-async def pick_timeout_handler(channel, picker_index):
+async def pick_timeout_handler(picker_index):
     """
     개인별 챔피언 선택 타이머 관리
-    - 매 1초마다 남은 시간을 embed에 업데이트
+    - 매 1초마다 남은 시간을 모든 채널의 embed에 업데이트
     - 시간 초과 시 현재 게임 챔피언에서 랜덤 자동 배정
     - 다른 플레이어가 선택 완료하면 타이머 자동 종료 (index 검증)
 
     Args:
-        channel: Discord 채널 객체
         picker_index (int): 현재 선택할 플레이어의 인덱스
     """
     global selected_users, excluded, current_pick_index, current_timer_task
-    global champion_message, champion_view
 
     timeout = config.get("pick_timeout", 15)
-    update_interval = 1  # 3초마다 업데이트
+    update_interval = 1
     elapsed = 0
 
     try:
@@ -335,22 +374,26 @@ async def pick_timeout_handler(channel, picker_index):
                 # 이미 다음 차례로 넘어갔으면 타이머 종료
                 return
 
-            # 메시지 업데이트 (남은 시간 표시)
-            if champion_message and pick_order and picker_index < len(pick_order):
+            # 모든 채널의 메시지 업데이트 (남은 시간 표시) - 병렬 처리
+            if champion_messages and pick_order and picker_index < len(pick_order):
                 current_picker = pick_order[picker_index]
-                embed = champion_message.embeds[0]
-
-                # Description 업데이트 (남은 시간 강조 표시 - 큰 폰트)
-                embed.description = (
+                description = (
                     f"## 🎯 현재 차례\n"
                     f"**{current_picker.mention}** 님의 차례입니다!\n\n"
                     f"## ⏰ 남은 시간: **{remaining}초**"
                 )
 
-                try:
-                    await champion_message.edit(embed=embed, view=champion_view)
-                except:
-                    pass  # 메시지 삭제됨 등의 에러 무시
+                async def update_timer(channel_id, message):
+                    try:
+                        embed = message.embeds[0].copy()
+                        embed.description = description
+                        view = champion_views.get(channel_id)
+                        await message.edit(embed=embed, view=view)
+                    except:
+                        pass  # 메시지 삭제됨 등의 에러 무시
+
+                tasks = [update_timer(cid, msg) for cid, msg in champion_messages.items()]
+                await asyncio.gather(*tasks, return_exceptions=True)
 
             await asyncio.sleep(update_interval)
             elapsed += update_interval
@@ -385,9 +428,9 @@ async def pick_timeout_handler(channel, picker_index):
                 else discord.ButtonStyle.danger
             )
 
-            # 선택된 챔피언 버튼 스타일 변경
-            if champion_view:
-                for item in champion_view.children:
+            # 모든 채널의 챔피언 버튼 스타일 변경
+            for channel_id, view in champion_views.items():
+                for item in view.children:
                     if (
                         isinstance(item, ChampionButton)
                         and item.champ_name == random_champ["name"]
@@ -396,15 +439,23 @@ async def pick_timeout_handler(channel, picker_index):
                         item.style = button_style
                         break
 
-            await channel.send(
-                f"⏰ **{current_picker.mention}** 님 시간 초과! "
-                f"{team_emoji} **{random_champ['name']}** 자동 배정되었습니다."
-            )
-
+            # current_pick_index 증가 (embed 업데이트 전에 먼저 증가)
             current_pick_index += 1
 
-            # 선택 현황 업데이트
+            # 버튼 변경사항을 즉시 Discord에 반영 (타임아웃 메시지 전에 먼저 업데이트)
             await update_champion_message()
+
+            # 모든 채널에 타임아웃 메시지 전송 (병렬 처리)
+            async def send_timeout_msg(channel):
+                try:
+                    await channel.send(
+                        f"⏰ **{current_picker.mention}** 님 시간 초과! "
+                        f"{team_emoji} **{random_champ['name']}** 자동 배정되었습니다."
+                    )
+                except:
+                    pass
+
+            await asyncio.gather(*[send_timeout_msg(ch) for ch in current_game_channels], return_exceptions=True)
 
             # 모두 선택 완료
             if len(selected_users) >= MAX_PLAYERS:
@@ -412,12 +463,20 @@ async def pick_timeout_handler(channel, picker_index):
                 for member in pick_order:
                     champ = selected_users.get(member.id, "❓")
                     msg += f"- {member.mention}: **{champ}**\n"
-                await channel.send(msg)
-                await channel.send("🎯 승리한 팀을 선택해주세요:", view=VictoryView())
+
+                # 모든 채널에 완료 메시지 전송 (병렬 처리)
+                async def send_complete_msg(channel):
+                    try:
+                        await channel.send(msg)
+                        await channel.send("🎯 승리한 팀을 선택해주세요:", view=VictoryView())
+                    except:
+                        pass
+
+                await asyncio.gather(*[send_complete_msg(ch) for ch in current_game_channels], return_exceptions=True)
             else:
                 # 다음 유저 타이머 시작
                 current_timer_task = asyncio.create_task(
-                    pick_timeout_handler(channel, current_pick_index)
+                    pick_timeout_handler(current_pick_index)
                 )
 
 
@@ -433,7 +492,7 @@ class StartButton(Button):
         super().__init__(label="🚀 챔피언 선택 시작", style=discord.ButtonStyle.success, custom_id="start_button")
 
     async def callback(self, interaction: Interaction):
-        global game_started, current_timer_task, champion_message, champion_view
+        global game_started, current_timer_task
 
         if game_started:
             await interaction.response.send_message("⚠️ 이미 게임이 시작되었습니다!", ephemeral=True)
@@ -444,26 +503,36 @@ class StartButton(Button):
 
         await interaction.response.send_message("🚀 **챔피언 선택을 시작합니다!**", ephemeral=False)
 
-        # 시작 버튼 제거 및 embed 업데이트
-        # View에서 시작 버튼 제거
-        for item in champion_view.children[:]:
-            if isinstance(item, StartButton):
-                champion_view.remove_item(item)
+        # 모든 채널의 View에서 시작 버튼 제거
+        for channel_id, view in champion_views.items():
+            for item in view.children[:]:
+                if isinstance(item, StartButton):
+                    view.remove_item(item)
 
         # Embed description 업데이트 (첫 번째 플레이어 차례)
-        embed = champion_message.embeds[0]
         timeout_val = config.get("pick_timeout", 15)
-        embed.description = (
+        description = (
             f"## 🎯 현재 차례\n"
             f"**{pick_order[0].mention}** 님의 차례입니다!\n\n"
             f"## ⏰ 남은 시간: **{timeout_val}초**"
         )
 
-        await champion_message.edit(embed=embed, view=champion_view)
+        # 모든 채널의 메시지 업데이트 (병렬 처리)
+        async def update_start(channel_id, message):
+            try:
+                embed = message.embeds[0].copy()
+                embed.description = description
+                view = champion_views.get(channel_id)
+                await message.edit(embed=embed, view=view)
+            except:
+                pass
+
+        tasks = [update_start(cid, msg) for cid, msg in champion_messages.items()]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         # 첫 번째 유저 타이머 시작
         current_timer_task = asyncio.create_task(
-            pick_timeout_handler(interaction.channel, 0)
+            pick_timeout_handler(0)
         )
 
 
@@ -523,8 +592,14 @@ class ChampionButton(Button):
         ):
             del selected_users[current_picker.id]
             excluded.discard(self.champ_name)
-            self.label = self.champ_name
-            self.style = discord.ButtonStyle.secondary
+
+            # 모든 채널의 버튼 스타일 초기화
+            for channel_id, view in champion_views.items():
+                for item in view.children:
+                    if isinstance(item, ChampionButton) and item.champ_name == self.champ_name:
+                        item.label = self.champ_name
+                        item.style = discord.ButtonStyle.secondary
+                        break
 
             # 먼저 interaction에 응답
             await interaction.response.send_message(
@@ -532,15 +607,25 @@ class ChampionButton(Button):
                 ephemeral=True,
             )
 
-            # view와 embed를 동시에 업데이트 (한 번의 API 호출)
-            embed = champion_message.embeds[0]
-            embed.set_field_at(
-                1,
-                name="선택 현황 및 픽순",
-                value=get_selection_status(),
-                inline=False,
-            )
-            await interaction.message.edit(embed=embed, view=self.view)
+            # 모든 채널의 embed 업데이트 (병렬 처리)
+            selection_status = get_selection_status()
+
+            async def update_cancel(channel_id, message):
+                try:
+                    embed = message.embeds[0].copy()
+                    embed.set_field_at(
+                        1,
+                        name="선택 현황 및 픽순",
+                        value=selection_status,
+                        inline=False,
+                    )
+                    view = champion_views.get(channel_id)
+                    await message.edit(embed=embed, view=view)
+                except:
+                    pass
+
+            tasks = [update_cancel(cid, msg) for cid, msg in champion_messages.items()]
+            await asyncio.gather(*tasks, return_exceptions=True)
             return
 
         # 이미 선택된 챔피언
@@ -567,15 +652,18 @@ class ChampionButton(Button):
 
         # 팀별 버튼 색상 및 이모지
         team = get_member_team(current_picker)
-        if team == "team1":
-            self.label = f"🔵 {self.champ_name}"
-            self.style = discord.ButtonStyle.primary  # 파란색
-        else:  # team2
-            self.label = f"🔴 {self.champ_name}"
-            self.style = discord.ButtonStyle.danger  # 빨간색
+        team_emoji = "🔵" if team == "team1" else "🔴"
+        button_style = discord.ButtonStyle.primary if team == "team1" else discord.ButtonStyle.danger
+
+        # 모든 채널의 버튼 스타일 변경
+        for channel_id, view in champion_views.items():
+            for item in view.children:
+                if isinstance(item, ChampionButton) and item.champ_name == self.champ_name:
+                    item.label = f"{team_emoji} {self.champ_name}"
+                    item.style = button_style
+                    break
 
         # 먼저 interaction에 응답 (3초 내) - 본인에게만 보임
-        team_emoji = "🔵" if team == "team1" else "🔴"
         await interaction.response.send_message(
             f"{team_emoji} **{self.champ_name}** 선택 완료!",
             ephemeral=True,
@@ -584,31 +672,38 @@ class ChampionButton(Button):
         # 다음 차례로 이동
         current_pick_index += 1
 
-        # view와 embed를 동시에 업데이트 (한 번의 API 호출)
-        embed = champion_message.embeds[0]
-
-        # Description 업데이트 (현재 차례 + 시간)
+        # Description 및 선택 현황 미리 계산
         if current_pick_index < len(pick_order):
             next_picker = pick_order[current_pick_index]
             timeout_val = config.get("pick_timeout", 15)
-            embed.description = (
+            description = (
                 f"## 🎯 현재 차례\n"
                 f"**{next_picker.mention}** 님의 차례입니다!\n\n"
                 f"## ⏰ 남은 시간: **{timeout_val}초**"
             )
         else:
-            embed.description = "## ✅ 모든 선택 완료!"
+            description = "## ✅ 모든 선택 완료!"
 
-        # 선택 현황 업데이트
-        embed.set_field_at(
-            1,
-            name="선택 현황 및 픽순",
-            value=get_selection_status(),
-            inline=False,
-        )
+        selection_status = get_selection_status()
 
-        # 한 번의 edit으로 view + embed 동시 업데이트
-        await interaction.message.edit(embed=embed, view=self.view)
+        # 모든 채널의 embed 업데이트 (병렬 처리)
+        async def update_pick(channel_id, message):
+            try:
+                embed = message.embeds[0].copy()
+                embed.description = description
+                embed.set_field_at(
+                    1,
+                    name="선택 현황 및 픽순",
+                    value=selection_status,
+                    inline=False,
+                )
+                view = champion_views.get(channel_id)
+                await message.edit(embed=embed, view=view)
+            except:
+                pass
+
+        tasks = [update_pick(cid, msg) for cid, msg in champion_messages.items()]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         # 모두 선택 완료
         if len(selected_users) >= MAX_PLAYERS:
@@ -616,14 +711,20 @@ class ChampionButton(Button):
             for member in pick_order:
                 champ = selected_users.get(member.id, "❓")
                 msg += f"- {member.mention}: **{champ}**\n"
-            await interaction.channel.send(msg)
-            await interaction.channel.send(
-                "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
-            )
+
+            # 모든 채널에 완료 메시지 전송 (병렬 처리)
+            async def send_final_msg(channel):
+                try:
+                    await channel.send(msg)
+                    await channel.send("🎯 승리한 팀을 선택해주세요:", view=VictoryView())
+                except:
+                    pass
+
+            await asyncio.gather(*[send_final_msg(ch) for ch in current_game_channels], return_exceptions=True)
         else:
             # 다음 유저 타이머 시작 (이전 타이머는 자동으로 index 체크로 종료됨)
             current_timer_task = asyncio.create_task(
-                pick_timeout_handler(interaction.channel, current_pick_index)
+                pick_timeout_handler(current_pick_index)
             )
 
 
@@ -631,7 +732,7 @@ class ChampionButton(Button):
 @bot.slash_command(name="게임시작", description="팀을 나누고 랜덤 챔피언을 보여줍니다.")
 async def 게임시작(ctx):
     global current_teams, selected_users, pick_order, current_pick_index, current_timer_task
-    global champion_message, champion_view, current_game_champions, game_started
+    global champion_messages, champion_views, current_game_champions, game_started, current_game_channels
 
     if DEV_MODE:
         # DEV_MODE: wins.json에서 가상 유저 생성
@@ -669,6 +770,8 @@ async def 게임시작(ctx):
     selected_users.clear()
     game_started = False
     current_pick_index = 0
+    champion_messages.clear()
+    champion_views.clear()
     half = MAX_PLAYERS // 2
 
     if DEV_MODE:
@@ -727,12 +830,29 @@ async def 게임시작(ctx):
         inline=False,
     )
 
-    # View 생성 - 시작 버튼 + 챔피언 버튼들
-    champion_view = View(timeout=None)
-    champion_view.add_item(StartButton())  # 시작 버튼 추가
-    for champ in champ_names:
-        champion_view.add_item(ChampionButton(champ))
-    champion_message = await ctx.channel.send(embed=embed2, view=champion_view)
+    # 게임에 사용할 채널들 가져오기 (명령 실행 채널 + team1 + team2)
+    current_game_channels = get_game_channels(ctx.guild, ctx.channel)
+    if not current_game_channels:
+        await ctx.channel.send("⚠️ 설정된 채널을 찾을 수 없습니다. config.json을 확인해주세요!")
+        return
+
+    # 각 채널에 챔피언 선택 메시지 전송
+    for channel in current_game_channels:
+        try:
+            # View 생성 - 시작 버튼 + 챔피언 버튼들 (각 채널마다 독립적인 View 필요)
+            view = View(timeout=None)
+            view.add_item(StartButton())  # 시작 버튼 추가
+            for champ in champ_names:
+                view.add_item(ChampionButton(champ))
+
+            # 메시지 전송
+            message = await channel.send(embed=embed2, view=view)
+
+            # 저장
+            champion_messages[channel.id] = message
+            champion_views[channel.id] = view
+        except Exception as e:
+            print(f"[ERROR] Failed to send message to channel {channel.name}: {e}")
 
     # 타이머는 시작 버튼을 누를 때까지 시작하지 않음
 
