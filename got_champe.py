@@ -9,6 +9,7 @@ from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
 from dotenv import load_dotenv
 import json
+import unicodedata
 
 intents = discord.Intents.default()
 intents.presences = True
@@ -141,7 +142,11 @@ def load_wins():
             data = json.load(f)
             # total_rounds가 없으면 계산해서 추가
             if "total_rounds" not in data:
-                total_wins = sum(user.get("wins", 0) for uid, user in data.items() if uid != "total_rounds")
+                total_wins = sum(
+                    user.get("wins", 0)
+                    for uid, user in data.items()
+                    if uid != "total_rounds"
+                )
                 data["total_rounds"] = total_wins // 3  # 한 판당 3명 승리
             return data
     except FileNotFoundError:
@@ -269,6 +274,23 @@ def get_member_team(member):
     return None
 
 
+# === 문자 폭 계산 (한글/영어 고려) ===
+def get_display_width(text):
+    """
+    텍스트의 실제 화면 폭 계산
+    - 한글, 한자, 전각 문자: 폭 2
+    - 영어, 숫자, 반각 문자: 폭 1
+    """
+    width = 0
+    for char in text:
+        ea_width = unicodedata.east_asian_width(char)
+        if ea_width in ("F", "W"):  # Fullwidth, Wide (전각)
+            width += 2
+        else:  # Halfwidth, Narrow, Ambiguous, Neutral (반각)
+            width += 1
+    return width
+
+
 # === 선택 현황 업데이트 ===
 def get_selection_status():
     """
@@ -281,6 +303,14 @@ def get_selection_status():
         str: Discord 메시지로 표시할 선택 현황 문자열
     """
     status = ""
+
+    # 최대 display_name 폭 계산 (한글/영어 고려)
+    max_name_width = (
+        max(get_display_width(member.display_name) for member in pick_order)
+        if pick_order
+        else 0
+    )
+
     for i, member in enumerate(pick_order):
         team = get_member_team(member)
         check_emoji = "🔵" if team == "team1" else "🔴"
@@ -290,13 +320,18 @@ def get_selection_status():
         user_data = wins_data.get(uid_str)
         wins = user_data.get("wins", 0) if isinstance(user_data, dict) else 0
 
+        # 이름 폭 기준 패딩 계산 ("--완료" 열 정렬용)
+        current_width = get_display_width(member.display_name)
+        padding_width = max_name_width - current_width
+        padding_count = (padding_width + 1) // 2  # 전각 공백 개수 (전각 1개 = 폭 2)
+        name_padding = "　" * padding_count
+
         if member.id in selected_users:
-            # 이미 선택 완료 (팀별 이모지 + 챔피언)
-            champ_name = selected_users[member.id]
-            status += f"{check_emoji} {member.mention} ({wins}승): **{champ_name}**\n"
+            # 이미 선택 완료 (승수를 3자리로 고정, "--완료"만 간격 조정)
+            status += f"{check_emoji} {member.mention}({wins:3d}승){name_padding}　　　--완료\n"
         else:
-            # 선택 대기 중 (팀별 이모지만 표시)
-            status += f"{check_emoji} {member.mention} ({wins}승)\n"
+            # 선택 대기 중 (승수를 3자리로 고정)
+            status += f"{check_emoji} {member.mention}({wins:3d}승)\n"
     return status
 
 
@@ -318,8 +353,7 @@ async def update_champion_message():
         current_picker = pick_order[current_pick_index]
         timeout_val = config.get("pick_timeout", 15)
         description = (
-            f"## 🎯 현재 차례\n"
-            f"**{current_picker.mention}** 님의 차례입니다!\n\n"
+            f"## 현재 차례 - {current_picker.mention} 님의 차례입니다!\n\n"
             f"## ⏰ 남은 시간: **{timeout_val}초**"
         )
     else:
@@ -333,7 +367,7 @@ async def update_champion_message():
             embed = message.embeds[0].copy()  # embed 복사하여 독립적으로 수정
             embed.description = description
             embed.set_field_at(
-                1,  # 선택 현황 필드
+                0,  # 선택 현황 필드
                 name="선택 현황 및 픽순",
                 value=selection_status,
                 inline=False,
@@ -378,8 +412,7 @@ async def pick_timeout_handler(picker_index):
             if champion_messages and pick_order and picker_index < len(pick_order):
                 current_picker = pick_order[picker_index]
                 description = (
-                    f"## 🎯 현재 차례\n"
-                    f"**{current_picker.mention}** 님의 차례입니다!\n\n"
+                    f"## 현재 차례 - {current_picker.mention} 님의 차례입니다!\n\n"
                     f"## ⏰ 남은 시간: **{remaining}초**"
                 )
 
@@ -387,12 +420,21 @@ async def pick_timeout_handler(picker_index):
                     try:
                         embed = message.embeds[0].copy()
                         embed.description = description
+                        # 선택 현황도 함께 업데이트 (선택 완료 상태 반영)
+                        embed.set_field_at(
+                            0,
+                            name="선택 현황 및 픽순",
+                            value=get_selection_status(),
+                            inline=False,
+                        )
                         view = champion_views.get(channel_id)
                         await message.edit(embed=embed, view=view)
                     except:
                         pass  # 메시지 삭제됨 등의 에러 무시
 
-                tasks = [update_timer(cid, msg) for cid, msg in champion_messages.items()]
+                tasks = [
+                    update_timer(cid, msg) for cid, msg in champion_messages.items()
+                ]
                 await asyncio.gather(*tasks, return_exceptions=True)
 
             await asyncio.sleep(update_interval)
@@ -455,7 +497,10 @@ async def pick_timeout_handler(picker_index):
                 except:
                     pass
 
-            await asyncio.gather(*[send_timeout_msg(ch) for ch in current_game_channels], return_exceptions=True)
+            await asyncio.gather(
+                *[send_timeout_msg(ch) for ch in current_game_channels],
+                return_exceptions=True,
+            )
 
             # 모두 선택 완료
             if len(selected_users) >= MAX_PLAYERS:
@@ -468,11 +513,16 @@ async def pick_timeout_handler(picker_index):
                 async def send_complete_msg(channel):
                     try:
                         await channel.send(msg)
-                        await channel.send("🎯 승리한 팀을 선택해주세요:", view=VictoryView())
+                        await channel.send(
+                            "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
+                        )
                     except:
                         pass
 
-                await asyncio.gather(*[send_complete_msg(ch) for ch in current_game_channels], return_exceptions=True)
+                await asyncio.gather(
+                    *[send_complete_msg(ch) for ch in current_game_channels],
+                    return_exceptions=True,
+                )
             else:
                 # 다음 유저 타이머 시작
                 current_timer_task = asyncio.create_task(
@@ -489,19 +539,27 @@ class StartButton(Button):
     """
 
     def __init__(self):
-        super().__init__(label="🚀 챔피언 선택 시작", style=discord.ButtonStyle.success, custom_id="start_button")
+        super().__init__(
+            label="🚀 챔피언 선택 시작",
+            style=discord.ButtonStyle.success,
+            custom_id="start_button",
+        )
 
     async def callback(self, interaction: Interaction):
         global game_started, current_timer_task
 
         if game_started:
-            await interaction.response.send_message("⚠️ 이미 게임이 시작되었습니다!", ephemeral=True)
+            await interaction.response.send_message(
+                "⚠️ 이미 게임이 시작되었습니다!", ephemeral=True
+            )
             return
 
         # 게임 시작
         game_started = True
 
-        await interaction.response.send_message("🚀 **챔피언 선택을 시작합니다!**", ephemeral=False)
+        await interaction.response.send_message(
+            "🚀 **챔피언 선택을 시작합니다!**", ephemeral=False
+        )
 
         # 모든 채널의 View에서 시작 버튼 제거
         for channel_id, view in champion_views.items():
@@ -512,8 +570,7 @@ class StartButton(Button):
         # Embed description 업데이트 (첫 번째 플레이어 차례)
         timeout_val = config.get("pick_timeout", 15)
         description = (
-            f"## 🎯 현재 차례\n"
-            f"**{pick_order[0].mention}** 님의 차례입니다!\n\n"
+            f"## 현재 차례 - {pick_order[0].mention} 님의 차례입니다!\n\n"
             f"## ⏰ 남은 시간: **{timeout_val}초**"
         )
 
@@ -531,9 +588,7 @@ class StartButton(Button):
         await asyncio.gather(*tasks, return_exceptions=True)
 
         # 첫 번째 유저 타이머 시작
-        current_timer_task = asyncio.create_task(
-            pick_timeout_handler(0)
-        )
+        current_timer_task = asyncio.create_task(pick_timeout_handler(0))
 
 
 # === 챔피언 선택 버튼 클래스 ===
@@ -596,7 +651,10 @@ class ChampionButton(Button):
             # 모든 채널의 버튼 스타일 초기화
             for channel_id, view in champion_views.items():
                 for item in view.children:
-                    if isinstance(item, ChampionButton) and item.champ_name == self.champ_name:
+                    if (
+                        isinstance(item, ChampionButton)
+                        and item.champ_name == self.champ_name
+                    ):
                         item.label = self.champ_name
                         item.style = discord.ButtonStyle.secondary
                         break
@@ -614,7 +672,7 @@ class ChampionButton(Button):
                 try:
                     embed = message.embeds[0].copy()
                     embed.set_field_at(
-                        1,
+                        0,
                         name="선택 현황 및 픽순",
                         value=selection_status,
                         inline=False,
@@ -653,12 +711,19 @@ class ChampionButton(Button):
         # 팀별 버튼 색상 및 이모지
         team = get_member_team(current_picker)
         team_emoji = "🔵" if team == "team1" else "🔴"
-        button_style = discord.ButtonStyle.primary if team == "team1" else discord.ButtonStyle.danger
+        button_style = (
+            discord.ButtonStyle.primary
+            if team == "team1"
+            else discord.ButtonStyle.danger
+        )
 
         # 모든 채널의 버튼 스타일 변경
         for channel_id, view in champion_views.items():
             for item in view.children:
-                if isinstance(item, ChampionButton) and item.champ_name == self.champ_name:
+                if (
+                    isinstance(item, ChampionButton)
+                    and item.champ_name == self.champ_name
+                ):
                     item.label = f"{team_emoji} {self.champ_name}"
                     item.style = button_style
                     break
@@ -677,8 +742,7 @@ class ChampionButton(Button):
             next_picker = pick_order[current_pick_index]
             timeout_val = config.get("pick_timeout", 15)
             description = (
-                f"## 🎯 현재 차례\n"
-                f"**{next_picker.mention}** 님의 차례입니다!\n\n"
+                f"## 현재 차례 - {next_picker.mention} 님의 차례입니다!\n\n"
                 f"## ⏰ 남은 시간: **{timeout_val}초**"
             )
         else:
@@ -692,7 +756,7 @@ class ChampionButton(Button):
                 embed = message.embeds[0].copy()
                 embed.description = description
                 embed.set_field_at(
-                    1,
+                    0,
                     name="선택 현황 및 픽순",
                     value=selection_status,
                     inline=False,
@@ -716,11 +780,16 @@ class ChampionButton(Button):
             async def send_final_msg(channel):
                 try:
                     await channel.send(msg)
-                    await channel.send("🎯 승리한 팀을 선택해주세요:", view=VictoryView())
+                    await channel.send(
+                        "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
+                    )
                 except:
                     pass
 
-            await asyncio.gather(*[send_final_msg(ch) for ch in current_game_channels], return_exceptions=True)
+            await asyncio.gather(
+                *[send_final_msg(ch) for ch in current_game_channels],
+                return_exceptions=True,
+            )
         else:
             # 다음 유저 타이머 시작 (이전 타이머는 자동으로 index 체크로 종료됨)
             current_timer_task = asyncio.create_task(
@@ -793,8 +862,9 @@ async def 게임시작(ctx):
 
     embed = Embed(title=f"🔀 ROUND {round_counter}: 팀 구성", color=0xFFD700)
     for key in ["team1", "team2"]:
+        team_emoji = "🔵" if key == "team1" else "🔴"
         embed.add_field(
-            name=key.upper(),
+            name=f"{team_emoji} {key.upper()}",
             value="\n".join([m.mention for m in current_teams[key]]),
             inline=True,
         )
@@ -807,23 +877,14 @@ async def 게임시작(ctx):
     champ_names = [champ["name"] for champ in picked_champ]
 
     # Embed 생성 - description에 게임 시작 대기 메시지
-    embed2 = Embed(title=f"🎯 무작위 챔피언 {champ_count}명", color=0x00CCFF)
+    embed2 = Embed(title=f"무작위 챔피언 {champ_count}명", color=0x00CCFF)
     embed2.description = (
         f"## 🚀 준비 완료!\n"
         f"**'{pick_order[0].mention}' 님부터 시작합니다.**\n\n"
         f"아래 **'🚀 챔피언 선택 시작'** 버튼을 눌러 게임을 시작하세요!"
     )
 
-    # Field 0: 챔피언 목록
-    embed2.add_field(
-        name="챔피언 목록",
-        value="\n".join(
-            ["　".join(champ_names[i : i + 5]) for i in range(0, len(champ_names), 5)]
-        ),
-        inline=False,
-    )
-
-    # Field 1: 선택 현황 및 픽순
+    # Field 0: 선택 현황 및 픽순
     embed2.add_field(
         name="선택 현황 및 픽순",
         value=get_selection_status(),
@@ -833,7 +894,9 @@ async def 게임시작(ctx):
     # 게임에 사용할 채널들 가져오기 (명령 실행 채널 + team1 + team2)
     current_game_channels = get_game_channels(ctx.guild, ctx.channel)
     if not current_game_channels:
-        await ctx.channel.send("⚠️ 설정된 채널을 찾을 수 없습니다. config.json을 확인해주세요!")
+        await ctx.channel.send(
+            "⚠️ 설정된 채널을 찾을 수 없습니다. config.json을 확인해주세요!"
+        )
         return
 
     # 각 채널에 챔피언 선택 메시지 전송
@@ -949,7 +1012,9 @@ class VictorySelect(Select):
                 today_wins = results.count("O")
                 today_losses = results.count("X")
                 today_total = len(results)
-                today_winrate = (today_wins / today_total * 100) if today_total > 0 else 0
+                today_winrate = (
+                    (today_wins / today_total * 100) if today_total > 0 else 0
+                )
 
                 today_msg += f"{record['mention']}: **{today_wins}승 {today_losses}패** (승률 **{today_winrate:.1f}%**)\n"
 
@@ -969,7 +1034,9 @@ class VictorySelect(Select):
                     total_wins = user_data.get("wins", 0)
                     total_games = wins_data.get("total_rounds", 0)
                     total_losses = total_games - total_wins
-                    total_winrate = (total_wins / total_games * 100) if total_games > 0 else 0
+                    total_winrate = (
+                        (total_wins / total_games * 100) if total_games > 0 else 0
+                    )
                 else:
                     total_wins = 0
                     total_losses = 0

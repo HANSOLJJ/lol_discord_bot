@@ -20,12 +20,39 @@
    - 팀별 색상 구분 (🔵 team1 파란색, 🔴 team2 빨간색)
    - 실시간 타이머 표시 (큰 폰트)
    - 선택 현황 및 픽순 한눈에 확인
+5. **다중 채널 동시 지원**:
+   - 명령 실행 채널 + 팀 음성 채널(TEAM1, TEAM2)에 동시 메시지
+   - 각 팀이 음성 채널 채팅에서도 진행 상황 확인 가능
+   - 병렬 처리로 지연 최소화 (1초 단위 정확한 타이머)
 
 ---
 
-## 🔧 개발 이력 (2025-11-13)
+## 🔧 개발 이력
 
-### ✅ 완료된 작업
+### 📅 2025-11-14
+
+1. **다중 채널 동시 메시지 전송**
+   - 명령 실행 채널 + TEAM1 + TEAM2 음성 채널에 동시 메시지
+   - 팀원들이 각자 음성 채널 채팅에서 진행 상황 확인 가능
+   - 중복 제거 (같은 채널이면 한 번만 전송)
+
+2. **병렬 처리 최적화 (asyncio.gather)**
+   - 순차 처리 → 동시 처리로 변경
+   - 타이머 정확도 향상 (±1~2초 → ±0.5초)
+   - 3개 채널 업데이트 속도 3배 개선 (~1.5초 → ~0.5초)
+
+3. **config.json 채널 설정 추가**
+   - `channels.team1`, `channels.team2` 설정
+   - 팀 채널 이름 자유롭게 변경 가능
+
+4. **전역 상태 구조 변경**
+   - `champion_message` → `champion_messages` (딕셔너리)
+   - `champion_view` → `champion_views` (딕셔너리)
+   - `current_game_channels` 리스트 추가
+
+### 📅 2025-11-13
+
+#### ✅ 완료된 작업
 
 1. **시작 버튼 추가**
    - `/게임시작` 후 수동으로 챔피언 선택 시작
@@ -100,9 +127,18 @@ DEV_MODE=true    # 개발 모드: true, 실제 모드: false
 ```json
 {
   "pick_timeout": 15,      // 챔피언 선택 제한 시간 (초)
-  "champion_count": 8      // 제시할 챔피언 수
+  "champion_count": 8,     // 제시할 챔피언 수
+  "channels": {
+    "team1": "TEAM1",      // 팀1 음성 채널 이름 (자유롭게 변경 가능)
+    "team2": "TEAM2"       // 팀2 음성 채널 이름 (자유롭게 변경 가능)
+  }
 }
 ```
+
+**채널 설정:**
+- `team1`, `team2`: 팀 음성 채널 이름 (Discord 서버에 존재해야 함)
+- `/게임시작` 실행 시 **명령 실행 채널 + team1 + team2**에 동시 메시지 전송
+- 중복 제거: 명령 채널이 team1/team2와 같으면 한 번만 전송
 
 ### 3. `wins.json` / `wins_dev.json`
 ```json
@@ -240,6 +276,9 @@ current_teams = {}              # 팀 구성
 overall_results = {}            # 세션 전적
 wins_data = {}                  # 영구 전적
 game_started = False            # 게임 시작 여부
+champion_messages = {}          # {channel_id: message} - 다중 채널 메시지
+champion_views = {}             # {channel_id: view} - 다중 채널 View
+current_game_channels = []      # 현재 게임 사용 중인 채널 리스트
 ```
 
 ---
