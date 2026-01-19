@@ -1,5 +1,5 @@
 {
-  "pick_timeout": 15,
+  "pick_timeout": 20,
   "champion_count": 8,
   "channels": {
     "team1": "TEAM1",

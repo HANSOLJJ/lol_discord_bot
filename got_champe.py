@@ -997,6 +997,12 @@ class VictorySelect(Select):
         embed.add_field(name="승리 팀", value=f"**{team_key.upper()}**", inline=False)
         await interaction.response.send_message(embed=embed)
 
+        # 다른 게임 채널들에도 결과 embed 전송
+        other_channels = [ch for ch in current_game_channels if ch.id != interaction.channel.id]
+        if other_channels:
+            embed_tasks = [ch.send(embed=embed) for ch in other_channels]
+            await asyncio.gather(*embed_tasks, return_exceptions=True)
+
         round_counter += 1
         current_teams.clear()
 
@@ -1019,7 +1025,10 @@ class VictorySelect(Select):
                 today_msg += f"{record['mention']}: **{today_wins}승 {today_losses}패** (승률 **{today_winrate:.1f}%**)\n"
 
             today_msg += "━━━━━━━━━━━━━━━━━━━━━━━━━"
-            await interaction.channel.send(today_msg)
+
+            # 모든 게임 채널에 오늘의 결과 전송
+            today_tasks = [ch.send(today_msg) for ch in current_game_channels]
+            await asyncio.gather(*today_tasks, return_exceptions=True)
 
             # 누적 전적 섹션
             total_msg = "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1045,7 +1054,10 @@ class VictorySelect(Select):
                 total_msg += f"{record['mention']}: **{total_wins}승 {total_losses}패** (승률 **{total_winrate:.1f}%**)\n"
 
             total_msg += "━━━━━━━━━━━━━━━━━━━━━━━━━"
-            await interaction.channel.send(total_msg)
+
+            # 모든 게임 채널에 누적 전적 전송
+            total_tasks = [ch.send(total_msg) for ch in current_game_channels]
+            await asyncio.gather(*total_tasks, return_exceptions=True)
 
 
 class VictoryView(View):
