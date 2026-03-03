@@ -16,7 +16,7 @@ intents.presences = True
 intents.members = True
 bot = discord.Bot(intents=intents)
 
-# === 환경변수 로드 ===
+#  === 환경변수 로드 ===
 load_dotenv()
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
@@ -995,13 +995,21 @@ class VictorySelect(Select):
         embed.add_field(name="TEAM 1", value=format_team("team1"), inline=True)
         embed.add_field(name="TEAM 2", value=format_team("team2"), inline=True)
         embed.add_field(name="승리 팀", value=f"**{team_key.upper()}**", inline=False)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(
+            f"✅ **{team_key.upper()}** 승리 기록 완료!", ephemeral=True
+        )
 
-        # 다른 게임 채널들에도 결과 embed 전송
-        other_channels = [ch for ch in current_game_channels if ch.id != interaction.channel.id]
-        if other_channels:
-            embed_tasks = [ch.send(embed=embed) for ch in other_channels]
-            await asyncio.gather(*embed_tasks, return_exceptions=True)
+        # 모든 게임 채널에 결과 embed 전송
+        async def send_result(channel):
+            try:
+                await channel.send(embed=embed)
+            except Exception as e:
+                print(f"[ERROR] 결과 embed 전송 실패 ({channel.name}): {e}")
+
+        await asyncio.gather(
+            *[send_result(ch) for ch in current_game_channels],
+            return_exceptions=True,
+        )
 
         round_counter += 1
         current_teams.clear()
