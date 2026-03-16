@@ -1124,6 +1124,9 @@ async def on_ready():
     round_counter = wins_data.get("total_rounds", 0) + 1
 
     await bot.sync_commands()
+    # 등록된 커맨드 확인
+    commands = bot.pending_application_commands
+    print(f"[COMMANDS] Registered: {[cmd.name for cmd in commands]}")
     print(f"[OK] Bot logged in: {bot.user}")
     print(f"[DEV_MODE] {DEV_MODE}")
     print(f"[WINS] Loaded {len(wins_data) - 1} players")  # total_rounds 제외
