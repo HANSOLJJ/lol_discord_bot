@@ -1079,7 +1079,7 @@ async def 승리(ctx):
     await ctx.respond("승리한 팀을 선택", view=VictoryView())
 
 
-@bot.slash_command(name="전적", description="전체 누적 전적을 확인합니다.")
+@bot.slash_command(name="누적결과", description="전체 누적 전적을 확인합니다.")
 async def 누적결과(ctx):
     if not wins_data or len(wins_data) <= 1:
         await ctx.respond("⚠️ 전적 데이터가 없습니다!", ephemeral=True)
@@ -1126,12 +1126,6 @@ async def on_ready():
     round_counter = wins_data.get("total_rounds", 0) + 1
 
     await bot.sync_commands()
-    # 길드별 커맨드 강제 등록
-    for guild in bot.guilds:
-        print(f"[GUILD] {guild.name} (ID: {guild.id})")
-        await bot.sync_commands(commands=bot.pending_application_commands, guild_ids=[guild.id])
-    commands = bot.pending_application_commands
-    print(f"[COMMANDS] Registered: {[cmd.name for cmd in commands]}")
     print(f"[OK] Bot logged in: {bot.user}")
     print(f"[DEV_MODE] {DEV_MODE}")
     print(f"[WINS] Loaded {len(wins_data) - 1} players")  # total_rounds 제외
