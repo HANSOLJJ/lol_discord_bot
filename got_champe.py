@@ -54,6 +54,7 @@ champion_views = {}  # {channel_id: view} - 여러 채널의 View
 current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
 current_game_champions = []  # 현재 게임에서 제시된 챔피언 리스트
 game_started = False  # 게임이 시작되었는지 여부 (시작 버튼 눌렀는지)
+victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 
 
 # === 설정 로드 ===
@@ -801,7 +802,7 @@ class ChampionButton(Button):
 @bot.slash_command(name="게임시작", description="팀을 나누고 랜덤 챔피언을 보여줍니다.")
 async def 게임시작(ctx):
     global current_teams, selected_users, pick_order, current_pick_index, current_timer_task
-    global champion_messages, champion_views, current_game_champions, game_started, current_game_channels
+    global champion_messages, champion_views, current_game_champions, game_started, current_game_channels, victory_processed
 
     if DEV_MODE:
         # DEV_MODE: wins.json에서 가상 유저 생성
@@ -838,6 +839,7 @@ async def 게임시작(ctx):
     # 게임 상태 초기화
     selected_users.clear()
     game_started = False
+    victory_processed = False
     current_pick_index = 0
     champion_messages.clear()
     champion_views.clear()
@@ -941,13 +943,21 @@ class VictorySelect(Select):
         )
 
     async def callback(self, interaction: Interaction):
-        global round_counter, current_teams, wins_data
+        global round_counter, current_teams, wins_data, victory_processed
+
+        if victory_processed:
+            await interaction.response.send_message(
+                "⚠️ 이미 승리 처리가 완료되었습니다!", ephemeral=True
+            )
+            return
 
         if not current_teams:
             await interaction.response.send_message(
                 "⚠️ 먼저 `/게임시작`으로 팀을 구성해주세요!", ephemeral=True
             )
             return
+
+        victory_processed = True
 
         for key in current_teams:
             for member in current_teams[key]:
