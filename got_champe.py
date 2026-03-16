@@ -87,7 +87,7 @@ def get_game_channels(guild, command_channel):
 
     Returns:
         list: [command_channel, team1_channel, team2_channel] 채널 객체 리스트
-              중복 제거됨
+              중복 제거
     """
     channel_config = config.get("channels", {})
     channels = [command_channel]  # 명령 실행 채널 무조건 포함
@@ -1105,7 +1105,9 @@ async def 누적결과(ctx):
         wins = data.get("wins", 0)
         losses = total_games - wins
         winrate = (wins / total_games * 100) if total_games > 0 else 0
-        msg += f"**{rank}.** {name}: **{wins}승 {losses}패** (승률 **{winrate:.1f}%**)\n"
+        msg += (
+            f"**{rank}.** {name}: **{wins}승 {losses}패** (승률 **{winrate:.1f}%**)\n"
+        )
 
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -1124,7 +1126,10 @@ async def on_ready():
     round_counter = wins_data.get("total_rounds", 0) + 1
 
     await bot.sync_commands()
-    # 등록된 커맨드 확인
+    # 길드별 커맨드 강제 등록
+    for guild in bot.guilds:
+        print(f"[GUILD] {guild.name} (ID: {guild.id})")
+        await bot.sync_commands(commands=bot.pending_application_commands, guild_ids=[guild.id])
     commands = bot.pending_application_commands
     print(f"[COMMANDS] Registered: {[cmd.name for cmd in commands]}")
     print(f"[OK] Bot logged in: {bot.user}")
