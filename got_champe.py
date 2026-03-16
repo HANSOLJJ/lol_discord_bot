@@ -1079,6 +1079,39 @@ async def 승리(ctx):
     await ctx.respond("승리한 팀을 선택", view=VictoryView())
 
 
+@bot.slash_command(name="누적결과", description="전체 누적 전적을 확인합니다.")
+async def 누적결과(ctx):
+    if not wins_data or len(wins_data) <= 1:
+        await ctx.respond("⚠️ 전적 데이터가 없습니다!", ephemeral=True)
+        return
+
+    total_games = wins_data.get("total_rounds", 0)
+
+    msg = "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "📈 **누적 전적**\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"총 **{total_games}** 라운드 진행\n\n"
+
+    # 승수 내림차순 정렬
+    players = [
+        (uid, data)
+        for uid, data in wins_data.items()
+        if uid != "total_rounds" and isinstance(data, dict)
+    ]
+    players.sort(key=lambda x: x[1].get("wins", 0), reverse=True)
+
+    for rank, (_uid, data) in enumerate(players, 1):
+        name = data.get("name", "???")
+        wins = data.get("wins", 0)
+        losses = total_games - wins
+        winrate = (wins / total_games * 100) if total_games > 0 else 0
+        msg += f"**{rank}.** {name}: **{wins}승 {losses}패** (승률 **{winrate:.1f}%**)\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    await ctx.respond(msg)
+
+
 # === 봇 시작 시 챔피언 로드 ===
 @bot.event
 async def on_ready():
