@@ -10,6 +10,7 @@ from discord.ui import Select
 from dotenv import load_dotenv
 import json
 import unicodedata
+from game_recorder import record_game
 
 intents = discord.Intents.default()
 intents.presences = True
@@ -74,38 +75,34 @@ def load_config():
         return {
             "pick_timeout": 60,
             "champion_count": 8,
-            "channels": {"team1": "team1", "team2": "team2"},
+            "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
 
 
 def get_game_channels(guild, command_channel):
     """
-    명령 실행 채널 + config에 설정된 team 채널들을 반환
+    명령 실행 채널 + config.json channels에 나열된 채널들을 반환
 
     Args:
         guild: Discord 길드(서버) 객체
         command_channel: 명령이 실행된 채널
 
     Returns:
-        list: [command_channel, team1_channel, team2_channel] 채널 객체 리스트
-              중복 제거
+        list: [command_channel, ...config에 나열된 채널들] 채널 객체 리스트
+              (중복 제거, 이름은 대소문자까지 완전 일치해야 검색됨)
     """
-    channel_config = config.get("channels", {})
-    channels = [command_channel]  # 명령 실행 채널 무조건 포함
+    channel_names = config.get("channels", [])
+    channels = [command_channel]  # 명령 실행 채널 무조건 포함 (=channels[0])
 
-    for key in ["team1", "team2"]:
-        channel_name = channel_config.get(key)
-        if channel_name:
-            # 채널 이름으로 검색
-            channel = discord.utils.get(guild.channels, name=channel_name)
-            if channel:
-                # 중복 체크 (명령 채널과 같으면 추가 안 함)
-                if channel.id not in [ch.id for ch in channels]:
-                    channels.append(channel)
-            else:
-                print(f"[WARNING] 채널 '{channel_name}' ({key})을 찾을 수 없습니다!")
+    for name in channel_names:
+        # 채널 이름으로 검색 (대소문자 완전 일치)
+        channel = discord.utils.get(guild.channels, name=name)
+        if channel:
+            # 중복 체크 (명령 채널과 같으면 추가 안 함)
+            if channel.id not in [ch.id for ch in channels]:
+                channels.append(channel)
         else:
-            print(f"[WARNING] config.json에 '{key}' 채널 설정이 없습니다!")
+            print(f"[WARNING] 채널 '{name}'을 찾을 수 없습니다!")
 
     return channels
 
@@ -562,6 +559,22 @@ class StartButton(Button):
             "🚀 **챔피언 선택을 시작합니다!**", ephemeral=False
         )
 
+        # 클릭 채널을 제외한 나머지 게임 채널에도 시작 알림 전파
+        async def send_start_msg(channel):
+            try:
+                await channel.send("🚀 **챔피언 선택을 시작합니다!**")
+            except:
+                pass
+
+        await asyncio.gather(
+            *[
+                send_start_msg(ch)
+                for ch in current_game_channels
+                if ch.id != interaction.channel.id
+            ],
+            return_exceptions=True,
+        )
+
         # 모든 채널의 View에서 시작 버튼 제거
         for channel_id, view in champion_views.items():
             for item in view.children[:]:
@@ -862,6 +875,14 @@ async def 게임시작(ctx):
         "team2": shuffled_for_teams[half:],
     }
 
+    # 게임에 사용할 채널들 먼저 확보 (명령 실행 채널 + config 채널들)
+    current_game_channels = get_game_channels(ctx.guild, ctx.channel)
+    if not current_game_channels:
+        await ctx.channel.send(
+            "⚠️ 설정된 채널을 찾을 수 없습니다. config.json을 확인해주세요!"
+        )
+        return
+
     embed = Embed(title=f"🔀 ROUND {round_counter}: 팀 구성", color=0xFFD700)
     for key in ["team1", "team2"]:
         team_emoji = "🔵" if key == "team1" else "🔴"
@@ -870,7 +891,19 @@ async def 게임시작(ctx):
             value="\n".join([m.mention for m in current_teams[key]]),
             inline=True,
         )
+    # 명령 채널(channels[0])은 respond로, 나머지 채널은 send로 전파
     await ctx.respond(embed=embed)
+
+    async def send_team_embed(channel):
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            print(f"[ERROR] 팀 구성 embed 전송 실패 ({channel.name}): {e}")
+
+    await asyncio.gather(
+        *[send_team_embed(ch) for ch in current_game_channels[1:]],
+        return_exceptions=True,
+    )
 
     # 자동으로 챔피언 추천도 실행
     champ_count = config.get("champion_count", 8)
@@ -892,14 +925,6 @@ async def 게임시작(ctx):
         value=get_selection_status(),
         inline=False,
     )
-
-    # 게임에 사용할 채널들 가져오기 (명령 실행 채널 + team1 + team2)
-    current_game_channels = get_game_channels(ctx.guild, ctx.channel)
-    if not current_game_channels:
-        await ctx.channel.send(
-            "⚠️ 설정된 채널을 찾을 수 없습니다. config.json을 확인해주세요!"
-        )
-        return
 
     # 각 채널에 챔피언 선택 메시지 전송
     for channel in current_game_channels:
@@ -994,6 +1019,28 @@ class VictorySelect(Select):
 
         # wins 데이터 파일에 저장
         save_wins(wins_data)
+
+        # history_data에 판 기록 (대시보드용) - 실패해도 승리 처리에는 영향 없음
+        try:
+            season = record_game(
+                round_counter,
+                {
+                    tk: [
+                        {
+                            "id": str(m.id),
+                            "name": m.display_name,
+                            "champ": str(selected_users.get(m.id, "")),
+                        }
+                        for m in current_teams[tk]
+                    ]
+                    for tk in ("team1", "team2")
+                },
+                team_key,
+                DEV_MODE,
+            )
+            print(f"[RECORD] history_data: 시즌{season} R{round_counter} 기록 완료")
+        except Exception as e:
+            print(f"[WARN] history_data 기록 실패: {e}")
 
         def format_team(key):
             return "\n".join(
