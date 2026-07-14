@@ -14,8 +14,10 @@
    - 시간 초과 시 자동 랜덤 배정
 3. **전적 관리**:
    - 승/패 기록 자동 저장
+   - 판별 상세 기록(팀·챔프·승자) 자동 저장 → `history_data.json`
    - 오늘의 전적 및 누적 전적 표시
    - 승률 자동 계산
+   - **웹 전적 대시보드** (`stats.html`, [dcom.co.kr/arena](https://dcom.co.kr/arena/))
 4. **시각적 표시**:
    - 팀별 색상 구분 (🔵 team1 파란색, 🔴 team2 빨간색)
    - 실시간 타이머 표시 (큰 폰트)
@@ -28,6 +30,21 @@
 ---
 
 ## 🔧 개발 이력
+
+### 📅 2026-07-14
+
+1. **판 기록 자동 저장 (`game_recorder.py`)**
+   - 승리 확정 시 `history_data.json`/`history_data.js`에 판 상세 자동 append
+   - 라운드 리셋(R1 회귀) 감지 시 시즌 자동 +1 — 새 시즌은 wins.json 리셋만 하면 됨
+
+2. **전적 대시보드 (`stats.html`)**
+   - 개인(챔프 드릴다운·주력 챔프 초상화) / 2인·3인 시너지 / 챔피언 / 3:3 매치업
+   - 시즌·세션·최소판수·인원 필터, 정렬
+   - <https://dcom.co.kr/arena/> 에 호스팅 (갱신 = history_data.js 재업로드)
+
+3. **과거 전적 복구**
+   - 디스코드 3채널 풀스캔으로 182판(시즌1 150 + 시즌2 32) 복구 — `parse_all_history.py` (재해복구용)
+   - 상세 검증·유령 라운드 조사는 `PARSE_REPORT.md` 참조
 
 ### 📅 2025-11-14
 
@@ -94,14 +111,19 @@
 ## 📁 프로젝트 구조
 
 ```
-champ_pick/
+lol_discord_bot/
 ├── got_champe.py          # 메인 봇 코드
-├── config.json            # 게임 설정 (timeout, 챔피언 수)
-├── wins.json              # 실제 전적 데이터
+├── game_recorder.py       # 판 기록 모듈 (history_data 자동 갱신, 시즌 감지)
+├── config.json            # 게임 설정 (timeout, 챔피언 수, 채널)
+├── wins.json              # 개인 누적 전적 (실제 모드)
 ├── wins_dev.json          # 개발용 전적 데이터
+├── history_data.json      # 전 판 상세 기록 (마스터 데이터)
+├── history_data.js        # 대시보드용 데이터 (자동 생성)
+├── stats.html             # 전적 대시보드 (정적 페이지)
+├── parse_all_history.py   # 디스코드 채널 재파싱 (재해복구용)
+├── PARSE_REPORT.md        # 과거 전적 복구·검증 리포트
 ├── .env                   # 환경변수 (토큰, DEV_MODE)
-├── README.md              # 프로젝트 문서 (이 파일)
-└── backup/                # 백업 파일들
+└── README.md              # 프로젝트 문서 (이 파일)
 ```
 
 ---
@@ -165,7 +187,7 @@ DEV_MODE=true    # 개발 모드: true, 실제 모드: false
 
 ### 1. 필요한 패키지 설치
 ```bash
-pip install py-cord requests python-dotenv
+pip install -r requirements.txt
 ```
 
 ### 2. 환경 설정
@@ -177,6 +199,54 @@ pip install py-cord requests python-dotenv
 ```bash
 python got_champe.py
 ```
+
+### 📌 wins.json으로 실행하기 (실제 모드)
+
+실제 Discord 유저로 게임을 돌리고 전적을 `wins.json`에 기록하려면 아래 순서대로 한다.
+
+1. **`.env`에 실제 모드 설정**
+
+   ```env
+   DISCORD_TOKEN=your_discord_bot_token_here
+   DEV_MODE=false
+   ```
+
+   - `DEV_MODE=false`(또는 미설정)이면 봇이 자동으로 `wins.json`을 읽고 쓴다.
+   - `DEV_MODE=true`이면 대신 `wins_dev.json`을 사용하므로, 실제 전적을 쓰려면 반드시 `false`로 둔다.
+
+2. **`wins.json`에 6명의 실제 Discord User ID 입력**
+   - 처음이라면 `wins.json.example`을 복사해서 `wins.json`을 만든다.
+
+     ```bash
+     cp wins.json.example wins.json
+     ```
+
+   - 형식 (key는 **실제 Discord User ID**, `total_rounds`는 누적 판수).
+
+     ```json
+     {
+       "total_rounds": 141,
+       "365414320332472332": { "name": "정한솔", "wins": 77 },
+       "390449986992865281": { "name": "보링",   "wins": 71 }
+     }
+     ```
+
+   - User ID 확인: Discord 설정 → 고급 → 개발자 모드 켜기 → 유저 우클릭 → "ID 복사".
+   - `total_rounds`와 각 유저의 `wins`는 게임이 끝날 때마다 봇이 자동으로 갱신하므로 처음 한 번만 채워두면 된다.
+
+3. **봇 실행**
+
+   ```bash
+   python got_champe.py
+   ```
+
+   - 정상 실행 시 콘솔에 `[DEV_MODE] False`가 찍히면 `wins.json` 모드로 동작 중인 것이다.
+
+4. **Discord에서 게임 진행**
+   - `/게임시작` → "🚀 챔피언 선택 시작" → 챔피언 선택 → `/승리`로 결과 확정.
+   - 결과가 확정되면 `wins.json`의 승수와 `total_rounds`가 자동 저장된다.
+
+> ⚠️ 실제 모드에서는 자기 차례에만 챔피언을 선택할 수 있다(턴제 검증). 또한 정기적으로 `wins.json`을 백업해 두는 것을 권장한다.
 
 ### 4. Discord에서 사용
 ```
@@ -212,6 +282,17 @@ python got_champe.py
    - 승리 팀 선택
    - 전적 자동 업데이트
    - 오늘의 전적 및 누적 전적 표시
+
+---
+
+## 📈 전적 대시보드
+
+- **보기**: <https://dcom.co.kr/arena/> 또는 로컬에서 `stats.html` 더블클릭 (같은 폴더에 `history_data.js` 필요)
+- **탭**: 개인(행 클릭 → 챔프별 승률, 주력 챔프 TOP5 초상화, 번 돈 정산 승 +5000/패 -5000원) / 2인 시너지 / 3인 시너지 / 챔피언 / 3:3 매치업
+- **필터**: 시즌·세션(기간), 인원 선택(탭별 1~3명), 최소 판수 슬라이더, 컬럼 클릭 정렬
+- **데이터 갱신**: 봇이 `/승리` 처리 시 자동 (`history_data.json` + `history_data.js`). 호스팅 반영은 `history_data.js`만 재업로드
+- **새 시즌**: `wins.json` 백업 후 리셋 → 다음 판이 R1로 기록되며 시즌 자동 +1
+- **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱
 
 ---
 
@@ -295,10 +376,7 @@ current_game_channels = []      # 현재 게임 사용 중인 채널 리스트
 3. **밴픽 모드**
    - 챔피언 밴 단계 추가
 
-4. **데이터 시각화**
-   - 그래프로 전적 표시
-
-5. **다중 서버 지원**
+4. **다중 서버 지원**
    - 서버별 전적 분리
 
 ---

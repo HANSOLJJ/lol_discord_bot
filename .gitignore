@@ -27,6 +27,18 @@ backup/
 # 실제 전적 데이터 (템플릿만 커밋)
 wins.json
 wins_dev.json
+wins_prev_season.json
+history_data.json
+history_data.js
+history_data_dev.json
+history_data_dev.js
+*.bak
+
+# 로컬 작업 컨텍스트 (호스팅 경로 등 포함)
+CLAUDE.md
+
+# 테스트 아티팩트
+.playwright-mcp/
 
 # OS
 .DS_Store
