@@ -67,6 +67,8 @@
   .portrait { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
               vertical-align: middle; margin-right: 3px; background: var(--panel2); }
   .portrait.sm { width: 22px; height: 22px; margin-right: 6px; }
+  .mrec { font-weight: 400; font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .mrec .w { color: var(--win); } .mrec .l { color: var(--loss); }
 
   .bar { display: flex; align-items: center; gap: 8px; min-width: 150px; }
   .track { flex: 1; height: 8px; background: #2a2f3a; border-radius: 4px; overflow: hidden; min-width: 70px; }
@@ -181,7 +183,7 @@
   updateSummary();
 
   // 탭별 인원 선택 최대치 (0 = 선택 사용 안 함)
-  const SEL_MAX = { player: 1, pair: 2, trio: 3, matchup: 3, champ: 0 };
+  const SEL_MAX = { player: 1, pair: 2, trio: 3, matchup: 1, champ: 0 };
   const selMax = () => (state.tab in SEL_MAX ? SEL_MAX[state.tab] : 6);
 
   // 인원 선택 칩 (탭별 최대 인원 제한)
@@ -254,6 +256,14 @@
   };
   const wr = (w, n) => (n ? (w / n) * 100 : 0);
   const wrColor = (v) => `hsl(${Math.round(v * 1.2)} 62% 45%)`; // 0=빨강 100=초록
+
+  // 표시용 정렬: 선택한 인원 먼저, 나머지는 이름순
+  const orderIds = (idList) => [...idList].sort((a, b) => {
+    const sa = state.sel.has(a), sb = state.sel.has(b);
+    if (sa !== sb) return sa ? -1 : 1;
+    return nameOf(a).localeCompare(nameOf(b), "ko");
+  });
+  const teamName = (idList) => orderIds(idList).map(nameOf).join("+");
 
   // 챔피언 초상화 (Data Dragon, 로드 실패 시 초상화 없이 동작)
   let CHAMP_IMG = null; // 한글 챔프명 -> 이미지 URL
@@ -420,12 +430,6 @@
         });
       });
     });
-    // 표시 순서: 선택한 인원 먼저, 나머지는 이름순
-    const orderIds = (idList) => [...idList].sort((a, b) => {
-      const sa = state.sel.has(a), sb = state.sel.has(b);
-      if (sa !== sb) return sa ? -1 : 1;
-      return nameOf(a).localeCompare(nameOf(b), "ko");
-    });
     let rows = [...map.values()]
       .filter((e) => e.n >= state.min && selMatch(e.ids))
       .map((e) => ({ ...e, name: orderIds(e.ids).map(nameOf).join(" + "), _n: e.n }));
@@ -444,32 +448,40 @@
   }
 
   function renderMatchup() {
-    const map = new Map(); // partitionKey -> {a:[ids], b:[ids], n, aw, bw}
+    const map = new Map(); // canonicalKey -> {a, b, n, aw, bw}  (a=id정렬상 작은 팀)
     games.forEach((g) => {
       const t1 = [...g.t1].sort(), t2 = [...g.t2].sort();
       const k1 = t1.join("|"), k2 = t2.join("|");
-      // 두 팀을 정렬해 파티션을 방향 무관하게 canonical 화
-      const [a, b, akey] = k1 < k2 ? [t1, t2, k1 + " vs " + k2] : [t2, t1, k2 + " vs " + k1];
-      const aWon = k1 < k2 ? g.winner === "team1" : g.winner === "team2";
-      let e = map.get(akey);
-      if (!e) { e = { a, b, n: 0, aw: 0, bw: 0 }; map.set(akey, e); }
+      const aIsT1 = k1 < k2;
+      const [a, b, key] = aIsT1 ? [t1, t2, k1 + " vs " + k2] : [t2, t1, k2 + " vs " + k1];
+      const aWon = aIsT1 ? g.winner === "team1" : g.winner === "team2";
+      let e = map.get(key);
+      if (!e) { e = { a, b, n: 0, aw: 0, bw: 0 }; map.set(key, e); }
       e.n++; if (aWon) e.aw++; else e.bw++;
     });
-    const sel = [...state.sel];
-    const sameTeam = (e) => !sel.length ||
-      sel.every((s) => e.a.includes(s)) || sel.every((s) => e.b.includes(s));
+    const focus = state.sel.size === 1 ? [...state.sel][0] : null;
     let rows = [...map.values()]
-      .filter((e) => e.n >= Math.max(2, state.min) && sameTeam(e))
-      .map((e) => ({ ...e, _n: e.n,
-        aName: e.a.map(nameOf).join("+"), bName: e.b.map(nameOf).join("+") }));
+      .filter((e) => e.n >= Math.max(2, state.min))
+      .map((e) => {
+        // 인원 선택 시 그 사람 팀을 왼쪽으로 고정
+        const flip = focus && e.b.includes(focus);
+        const a = flip ? e.b : e.a, b = flip ? e.a : e.b;
+        const aw = flip ? e.bw : e.aw, bw = flip ? e.aw : e.bw;
+        return { n: e.n, _n: e.n, aw, bw,
+          aName: teamName(a), bName: teamName(b) };
+      });
+    // 팀 조합 + 그 팀 기준 전적/승률을 한 셀에 (아래줄)
+    const teamCell = (name, w, n) => {
+      const v = wr(w, n);
+      return `<td class="combo">${name}<div class="mrec"><span class="w">${w}승</span> <span class="l">${n - w}패</span> <span style="color:${wrColor(v)}">(${v.toFixed(0)}%)</span></div></td>`;
+    };
     table("view",
       [
-        { label: "A팀", num: false, val: (r) => r.aName, cell: (r) => `<td class="combo">${r.aName}</td>` },
-        { label: "vs B팀", num: false, val: (r) => r.bName, cell: (r) => `<td>${r.bName}</td>` },
         { label: "판", num: true, val: (r) => r.n, cell: (r) => `<td class="num">${r.n}</td>` },
-        { label: "A 승률", num: true, val: (r) => wr(r.aw, r.n), cell: (r) => barCell(r.aw, r.n) },
+        { label: focus ? nameOf(focus) + " 팀" : "A팀", num: false, val: (r) => wr(r.aw, r.n), cell: (r) => teamCell(r.aName, r.aw, r.n) },
+        { label: focus ? "상대팀" : "B팀", num: false, val: (r) => wr(r.bw, r.n), cell: (r) => teamCell(r.bName, r.bw, r.n) },
       ],
-      rows, { col: 3, dir: "desc" });
+      rows, { col: focus ? 1 : 0, dir: "desc" });
   }
 
   const NOTES = {
@@ -477,7 +489,7 @@
     pair: "두 명이 <b>같은 팀</b>이었던 판의 시너지 승률. 인원은 <b>2명까지</b>(1명이면 그 사람의 모든 페어).",
     trio: "세 명이 한 팀을 이뤘을 때 승률. 인원은 <b>3명까지</b> — 2명만 골라도 그 2명이 낀 트리오가 전부 나옵니다.",
     champ: "챔프별 전체 픽 수·승률 (인원 선택 사용 안 함).",
-    matchup: "같은 3:3 구도가 2번 이상 반복된 경우만. 인원 선택(3명까지) 시 그 인원이 <b>같은 팀</b>이었던 매치업만. A 승률은 A팀 기준.",
+    matchup: "같은 3:3 구도가 2번 이상 반복된 경우만. 각 팀 아래는 그 팀 기준 전적. <b>인원 1명 선택 시 그 사람 팀이 왼쪽으로 고정</b>돼 '내 팀 vs 상대팀'으로 읽힘.",
   };
 
   function render() {
