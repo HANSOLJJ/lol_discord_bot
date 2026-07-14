@@ -1,12 +1,45 @@
 # 승리 확정 시 판 기록을 history_data.json/.js에 추가하는 모듈 (봇 직접 기록, 대시보드 데이터 소스)
 import json
 import os
+import threading
 from datetime import datetime, timezone
 
 
 def _file_paths(dev_mode):
     base = "history_data_dev" if dev_mode else "history_data"
     return base + ".json", base + ".js"
+
+
+def _upload_to_hosting(local_js):
+    """history_data.js를 호스팅(SFTP)에 업로드. .env에 ARENA_SSH_* 설정이 있을 때만 동작."""
+    host = os.getenv("ARENA_SSH_HOST")
+    user = os.getenv("ARENA_SSH_USER")
+    password = os.getenv("ARENA_SSH_PASS")
+    remote = os.getenv("ARENA_REMOTE_PATH")
+    if not all([host, user, password, remote]):
+        return  # 미설정이면 조용히 스킵 (로컬 기록만)
+    try:
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(host, username=user, password=password, timeout=15)
+        sftp = ssh.open_sftp()
+        tmp = remote + ".tmp"
+        sftp.put(local_js, tmp)
+        sftp.posix_rename(tmp, remote)  # 원자적 교체 (업로드 중 반쪽 파일 노출 방지)
+        sftp.close()
+        ssh.close()
+        print("[UPLOAD] history_data.js -> 호스팅 반영 완료")
+    except Exception as e:
+        print(f"[WARN] 호스팅 업로드 실패 (로컬 기록은 정상): {e}")
+
+
+def upload_async(dev_mode=False):
+    """백그라운드 스레드로 호스팅 업로드 (승리 처리 흐름을 막지 않음). dev 모드는 스킵."""
+    if dev_mode:
+        return
+    _, js_path = _file_paths(dev_mode)
+    threading.Thread(target=_upload_to_hosting, args=(js_path,), daemon=True).start()
 
 
 def record_game(round_num, teams, winner, dev_mode=False):
@@ -73,5 +106,8 @@ def record_game(round_num, teams, winner, dev_mode=False):
         f.write("window.HISTORY_DATA = ")
         json.dump(data, f, ensure_ascii=False)
         f.write(";\n")
+
+    # 호스팅 자동 반영 (백그라운드, 실패해도 무해 - 다음 성공 업로드가 전체 파일이라 자동 만회)
+    upload_async(dev_mode)
 
     return season

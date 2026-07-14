@@ -10,7 +10,7 @@ from discord.ui import Select
 from dotenv import load_dotenv
 import json
 import unicodedata
-from game_recorder import record_game
+from game_recorder import record_game, upload_async
 
 intents = discord.Intents.default()
 intents.presences = True
@@ -1039,6 +1039,7 @@ class VictorySelect(Select):
                 DEV_MODE,
             )
             print(f"[RECORD] history_data: 시즌{season} R{round_counter} 기록 완료")
+            upload_async(DEV_MODE)  # 호스팅 자동 반영 (백그라운드, 실패해도 무영향)
         except Exception as e:
             print(f"[WARN] history_data 기록 실패: {e}")
 
