@@ -9,14 +9,7 @@ import os
 import threading
 from datetime import datetime, timezone
 
-
-##
-# @brief DEV_MODE에 따라 사용할 데이터 파일 경로를 반환한다.
-# @param dev_mode True면 테스트용(history_data_dev.*), False면 실운영(history_data.*).
-# @return (json_path, js_path) 튜플.
-def _file_paths(dev_mode):
-    base = "history_data_dev" if dev_mode else "history_data"
-    return base + ".json", base + ".js"
+import paths
 
 
 ##
@@ -58,7 +51,7 @@ def _upload_to_hosting(local_js):
 def upload_async(dev_mode=False):
     if dev_mode:
         return
-    _, js_path = _file_paths(dev_mode)
+    _, js_path = paths.history_files(dev_mode)
     threading.Thread(target=_upload_to_hosting, args=(js_path,), daemon=True).start()
 
 
@@ -73,7 +66,7 @@ def upload_async(dev_mode=False):
 # @param dev_mode True면 history_data_dev.*에 기록(테스트 분리).
 # @return int 기록된 시즌 번호.
 def record_game(round_num, teams, winner, dev_mode=False):
-    json_path, js_path = _file_paths(dev_mode)
+    json_path, js_path = paths.history_files(dev_mode)
 
     if os.path.exists(json_path):
         with open(json_path, "r", encoding="utf-8") as f:
@@ -115,6 +108,10 @@ def record_game(round_num, teams, winner, dev_mode=False):
 
     data["total_games"] = len(games)
     data["generated_at"] = now
+
+    # 대상 폴더(data/, dashboard/)가 없으면 생성
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
+    os.makedirs(os.path.dirname(js_path), exist_ok=True)
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

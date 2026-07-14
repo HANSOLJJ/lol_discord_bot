@@ -18,6 +18,7 @@ from discord.ui import Select
 from dotenv import load_dotenv
 import json
 import unicodedata
+import paths
 from game_recorder import record_game
 
 intents = discord.Intents.default()
@@ -81,7 +82,7 @@ victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 # @return pick_timeout(초), champion_count, channels를 담은 dict.
 def load_config():
     try:
-        with open("config.json", "r", encoding="utf-8") as f:
+        with open(paths.CONFIG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         print("[WARNING] config.json not found, using defaults")
@@ -117,9 +118,9 @@ def get_game_channels(guild, command_channel):
 # === 전적 데이터 로드/저장 ===
 ##
 # @brief DEV_MODE에 따라 사용할 전적 파일명을 반환한다.
-# @return "wins_dev.json"(DEV_MODE=true) 또는 "wins.json"(DEV_MODE=false).
+# @return paths.wins_file() 경로 (data/wins.json 또는 data/wins_dev.json).
 def get_wins_file():
-    return "wins_dev.json" if DEV_MODE else "wins.json"
+    return paths.wins_file(DEV_MODE)
 
 
 ##

@@ -13,6 +13,8 @@ import re
 from datetime import timedelta
 from dotenv import load_dotenv
 
+import paths
+
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
 
@@ -24,7 +26,7 @@ intents = discord.Intents.default()
 intents.members = True
 client = discord.Client(intents=intents)
 
-with open("wins.json", "r", encoding="utf-8") as f:
+with open(paths.wins_file(False), "r", encoding="utf-8") as f:
     wins_data = json.load(f)
 NAME_MAP = {
     uid: v["name"] for uid, v in wins_data.items()
@@ -190,9 +192,11 @@ async def on_ready():
         "sessions_summary": report,
         "games": games,
     }
-    with open("history_data.json", "w", encoding="utf-8") as f:
+    hist_json, _ = paths.history_files(False)
+    os.makedirs(os.path.dirname(hist_json), exist_ok=True)
+    with open(hist_json, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
-    print("\n[SAVED] history_data.json")
+    print(f"\n[SAVED] {hist_json}")
 
     await client.close()
 

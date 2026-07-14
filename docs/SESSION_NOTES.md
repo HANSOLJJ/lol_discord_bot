@@ -15,16 +15,17 @@
   → 대시보드 dcom.co.kr/arena 실시간 반영
 ```
 
-### 핵심 파일 (신규)
+### 핵심 파일 (신규) — 경로는 전부 `paths.py`에서 관리
 | 파일 | 역할 |
 |---|---|
 | `game_recorder.py` | 판 기록 + 시즌 감지 + 호스팅 SFTP 업로드 |
-| `history_data.json` | 전 판 상세 마스터 데이터 (스키마: round, round_orig, season, team1/2, winner, time, sources) |
-| `history_data.js` | 위를 `window.HISTORY_DATA=`로 감싼 대시보드 로드용 |
-| `stats.html` | 정적 전적 대시보드 (개인/2·3인 시너지/챔피언/3:3 매치업) |
+| `paths.py` | 모든 데이터/산출물 경로 상수 (폴더 구조 바뀌면 여기만 수정) |
+| `data/history_data.json` | 전 판 상세 마스터 데이터 (스키마: round, round_orig, season, team1/2, winner, time, sources) |
+| `dashboard/history_data.js` | 위를 `window.HISTORY_DATA=`로 감싼 대시보드 로드용 |
+| `dashboard/stats.html` | 정적 전적 대시보드 (개인/2·3인 시너지/챔피언/3:3 매치업) |
 | `parse_all_history.py` | 디스코드 3채널 풀스캔 복구 (재해복구 전용, 평상시 미사용) |
 | `backup/wins_prev_season.json` | 시즌1(150판) 집계 백업 |
-| `PARSE_REPORT.md` | 과거 전적 복구·검증·유령 라운드 조사 리포트 |
+| `PARSE_REPORT.md` | 과거 전적 복구·검증·유령 라운드 조사 리포트 (docs/, 이 파일 옆) |
 
 ### 배포 (dcom.co.kr/arena)
 - Cafe24 정적 호스팅. SSH MCP 서버명 `dcom`, 원격 `~/www/arena/` (`index.html`=stats.html, `history_data.js`=데이터)
@@ -93,11 +94,12 @@ DEV_MODE=false
 |------|------|----------|
 | `got_champe.py` | 메인 봇 코드 | ❌ 완료 |
 | `game_recorder.py` | 판 기록 + 시즌 감지 + 호스팅 업로드 | ❌ 완료 |
+| `paths.py` | 데이터/산출물 경로 상수 (구조 변경 시 여기만) | ✅ 폴더 바꿀 때 |
 | `config.json` | 게임 설정 + **채널 리스트** | ✅ 필요시 (채널명) |
-| `wins.json` | **실제 모드 개인 전적** | ⚠️ ID 업데이트 필요 |
-| `wins_dev.json` | 개발 모드 전적 | ✅ 사용 중 |
-| `history_data.json/.js` | 판 상세 마스터 데이터 (자동 생성) | ❌ 봇이 관리 |
-| `stats.html` | 웹 전적 대시보드 | ✅ 수정 시 index.html 재업로드 |
+| `data/wins.json` | **실제 모드 개인 전적** | ⚠️ ID 업데이트 필요 |
+| `data/wins_dev.json` | 개발 모드 전적 | ✅ 사용 중 |
+| `data/history_data.json` + `dashboard/history_data.js` | 판 상세 마스터 데이터 (자동 생성) | ❌ 봇이 관리 |
+| `dashboard/stats.html` | 웹 전적 대시보드 | ✅ 수정 시 index.html 재업로드 |
 | `.env` | 환경변수 (토큰, DEV_MODE, ARENA_SSH_*) | ✅ 실운영 DEV_MODE=false |
 
 **config.json 채널 설정 (리스트로 변경됨, 2026-07-14):**

@@ -44,7 +44,7 @@
 
 3. **과거 전적 복구**
    - 디스코드 3채널 풀스캔으로 182판(시즌1 150 + 시즌2 32) 복구 — `parse_all_history.py` (재해복구용)
-   - 상세 검증·유령 라운드 조사는 `PARSE_REPORT.md` 참조
+   - 상세 검증·유령 라운드 조사는 `docs/PARSE_REPORT.md` 참조
 
 ### 📅 2025-11-14
 
@@ -113,17 +113,25 @@
 ```
 lol_discord_bot/
 ├── got_champe.py          # 메인 봇 코드
-├── game_recorder.py       # 판 기록 모듈 (history_data 자동 갱신, 시즌 감지)
-├── config.json            # 게임 설정 (timeout, 챔피언 수, 채널)
-├── wins.json              # 개인 누적 전적 (실제 모드)
-├── wins_dev.json          # 개발용 전적 데이터
-├── history_data.json      # 전 판 상세 기록 (마스터 데이터)
-├── history_data.js        # 대시보드용 데이터 (자동 생성)
-├── stats.html             # 전적 대시보드 (정적 페이지)
+├── game_recorder.py       # 판 기록 모듈 (history_data 자동 갱신, 시즌 감지, 호스팅 업로드)
 ├── parse_all_history.py   # 디스코드 채널 재파싱 (재해복구용)
-├── PARSE_REPORT.md        # 과거 전적 복구·검증 리포트
-├── .env                   # 환경변수 (토큰, DEV_MODE)
-└── README.md              # 프로젝트 문서 (이 파일)
+├── paths.py               # 모든 데이터/산출물 경로 상수 (single source of truth)
+├── config.json            # 게임 설정 (timeout, 챔피언 수, 채널)
+├── requirements.txt       # 파이썬 패키지 목록
+├── .env                   # 환경변수 (토큰, DEV_MODE, ARENA_SSH_*)
+├── README.md / CLAUDE.md  # 문서 (루트)
+├── data/                  # 전적 데이터 (봇 I/O, gitignore)
+│   ├── wins.json          #   개인 누적 전적 (실제 모드)
+│   ├── wins_dev.json      #   개발용 전적
+│   └── history_data.json  #   전 판 상세 마스터 데이터
+├── dashboard/             # 대시보드 (서버와 동일한 flat 구조)
+│   ├── stats.html         #   전적 대시보드 (→ 서버 index.html)
+│   └── history_data.js    #   대시보드용 데이터 (자동 생성 → 서버 업로드)
+├── docs/                  # 문서
+│   ├── PARSE_REPORT.md    #   과거 전적 복구·검증 리포트
+│   └── SESSION_NOTES.md   #   다음 세션 빠른 참조
+├── backup/                # 백업 (bak, 구시즌 집계)
+└── logs/                  # 봇 로그
 ```
 
 ---
@@ -214,8 +222,8 @@ python got_champe.py
    - `DEV_MODE=false`(또는 미설정)이면 봇이 자동으로 `wins.json`을 읽고 쓴다.
    - `DEV_MODE=true`이면 대신 `wins_dev.json`을 사용하므로, 실제 전적을 쓰려면 반드시 `false`로 둔다.
 
-2. **`wins.json`에 6명의 실제 Discord User ID 입력**
-   - 처음이라면 아래 형식으로 `wins.json`을 새로 만든다 (key는 **실제 Discord User ID**, `total_rounds`는 누적 판수).
+2. **`data/wins.json`에 6명의 실제 Discord User ID 입력**
+   - 처음이라면 아래 형식으로 `data/wins.json`을 새로 만든다 (key는 **실제 Discord User ID**, `total_rounds`는 누적 판수).
 
      ```json
      {
@@ -281,12 +289,13 @@ python got_champe.py
 
 ## 📈 전적 대시보드
 
-- **보기**: <https://dcom.co.kr/arena/> 또는 로컬에서 `stats.html` 더블클릭 (같은 폴더에 `history_data.js` 필요)
+- **보기**: <https://dcom.co.kr/arena/> 또는 로컬에서 `dashboard/stats.html` 더블클릭 (같은 폴더의 `history_data.js`를 읽음)
 - **탭**: 개인(행 클릭 → 챔프별 승률, 주력 챔프 TOP5 초상화, 번 돈 정산 승 +5000/패 -5000원) / 2인 시너지 / 3인 시너지 / 챔피언 / 3:3 매치업
 - **필터**: 시즌·세션(기간), 인원 선택(탭별 1~3명), 최소 판수 슬라이더, 컬럼 클릭 정렬
 - **데이터 갱신**: 봇이 `/승리` 처리 시 자동 (`history_data.json` + `history_data.js`) → **호스팅까지 SFTP 자동 업로드** (실시간 반영, `.env`의 `ARENA_SSH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회)
-- **새 시즌**: `wins.json` 백업 후 리셋 → 다음 판이 R1로 기록되며 시즌 자동 +1
-- **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱
+- **새 시즌**: `data/wins.json` 백업 후 리셋 → 다음 판이 R1로 기록되며 시즌 자동 +1
+- **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱 (`data/history_data.json` 재생성)
+- **경로 변경**: 모든 데이터/산출물 경로는 `paths.py` 한 곳에서 관리
 
 ---
 
