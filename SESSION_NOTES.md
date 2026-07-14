@@ -1,6 +1,42 @@
 # 🚀 Quick Start - 다음 세션 참고용
 
-## 📌 현재 상태 (2025-11-14)
+## 🆕 2026-07-14 대규모 확장 (전적 데이터 + 웹 대시보드)
+
+봇 코어 외에 **전적 아카이브 → 웹 대시보드 → 자동 배포** 계층이 추가됨. 자세한 배경은 `CLAUDE.md`(프로젝트)와 `PARSE_REPORT.md` 참고.
+
+### 데이터 흐름 (한 판이 끝나면)
+```
+/승리 클릭
+  → wins.json 갱신 (개인 누적 승수, 기존)
+  → game_recorder.record_game(): history_data.json/.js 에 판 상세 append
+       (팀·챔프·승자·시간, 라운드가 직전 이하로 회귀하면 시즌 자동 +1)
+  → game_recorder.upload_async(): history_data.js 를 호스팅에 SFTP 자동 업로드
+       (백그라운드 스레드 + try/except 2중 방어 → 실패해도 봇 무영향, 다음 판이 만회)
+  → 대시보드 dcom.co.kr/arena 실시간 반영
+```
+
+### 핵심 파일 (신규)
+| 파일 | 역할 |
+|---|---|
+| `game_recorder.py` | 판 기록 + 시즌 감지 + 호스팅 SFTP 업로드 |
+| `history_data.json` | 전 판 상세 마스터 데이터 (스키마: round, round_orig, season, team1/2, winner, time, sources) |
+| `history_data.js` | 위를 `window.HISTORY_DATA=`로 감싼 대시보드 로드용 |
+| `stats.html` | 정적 전적 대시보드 (개인/2·3인 시너지/챔피언/3:3 매치업) |
+| `parse_all_history.py` | 디스코드 3채널 풀스캔 복구 (재해복구 전용, 평상시 미사용) |
+| `wins_prev_season.json` | 시즌1(150판) 집계 백업 |
+| `PARSE_REPORT.md` | 과거 전적 복구·검증·유령 라운드 조사 리포트 |
+
+### 배포 (dcom.co.kr/arena)
+- Cafe24 정적 호스팅. SSH MCP 서버명 `dcom`, 원격 `~/www/arena/` (`index.html`=stats.html, `history_data.js`=데이터)
+- **데이터는 봇이 자동 업로드** (`.env`의 `ARENA_SSH_*`). `stats.html` 수정 시에만 index.html 수동 재업로드
+- **왜 PC/맥에서 봇을 돌리나**: Cafe24 웹호스팅은 Python 2.7 + crontab/openssl-dev 부재 + 상시 데몬 금지라 봇 상주 불가. 대시보드(정적)만 올림
+
+### 새 시즌 시작
+`wins.json` 백업 후 리셋 → 다음 판이 R1로 기록되며 시즌 자동 +1. 대시보드 드롭다운에 시즌이 자동 추가됨 (하드코딩 없음)
+
+---
+
+## 📌 현재 상태 (2025-11-14, 봇 코어 기준)
 
 ### ✅ 완료된 기능
 - [x] 시작 버튼 (수동 게임 시작)
@@ -56,21 +92,23 @@ DEV_MODE=false
 | 파일 | 설명 | 수정 필요 |
 |------|------|----------|
 | `got_champe.py` | 메인 봇 코드 | ❌ 완료 |
-| `config.json` | 게임 설정 + **채널 설정** | ✅ 필요시 (team1/team2 채널명) |
-| `wins.json` | **실제 모드 전적** | ⚠️ ID 업데이트 필요 |
+| `game_recorder.py` | 판 기록 + 시즌 감지 + 호스팅 업로드 | ❌ 완료 |
+| `config.json` | 게임 설정 + **채널 리스트** | ✅ 필요시 (채널명) |
+| `wins.json` | **실제 모드 개인 전적** | ⚠️ ID 업데이트 필요 |
 | `wins_dev.json` | 개발 모드 전적 | ✅ 사용 중 |
-| `.env` | 환경변수 | ✅ 현재 DEV_MODE=true |
+| `history_data.json/.js` | 판 상세 마스터 데이터 (자동 생성) | ❌ 봇이 관리 |
+| `stats.html` | 웹 전적 대시보드 | ✅ 수정 시 index.html 재업로드 |
+| `.env` | 환경변수 (토큰, DEV_MODE, ARENA_SSH_*) | ✅ 실운영 DEV_MODE=false |
 
-**config.json 채널 설정:**
+**config.json 채널 설정 (리스트로 변경됨, 2026-07-14):**
 ```json
 {
-  "channels": {
-    "team1": "TEAM1",  // Discord 서버의 팀1 음성 채널 이름
-    "team2": "TEAM2"   // Discord 서버의 팀2 음성 채널 이름
-  }
+  "pick_timeout": 20,
+  "champion_count": 8,
+  "channels": ["팀짜기", "TEAM1", "TEAM2"]
 }
 ```
-→ `/게임시작` 실행 시 **명령 실행 채널 + TEAM1 + TEAM2**에 동시 메시지
+→ `channels[0]`(팀짜기)이 명령 채널, 나머지는 결과/진행 전파 대상. 이름은 대소문자까지 완전 일치해야 검색됨
 
 ---
 
@@ -116,10 +154,10 @@ DEV_MODE=false
 6. 다중 채널 동시 메시지 확인
 
 ### 2순위: 추가 기능 (선택사항)
-- [ ] `/전적` 명령어 - 개인 전적 조회
+- [x] 통계 시각화 — 웹 대시보드로 완료 (stats.html)
+- [ ] `/전적` 명령어 - 개인 전적 조회 (대시보드로 대체 가능)
 - [ ] `/랭킹` 명령어 - 승률 순위
 - [ ] 챔피언 밴 시스템
-- [ ] 통계 시각화
 
 ---
 
@@ -135,6 +173,10 @@ calculate_pick_order()     # 픽 순서 계산 (승수 기반)
 get_selection_status()     # 선택 현황 문자열 생성
 update_champion_message()  # 모든 채널 embed 동시 업데이트 (병렬 처리)
 pick_timeout_handler()     # 개인별 타이머 관리 (병렬 처리)
+
+# game_recorder.py (승리 처리 시 호출)
+record_game()              # history_data 판 append + 시즌 자동 감지
+upload_async()             # history_data.js 호스팅 SFTP 업로드 (백그라운드)
 ```
 
 ### 주요 클래스
@@ -194,6 +236,13 @@ current_game_channels = []  # 현재 게임 채널 리스트
 
 ## 🎉 주요 변경사항 요약
 
+### 2026-07-14
+1. **판 기록 자동화** — `game_recorder.py` 신설. `/승리` 시 `history_data.json/.js`에 판 상세 append, 라운드 리셋으로 시즌 자동 감지
+2. **웹 전적 대시보드** — `stats.html` (개인·2/3인 시너지·챔피언·3:3 매치업, 시즌/세션/인원 필터, 챔프 초상화, 번 돈 정산). dcom.co.kr/arena 배포
+3. **호스팅 SFTP 자동 업로드** — 판 기록 직후 백그라운드 업로드, 실패해도 봇 무영향
+4. **과거 전적 복구** — 3채널 풀스캔으로 182판(시즌1 150 + 시즌2 32) 복구, 시즌1 라운드 연번 재부여
+5. **config.json 채널 dict → 리스트**, legacy 파서 삭제
+
 ### 2026-01-19
 1. **승리 결과/통계 다중 채널 전송**
    - 기존: 승리팀 선택 후 결과가 명령 실행 채널에만 표시
@@ -216,6 +265,7 @@ current_game_channels = []  # 현재 게임 채널 리스트
 
 ---
 
-**마지막 업데이트**: 2026-01-19
-**현재 Round**: 88 (DEV_MODE), 75 (실제 모드)
-**다중 채널**: ✅ 지원 (명령 채널 + TEAM1 + TEAM2)
+**마지막 업데이트**: 2026-07-14
+**현재 시즌**: 시즌 2 진행중 (32판+), 시즌1 150판 아카이브
+**대시보드**: <https://dcom.co.kr/arena/> (판 기록 시 자동 갱신)
+**다중 채널**: ✅ 지원 (팀짜기 + TEAM1 + TEAM2)
