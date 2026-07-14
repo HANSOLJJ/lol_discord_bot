@@ -1,0 +1,494 @@
+<!-- 현재 시즌 32판 조합/챔피언 승률 대시보드 (season_data.js 를 읽어 브라우저에서 동적 계산) -->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏟️</text></svg>" />
+<title>투기장 시즌 전적 대시보드</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --border: #262b36;
+    --text: #e6e9ef; --muted: #8b93a7; --accent: #5b8cff;
+    --win: #3fb950; --loss: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .sub b { color: var(--text); }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+  }
+  .controls label { color: var(--muted); font-size: 13px; margin-right: 6px; }
+  .controls select, .controls input[type=range] { vertical-align: middle; }
+  select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 8px; font-size: 13px;
+  }
+  #minGamesVal { color: var(--accent); font-weight: 600; min-width: 14px; display: inline-block; }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .tab {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 7px 14px; cursor: pointer; font-size: 13px;
+  }
+  .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 9px 12px; text-align: left; white-space: nowrap; }
+  th {
+    color: var(--muted); font-weight: 600; cursor: pointer; user-select: none;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel);
+  }
+  th.num, td.num { text-align: right; }
+  th:hover { color: var(--text); }
+  th .arrow { color: var(--accent); font-size: 11px; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--panel2); }
+  tbody td { cursor: default; }
+  tbody tr.clickable, tbody tr.clickable td { cursor: pointer; }
+  td.combo { font-weight: 600; }
+  .drill { color: var(--muted); font-weight: 400; }
+  tbody tr.clickable:hover .drill { color: var(--accent); }
+  .backbar { padding: 8px 12px; color: var(--accent); cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .backbar:hover { background: var(--panel2); }
+  .drillhead { padding: 9px 12px; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--border); }
+  .drillhead b { color: var(--text); }
+  .drillhead .w { color: var(--win); } .drillhead .l { color: var(--loss); }
+  .portrait { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
+              vertical-align: middle; margin-right: 3px; background: var(--panel2); }
+  .portrait.sm { width: 22px; height: 22px; margin-right: 6px; }
+
+  .bar { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+  .track { flex: 1; height: 8px; background: #2a2f3a; border-radius: 4px; overflow: hidden; min-width: 70px; }
+  .fill { height: 100%; border-radius: 4px; }
+  .wrnum { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+  .wl { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .wl .w { color: var(--win); } .wl .l { color: var(--loss); }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+  .note { color: var(--muted); font-size: 12px; margin: 10px 2px 0; }
+  .pill { display: inline-block; background: var(--panel2); border: 1px solid var(--border);
+          border-radius: 20px; padding: 1px 8px; font-size: 12px; margin: 1px; }
+  .selrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .chip-t { background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+            border-radius: 20px; padding: 5px 13px; cursor: pointer; font-size: 13px; user-select: none; }
+  .chip-t:hover { color: var(--text); }
+  .chip-t.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip-t.disabled { opacity: .35; cursor: not-allowed; }
+  .clearbtn { background: none; border: 1px solid var(--border); color: var(--muted);
+              border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
+  .clearbtn:hover { color: var(--text); }
+</style>
+
+<div class="wrap">
+  <h1>🏟️ 투기장 시즌 전적 대시보드</h1>
+  <div class="sub" id="summary"></div>
+
+  <div class="controls">
+    <div>
+      <label>기간</label>
+      <select id="period"></select>
+    </div>
+    <div class="selrow">
+      <label>인원 선택</label>
+      <span id="chips"></span>
+      <button id="clearSel" class="clearbtn" hidden>초기화</button>
+    </div>
+    <div>
+      <label>최소 판수</label>
+      <input type="range" id="minGames" min="1" max="10" value="1" />
+      <span id="minGamesVal">1</span>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+  <div class="panel"><div class="tablewrap"><div id="view"></div></div></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script src="history_data.js"></script>
+<script>
+(function () {
+  const D = window.HISTORY_DATA;
+  if (!D) {
+    document.getElementById("view").innerHTML =
+      '<div class="empty">history_data.js 를 찾을 수 없습니다. parse_all_history.py 를 먼저 실행하세요.</div>';
+    return;
+  }
+  const players = D.players;                 // id -> name
+  const ALL = D.games;                       // 전체 복구본 (시간순 정렬)
+  const nameOf = (id) => players[id] || id;
+  const ids = Object.keys(players);
+
+  // 파생 데이터 + 시즌/세션 태깅 (season은 json 필드, 없으면 날짜 폴백)
+  const SESS = [];
+  ALL.forEach((g) => {
+    g.t1 = g.team1.map((p) => p.id);
+    g.t2 = g.team2.map((p) => p.id);
+    g.winIds = g.winner === "team1" ? g.t1 : g.t2;
+    g.winSet = new Set(g.winIds);
+    g.date = g.time.slice(0, 10);
+    if (g.season == null) g.season = g.date >= "2026-06-26" ? 2 : 1;
+    const last = SESS[SESS.length - 1];
+    if (!last || (new Date(g.time) - new Date(last[last.length - 1].time)) > 6 * 3600 * 1000) SESS.push([g]);
+    else last.push(g);
+  });
+  const SEASONS = [...new Set(ALL.map((g) => g.season))].sort((a, b) => b - a); // 최신 먼저
+
+  let state = { tab: "player", sel: new Set(), min: 1, sort: {} };
+
+  // 기간 선택 (시즌은 json 필드에서 동적 생성 — 새 시즌 자동 추가)
+  const periodSel = document.getElementById("period");
+  const opt = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; return o; };
+  periodSel.appendChild(opt("all", `전체 (${ALL.length}판)`));
+  SEASONS.forEach((n) => {
+    const cnt = ALL.filter((g) => g.season === n).length;
+    const tag = n === SEASONS[0] ? " · 진행중" : "";
+    periodSel.appendChild(opt("season" + n, `시즌 ${n}${tag} (${cnt}판)`));
+  });
+  const og = document.createElement("optgroup"); og.label = "세션별";
+  SESS.forEach((arr, i) => og.appendChild(
+    opt("s" + i, `S${String(i + 1).padStart(2, "0")} ${arr[0].date} r${arr[0].round}-${arr[arr.length - 1].round} (${arr.length}판)`)));
+  periodSel.appendChild(og);
+  periodSel.value = "season" + SEASONS[0];    // 기본: 최신 시즌
+
+  function pickGames() {
+    const v = periodSel.value;
+    if (v.startsWith("season")) return ALL.filter((g) => g.season === +v.slice(6));
+    if (v[0] === "s") return SESS[+v.slice(1)];
+    return ALL;
+  }
+  let games = pickGames();
+
+  function updateSummary() {
+    const v = periodSel.value;
+    const txt = periodSel.options[periodSel.selectedIndex].text;
+    const label = v === "all" ? "전체" : v.startsWith("season") ? txt.split(" (")[0] : txt.split(" ")[0] + " 세션";
+    const d0 = games.length ? games[0].date : "-", d1 = games.length ? games[games.length - 1].date : "-";
+    document.getElementById("summary").innerHTML =
+      `<b>${label}</b> · <b>${games.length}판</b> · ${d0 === d1 ? d0 : d0 + " ~ " + d1}`;
+  }
+  periodSel.onchange = () => { games = pickGames(); updateSummary(); render(); };
+  updateSummary();
+
+  // 탭별 인원 선택 최대치 (0 = 선택 사용 안 함)
+  const SEL_MAX = { player: 1, pair: 2, trio: 3, matchup: 3, champ: 0 };
+  const selMax = () => (state.tab in SEL_MAX ? SEL_MAX[state.tab] : 6);
+
+  // 인원 선택 칩 (탭별 최대 인원 제한)
+  const chipsEl = document.getElementById("chips");
+  const clearBtn = document.getElementById("clearSel");
+  const chipEls = {};
+  ids.forEach((id) => {
+    const c = document.createElement("span");
+    c.className = "chip-t"; c.textContent = nameOf(id);
+    c.onclick = () => {
+      if (c.classList.contains("disabled")) return;
+      if (state.sel.has(id)) state.sel.delete(id); else state.sel.add(id);
+      state.sort = {};  // 선택 변경 시 테이블 구조가 바뀔 수 있어 정렬 초기화
+      refreshChips(); render();
+    };
+    chipEls[id] = c;
+    chipsEl.appendChild(c);
+  });
+  clearBtn.onclick = () => { state.sel.clear(); refreshChips(); render(); };
+
+  function refreshChips() {
+    const max = selMax();
+    ids.forEach((id) => {
+      const c = chipEls[id];
+      c.classList.toggle("on", state.sel.has(id));
+      c.classList.toggle("disabled", max === 0 || (state.sel.size >= max && !state.sel.has(id)));
+    });
+    clearBtn.hidden = state.sel.size === 0;
+  }
+
+  const minSlider = document.getElementById("minGames");
+  const minLabel = document.getElementById("minGamesVal");
+  minSlider.oninput = () => { state.min = +minSlider.value; minLabel.textContent = minSlider.value; render(); };
+
+  // 탭 정의
+  const TABS = [
+    ["player", "개인"],
+    ["pair", "2인 시너지"],
+    ["trio", "3인 시너지"],
+    ["champ", "챔피언"],
+    ["matchup", "3:3 매치업"],
+  ];
+  const tabsEl = document.getElementById("tabs");
+  TABS.forEach(([key, label]) => {
+    const b = document.createElement("div");
+    b.className = "tab" + (key === state.tab ? " active" : "");
+    b.textContent = label;
+    b.onclick = () => {
+      state.tab = key;
+      if (state.sel.size > selMax()) state.sel.clear();  // 탭별 최대 인원 초과 시 초기화
+      state.sort = {};                                   // 탭마다 기본 정렬로
+      [...tabsEl.children].forEach((c) => c.classList.remove("active"));
+      b.classList.add("active");
+      refreshChips();
+      render();
+    };
+    tabsEl.appendChild(b);
+  });
+
+  // --- 조합 유틸 ---
+  const pairKey = (a, b) => [a, b].sort().join("|");
+  const trioKey = (arr) => [...arr].sort().join("|");
+  const combos = (arr, k) => {
+    const res = [];
+    const rec = (start, cur) => {
+      if (cur.length === k) { res.push(cur.slice()); return; }
+      for (let i = start; i < arr.length; i++) { cur.push(arr[i]); rec(i + 1, cur); cur.pop(); }
+    };
+    rec(0, []); return res;
+  };
+  const wr = (w, n) => (n ? (w / n) * 100 : 0);
+  const wrColor = (v) => `hsl(${Math.round(v * 1.2)} 62% 45%)`; // 0=빨강 100=초록
+
+  // 챔피언 초상화 (Data Dragon, 로드 실패 시 초상화 없이 동작)
+  let CHAMP_IMG = null; // 한글 챔프명 -> 이미지 URL
+  (async () => {
+    try {
+      const ver = (await (await fetch("https://ddragon.leagueoflegends.com/api/versions.json")).json())[0];
+      const cd = (await (await fetch(`https://ddragon.leagueoflegends.com/cdn/${ver}/data/ko_KR/champion.json`)).json()).data;
+      CHAMP_IMG = {};
+      Object.values(cd).forEach((c) => {
+        CHAMP_IMG[c.name] = `https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${c.id}.png`;
+      });
+      render(); // 로드 완료 후 초상화 반영
+    } catch (e) { /* 오프라인 등 - 텍스트만 표시 */ }
+  })();
+  const portrait = (champ, cls, title) => CHAMP_IMG && CHAMP_IMG[champ]
+    ? `<img class="portrait ${cls || ""}" src="${CHAMP_IMG[champ]}" alt="${champ}" title="${title || champ}" loading="lazy">`
+    : "";
+
+  // --- 셀 렌더 ---
+  function barCell(w, n) {
+    const v = wr(w, n);
+    return `<td><div class="bar">
+      <span class="wl"><span class="w">${w}</span>승 <span class="l">${n - w}</span>패</span>
+      <div class="track"><div class="fill" style="width:${v}%;background:${wrColor(v)}"></div></div>
+      <span class="wrnum">${v.toFixed(0)}%</span>
+    </div></td>`;
+  }
+
+  // --- 정렬 가능한 테이블 ---
+  // cols: [{label, num, val(row)->정렬값, cell(row)->'<td>..</td>'}]
+  function table(id, cols, rows, defSort, onRow) {
+    const st = state.sort[id] || (state.sort[id] = { col: defSort.col, dir: defSort.dir });
+    if (st.col >= cols.length) { st.col = defSort.col; st.dir = defSort.dir; }  // 컬럼 수 다른 테이블로 전환 시 방어
+    rows.sort((a, b) => {
+      const va = cols[st.col].val(a), vb = cols[st.col].val(b);
+      let c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+      if (c === 0) { // 동률이면 판수 많은 순 보조 정렬
+        const na = a._n || 0, nb = b._n || 0; c = na - nb;
+      }
+      return st.dir === "asc" ? c : -c;
+    });
+    let html = "<table><thead><tr>";
+    cols.forEach((col, i) => {
+      const arrow = i === st.col ? ` <span class="arrow">${st.dir === "asc" ? "▲" : "▼"}</span>` : "";
+      html += `<th class="${col.num ? "num" : ""}" data-c="${i}">${col.label}${arrow}</th>`;
+    });
+    html += "</tr></thead><tbody>";
+    if (!rows.length) {
+      html += `<tr><td colspan="${cols.length}" class="empty">최소 판수 조건을 만족하는 데이터가 없습니다.</td></tr>`;
+    } else {
+      rows.forEach((r) => { html += `<tr class="${onRow ? "clickable" : ""}">` + cols.map((c) => c.cell(r)).join("") + "</tr>"; });
+    }
+    html += "</tbody></table>";
+    const view = document.getElementById(id);
+    view.innerHTML = html;
+    view.querySelectorAll("th").forEach((th) => {
+      th.onclick = () => {
+        const c = +th.dataset.c;
+        if (st.col === c) st.dir = st.dir === "asc" ? "desc" : "asc";
+        else { st.col = c; st.dir = cols[c].num ? "desc" : "asc"; }
+        render();
+      };
+    });
+    if (onRow) view.querySelectorAll("tbody tr").forEach((tr, i) => { if (rows[i]) tr.onclick = () => onRow(rows[i]); });
+  }
+
+  // 선택 필터: 선택한 인원을 "모두 포함"하는 조합만 (2명 고르면 그 2명 낀 조합 전부)
+  const selMatch = (idList) => {
+    for (const s of state.sel) if (!idList.includes(s)) return false;
+    return true;
+  };
+
+  // ================= 각 탭 계산 =================
+  // 챔프별 집계 (pred 로 픽 필터). pred 없으면 전체.
+  function champData(pred) {
+    const map = new Map();
+    games.forEach((g) => {
+      [ [g.team1, g.winner === "team1"], [g.team2, g.winner === "team2"] ].forEach(([team, won]) => {
+        team.forEach((p) => {
+          if (pred && !pred(p)) return;
+          let e = map.get(p.champ);
+          if (!e) { e = { champ: p.champ, n: 0, w: 0 }; map.set(p.champ, e); }
+          e.n++; if (won) e.w++;
+        });
+      });
+    });
+    return [...map.values()].filter((e) => e.n >= state.min).map((e) => ({ ...e, _n: e.n }));
+  }
+  const champCols = (firstLabel) => [
+    { label: firstLabel, num: false, val: (r) => r.champ, cell: (r) => `<td class="combo">${portrait(r.champ, "sm")}${r.champ}</td>` },
+    { label: "픽", num: true, val: (r) => r.n, cell: (r) => `<td class="num">${r.n}</td>` },
+    { label: "승률", num: true, val: (r) => wr(r.w, r.n), cell: (r) => barCell(r.w, r.n) },
+  ];
+
+  function renderPlayer() {
+    // 인원 선택 시: 그 사람(들)의 챔프별 승률로 드릴다운 (픽 순 정렬)
+    if (state.sel.size) {
+      const who = [...state.sel].map(nameOf).join(", ");
+      // 선택 인원의 고유 챔프 수 / 승패 (min 필터 무관)
+      const champSet = new Set(); let picks = 0, wins = 0;
+      games.forEach((g) => {
+        g.team1.concat(g.team2).forEach((p) => {
+          if (state.sel.has(p.id)) { champSet.add(p.champ); picks++; if (g.winSet.has(p.id)) wins++; }
+        });
+      });
+      table("view", champCols(who + " 챔프"), champData((p) => state.sel.has(p.id)), { col: 1, dir: "desc" });
+      const view = document.getElementById("view");
+      const head = document.createElement("div");
+      head.className = "drillhead";
+      head.innerHTML = `${who} · ${picks}판 · 플레이 챔프 <b>${champSet.size}종</b> · <span class="w">${wins}</span>승 <span class="l">${picks - wins}</span>패`;
+      view.insertBefore(head, view.firstChild);
+      const back = document.createElement("div");
+      back.className = "backbar";
+      back.textContent = "‹ 전체 플레이어로";
+      back.onclick = () => { state.sel.clear(); state.sort = {}; refreshChips(); render(); };
+      view.insertBefore(back, view.firstChild);
+      return;
+    }
+    const rows = ids.map((id) => {
+      let w = 0; const cs = {}; // champ -> {n, w}
+      games.forEach((g) => {
+        const won = g.winSet.has(id);
+        if (won) w++;
+        g.team1.concat(g.team2).forEach((p) => {
+          if (p.id !== id) return;
+          const e = cs[p.champ] || (cs[p.champ] = { n: 0, w: 0 });
+          e.n++; if (won) e.w++;
+        });
+      });
+      // 주력 TOP5: 승수 많은 순 (판수 x 승률의 조합), 동률이면 판수 -> 승률
+      const top5 = Object.entries(cs)
+        .sort((a, b) => b[1].w - a[1].w || b[1].n - a[1].n || wr(b[1].w, b[1].n) - wr(a[1].w, a[1].n))
+        .slice(0, 5);
+      return { id, name: nameOf(id), n: games.length, w, champN: Object.keys(cs).length, top5, _n: games.length };
+    });
+    table("view",
+      [
+        { label: "플레이어", num: false, val: (r) => r.name, cell: (r) => `<td class="combo">${r.name} <span class="drill">챔프 ›</span></td>` },
+        { label: "판", num: true, val: (r) => r.n, cell: (r) => `<td class="num">${r.n}</td>` },
+        { label: "플레이 챔프 수", num: true, val: (r) => r.champN, cell: (r) => `<td class="num">${r.champN}</td>` },
+        { label: "주력 챔프 TOP5", num: false, val: (r) => r.top5.length, cell: (r) =>
+          `<td>${r.top5.map(([c, s]) => portrait(c, "", `${c} ${s.w}승 ${s.n - s.w}패 (${wr(s.w, s.n).toFixed(0)}%)`)).join("") || '<span class="drill">-</span>'}</td>` },
+        { label: "승률", num: true, val: (r) => wr(r.w, r.n), cell: (r) => barCell(r.w, r.n) },
+        { label: "번 돈", num: true, val: (r) => 2 * r.w - r.n, cell: (r) => {
+          const man = (2 * r.w - r.n) * 0.5; // (승-패) x 5000원, 만원 단위
+          const txt = (man > 0 ? "+" : "") + (Number.isInteger(man) ? man : man.toFixed(1)) + "만";
+          const color = man > 0 ? "var(--win)" : man < 0 ? "var(--loss)" : "var(--muted)";
+          return `<td class="num" style="color:${color};font-weight:600">${txt}</td>`;
+        } },
+      ],
+      rows, { col: 4, dir: "desc" },
+      (r) => { state.sel = new Set([r.id]); state.sort = {}; refreshChips(); render(); });
+  }
+
+  function renderCombo(k) {
+    const map = new Map(); // key -> {ids, n, w}
+    games.forEach((g) => {
+      [ [g.t1, g.winner === "team1"], [g.t2, g.winner === "team2"] ].forEach(([team, won]) => {
+        combos(team, k).forEach((c) => {
+          const key = trioKey(c);
+          let e = map.get(key);
+          if (!e) { e = { ids: [...c].sort(), n: 0, w: 0 }; map.set(key, e); }
+          e.n++; if (won) e.w++;
+        });
+      });
+    });
+    // 표시 순서: 선택한 인원 먼저, 나머지는 이름순
+    const orderIds = (idList) => [...idList].sort((a, b) => {
+      const sa = state.sel.has(a), sb = state.sel.has(b);
+      if (sa !== sb) return sa ? -1 : 1;
+      return nameOf(a).localeCompare(nameOf(b), "ko");
+    });
+    let rows = [...map.values()]
+      .filter((e) => e.n >= state.min && selMatch(e.ids))
+      .map((e) => ({ ...e, name: orderIds(e.ids).map(nameOf).join(" + "), _n: e.n }));
+    table("view",
+      [
+        { label: "조합", num: false, val: (r) => r.name, cell: (r) => `<td class="combo">${r.name}</td>` },
+        { label: "판", num: true, val: (r) => r.n, cell: (r) => `<td class="num">${r.n}</td>` },
+        { label: "같은 팀일 때 승률", num: true, val: (r) => wr(r.w, r.n), cell: (r) => barCell(r.w, r.n) },
+      ],
+      rows, { col: 2, dir: "desc" });
+  }
+
+  function renderChamp() {
+    // 인원 선택과 무관하게 챔프별 전체 픽·승률 (픽 순 정렬)
+    table("view", champCols("챔피언"), champData(null), { col: 1, dir: "desc" });
+  }
+
+  function renderMatchup() {
+    const map = new Map(); // partitionKey -> {a:[ids], b:[ids], n, aw, bw}
+    games.forEach((g) => {
+      const t1 = [...g.t1].sort(), t2 = [...g.t2].sort();
+      const k1 = t1.join("|"), k2 = t2.join("|");
+      // 두 팀을 정렬해 파티션을 방향 무관하게 canonical 화
+      const [a, b, akey] = k1 < k2 ? [t1, t2, k1 + " vs " + k2] : [t2, t1, k2 + " vs " + k1];
+      const aWon = k1 < k2 ? g.winner === "team1" : g.winner === "team2";
+      let e = map.get(akey);
+      if (!e) { e = { a, b, n: 0, aw: 0, bw: 0 }; map.set(akey, e); }
+      e.n++; if (aWon) e.aw++; else e.bw++;
+    });
+    const sel = [...state.sel];
+    const sameTeam = (e) => !sel.length ||
+      sel.every((s) => e.a.includes(s)) || sel.every((s) => e.b.includes(s));
+    let rows = [...map.values()]
+      .filter((e) => e.n >= Math.max(2, state.min) && sameTeam(e))
+      .map((e) => ({ ...e, _n: e.n,
+        aName: e.a.map(nameOf).join("+"), bName: e.b.map(nameOf).join("+") }));
+    table("view",
+      [
+        { label: "A팀", num: false, val: (r) => r.aName, cell: (r) => `<td class="combo">${r.aName}</td>` },
+        { label: "vs B팀", num: false, val: (r) => r.bName, cell: (r) => `<td>${r.bName}</td>` },
+        { label: "판", num: true, val: (r) => r.n, cell: (r) => `<td class="num">${r.n}</td>` },
+        { label: "A 승률", num: true, val: (r) => wr(r.aw, r.n), cell: (r) => barCell(r.aw, r.n) },
+      ],
+      rows, { col: 3, dir: "desc" });
+  }
+
+  const NOTES = {
+    player: "6명 개인 승률. '주력 챔프 TOP5'는 승수 많은 순(마우스 올리면 전적). '번 돈'은 승 +5000원 / 패 -5000원 정산(선택한 기간 기준). <b>플레이어 행 클릭</b> → 챔프별 승률 드릴다운.",
+    pair: "두 명이 <b>같은 팀</b>이었던 판의 시너지 승률. 인원은 <b>2명까지</b>(1명이면 그 사람의 모든 페어).",
+    trio: "세 명이 한 팀을 이뤘을 때 승률. 인원은 <b>3명까지</b> — 2명만 골라도 그 2명이 낀 트리오가 전부 나옵니다.",
+    champ: "챔프별 전체 픽 수·승률 (인원 선택 사용 안 함).",
+    matchup: "같은 3:3 구도가 2번 이상 반복된 경우만. 인원 선택(3명까지) 시 그 인원이 <b>같은 팀</b>이었던 매치업만. A 승률은 A팀 기준.",
+  };
+
+  function render() {
+    document.getElementById("note").innerHTML = NOTES[state.tab] || "";
+    if (state.tab === "player") renderPlayer();
+    else if (state.tab === "pair") renderCombo(2);
+    else if (state.tab === "trio") renderCombo(3);
+    else if (state.tab === "champ") renderChamp();
+    else if (state.tab === "matchup") renderMatchup();
+  }
+
+  render();
+})();
+</script>
