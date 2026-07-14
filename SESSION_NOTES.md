@@ -23,7 +23,7 @@
 | `history_data.js` | 위를 `window.HISTORY_DATA=`로 감싼 대시보드 로드용 |
 | `stats.html` | 정적 전적 대시보드 (개인/2·3인 시너지/챔피언/3:3 매치업) |
 | `parse_all_history.py` | 디스코드 3채널 풀스캔 복구 (재해복구 전용, 평상시 미사용) |
-| `wins_prev_season.json` | 시즌1(150판) 집계 백업 |
+| `backup/wins_prev_season.json` | 시즌1(150판) 집계 백업 |
 | `PARSE_REPORT.md` | 과거 전적 복구·검증·유령 라운드 조사 리포트 |
 
 ### 배포 (dcom.co.kr/arena)

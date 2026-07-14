@@ -1,3 +1,11 @@
+##
+# @file got_champe.py
+# @brief 롤 투기장 3:3 디스코드 봇 본체 (팀 랜덤 배정, 순차 챔피언 픽, 승리 기록).
+# @details 온라인 유저(또는 DEV_MODE의 가상 유저) 중 6명을 뽑아 두 팀으로 나누고, 승수 낮은
+#          순으로 픽 순서를 정해 순차적으로 랜덤 챔피언을 고르게 한다. 승리 팀을 선택하면
+#          wins.json(개인 누적 승수)을 갱신하고 game_recorder.record_game()으로 판을 기록한다.
+#          팀짜기/TEAM1/TEAM2 3채널에 결과 embed을 동시 전송한다. DEV_MODE면 wins_dev.json으로
+#          테스트를 분리한다.
 import discord
 import requests
 import random
@@ -10,7 +18,7 @@ from discord.ui import Select
 from dotenv import load_dotenv
 import json
 import unicodedata
-from game_recorder import record_game, upload_async
+from game_recorder import record_game
 
 intents = discord.Intents.default()
 intents.presences = True
@@ -23,9 +31,14 @@ DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
 
 # === Mock User for DEV_MODE ===
+##
+# @brief DEV_MODE에서 실제 디스코드 멤버 대신 사용하는 가상 유저.
 class MockUser:
-    """DEV_MODE용 가상 유저"""
 
+    ##
+    # @brief 가상 유저 속성(id, name, mention 등)을 초기화한다.
+    # @param user_id 유저 ID.
+    # @param name 유저 이름(display_name/mention에도 사용).
     def __init__(self, user_id, name):
         self.id = user_id
         self.name = name
@@ -33,6 +46,9 @@ class MockUser:
         self.mention = f"@{name}"
         self.bot = False
 
+    ##
+    # @brief 유저 이름을 문자열로 반환한다.
+    # @return 유저 이름 문자열.
     def __str__(self):
         return self.name
 
@@ -59,14 +75,11 @@ victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 
 
 # === 설정 로드 ===
+##
+# @brief config.json에서 게임 설정을 로드한다.
+# @details 파일이 없으면 기본값(pick_timeout=60, champion_count=8, channels=[팀짜기,TEAM1,TEAM2])을 반환한다.
+# @return pick_timeout(초), champion_count, channels를 담은 dict.
 def load_config():
-    """
-    config.json에서 게임 설정 로드
-
-    Returns:
-        dict: pick_timeout(초 단위), champion_count, channels 설정값
-              파일이 없으면 기본값 반환
-    """
     try:
         with open("config.json", "r", encoding="utf-8") as f:
             return json.load(f)
@@ -79,18 +92,12 @@ def load_config():
         }
 
 
+##
+# @brief 명령 실행 채널 + config.json의 channels에 나열된 채널들을 반환한다.
+# @param guild 디스코드 길드(서버) 객체.
+# @param command_channel 명령이 실행된 채널(결과 리스트의 첫 번째로 무조건 포함).
+# @return [command_channel, ...config 채널들] 채널 객체 리스트(중복 제거, 이름 대소문자 완전 일치).
 def get_game_channels(guild, command_channel):
-    """
-    명령 실행 채널 + config.json channels에 나열된 채널들을 반환
-
-    Args:
-        guild: Discord 길드(서버) 객체
-        command_channel: 명령이 실행된 채널
-
-    Returns:
-        list: [command_channel, ...config에 나열된 채널들] 채널 객체 리스트
-              (중복 제거, 이름은 대소문자까지 완전 일치해야 검색됨)
-    """
     channel_names = config.get("channels", [])
     channels = [command_channel]  # 명령 실행 채널 무조건 포함 (=channels[0])
 
@@ -108,32 +115,19 @@ def get_game_channels(guild, command_channel):
 
 
 # === 전적 데이터 로드/저장 ===
+##
+# @brief DEV_MODE에 따라 사용할 전적 파일명을 반환한다.
+# @return "wins_dev.json"(DEV_MODE=true) 또는 "wins.json"(DEV_MODE=false).
 def get_wins_file():
-    """
-    DEV_MODE에 따라 적절한 전적 파일명 반환
-
-    Returns:
-        str: "wins_dev.json" (DEV_MODE=true) 또는 "wins.json" (DEV_MODE=false)
-    """
     return "wins_dev.json" if DEV_MODE else "wins.json"
 
 
+##
+# @brief 전적 데이터를 로드한다(DEV_MODE에 따라 파일 선택).
+# @details 구조는 {total_rounds: int, user_id: {name, wins}} 형태다. total_rounds가 없으면
+#          총 승수를 3으로 나눠(한 판당 3명 승리) 자동 계산해 추가한다. 파일이 없으면 {total_rounds: 0}을 반환한다.
+# @return 전적 데이터 dict.
 def load_wins():
-    """
-    전적 데이터 로드 (DEV_MODE에 따라 파일 선택)
-
-    구조:
-        {
-            "total_rounds": int,  # 총 게임 판수
-            "user_id": {
-                "name": str,      # 유저 닉네임
-                "wins": int       # 승리 횟수
-            }
-        }
-
-    Returns:
-        dict: 전적 데이터. total_rounds가 없으면 자동 계산하여 추가
-    """
     filename = get_wins_file()
     try:
         with open(filename, "r", encoding="utf-8") as f:
@@ -152,13 +146,10 @@ def load_wins():
         return {"total_rounds": 0}
 
 
+##
+# @brief 전적 데이터를 파일에 저장한다(DEV_MODE에 따라 파일 선택).
+# @param data 저장할 전적 데이터(load_wins와 동일한 구조).
 def save_wins(data):
-    """
-    전적 데이터 저장 (DEV_MODE에 따라 파일 선택)
-
-    Args:
-        data (dict): 저장할 전적 데이터 (load_wins와 동일한 구조)
-    """
     filename = get_wins_file()
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -166,13 +157,10 @@ def save_wins(data):
 
 
 # === 챔피언 데이터 불러오기 ===
+##
+# @brief Riot Games Data Dragon API에서 챔피언 데이터를 가져온다.
+# @return [{"name": 챔피언 이름, "image": 이미지 URL}, ...] 리스트.
 def fetch_champion_data():
-    """
-    Riot Games Data Dragon API에서 챔피언 데이터를 가져옴
-
-    Returns:
-        list: [{"name": 챔피언 이름, "image": 이미지 URL}, ...]
-    """
     version_url = "https://ddragon.leagueoflegends.com/api/versions.json"
     version = requests.get(version_url).json()[0]
 
@@ -191,18 +179,13 @@ def fetch_champion_data():
 
 
 # === 무작위 챔피언 선택 (제외 리스트 반영) ===
+##
+# @brief 이미 선택된 챔피언을 제외하고 랜덤으로 챔피언을 뽑는다.
+# @param champion_list 전체 챔피언 리스트.
+# @param excluded_champs 제외할 챔피언 이름 집합.
+# @param count 뽑을 챔피언 수(기본값 8).
+# @return 선택된 챔피언 리스트(남은 챔피언이 count보다 적으면 빈 리스트).
 def pick_random_champions(champion_list, excluded_champs, count=8):
-    """
-    이미 선택된 챔피언을 제외하고 랜덤으로 챔피언 선택
-
-    Args:
-        champion_list (list): 전체 챔피언 리스트
-        excluded_champs (set): 제외할 챔피언 이름 집합
-        count (int): 선택할 챔피언 수 (기본값: 8)
-
-    Returns:
-        list: 선택된 챔피언 리스트 (부족하면 빈 리스트)
-    """
     available = [
         champ for champ in champion_list if champ["name"] not in excluded_champs
     ]
@@ -212,18 +195,12 @@ def pick_random_champions(champion_list, excluded_champs, count=8):
 
 
 # === 픽 순서 계산 (승수 낮은 순, 동률 시 랜덤) ===
+##
+# @brief 승리 수 기준으로 픽 순서를 계산한다.
+# @details 승수 낮은 순으로 정렬하며(승수가 낮을수록 먼저 픽), 동률이면 랜덤하게 섞는다.
+# @param members 픽 순서를 정할 멤버 리스트.
+# @return 픽 순서대로 정렬된 멤버 리스트.
 def calculate_pick_order(members):
-    """
-    승리 수 기준 픽 순서 계산
-    - 승수 낮은 순서대로 정렬 (승수가 낮을수록 먼저 선택)
-    - 동률일 경우 랜덤하게 섞음
-
-    Args:
-        members (list): 픽 순서를 정할 멤버 리스트
-
-    Returns:
-        list: 픽 순서대로 정렬된 멤버 리스트
-    """
     # 각 멤버의 승수 가져오기
     member_wins = []
     for member in members:
@@ -253,16 +230,11 @@ def calculate_pick_order(members):
 
 
 # === 팀 확인 헬퍼 ===
+##
+# @brief 멤버가 어느 팀 소속인지 확인한다.
+# @param member 확인할 멤버 객체.
+# @return "team1" 또는 "team2", 없으면 None.
 def get_member_team(member):
-    """
-    멤버가 어느 팀인지 확인
-
-    Args:
-        member: 확인할 멤버 객체
-
-    Returns:
-        str: "team1" 또는 "team2", 없으면 None
-    """
     if not current_teams:
         return None
     if member in current_teams.get("team1", []):
@@ -273,12 +245,12 @@ def get_member_team(member):
 
 
 # === 문자 폭 계산 (한글/영어 고려) ===
+##
+# @brief 텍스트의 실제 화면 폭을 계산한다(한글/영어 고려).
+# @details 한글·한자·전각 문자는 폭 2, 영어·숫자·반각 문자는 폭 1로 센다.
+# @param text 폭을 계산할 문자열.
+# @return 화면 폭(정수).
 def get_display_width(text):
-    """
-    텍스트의 실제 화면 폭 계산
-    - 한글, 한자, 전각 문자: 폭 2
-    - 영어, 숫자, 반각 문자: 폭 1
-    """
     width = 0
     for char in text:
         ea_width = unicodedata.east_asian_width(char)
@@ -290,16 +262,11 @@ def get_display_width(text):
 
 
 # === 선택 현황 업데이트 ===
+##
+# @brief 현재 챔피언 선택 현황 문자열을 생성한다.
+# @details 팀별 이모지(🔵 team1, 🔴 team2), 각 플레이어 승수, 선택 완료/대기 상태를 표시한다.
+# @return 디스코드 메시지로 표시할 선택 현황 문자열.
 def get_selection_status():
-    """
-    현재 선택 현황 문자열 생성
-    - 팀별 이모지 표시 (🔵 team1, 🔴 team2)
-    - 각 플레이어의 승수 표시
-    - 선택 완료/진행 중/대기 중 상태 표시
-
-    Returns:
-        str: Discord 메시지로 표시할 선택 현황 문자열
-    """
     status = ""
 
     # 최대 display_name 폭 계산 (한글/영어 고려)
@@ -333,16 +300,11 @@ def get_selection_status():
     return status
 
 
+##
+# @brief 모든 채널의 챔피언 선택 embed을 병렬로 업데이트한다.
+# @details description에 현재 차례 플레이어와 남은 시간을, field 0에 선택 현황을 표시한다.
+#          embed description은 일반 field보다 크게 보이며, asyncio.gather로 모든 채널을 동시 갱신한다.
 async def update_champion_message():
-    """
-    모든 채널의 챔피언 선택 메시지 embed를 업데이트 (병렬 처리)
-    - Description: 현재 차례 플레이어 + 남은 시간 (큰 폰트 강조)
-    - Field 1: 선택 현황 및 픽순 (get_selection_status)
-
-    Note:
-        Discord embed의 description은 일반 field보다 폰트가 크게 표시됨
-        asyncio.gather()로 모든 채널을 동시에 업데이트하여 지연 최소화
-    """
     if not champion_messages or not pick_order:
         return
 
@@ -360,6 +322,7 @@ async def update_champion_message():
     selection_status = get_selection_status()
 
     # 각 채널 업데이트 태스크 생성
+    # @brief 단일 채널 embed을 복사·수정 후 반영한다.
     async def update_single_channel(channel_id, message):
         try:
             embed = message.embeds[0].copy()  # embed 복사하여 독립적으로 수정
@@ -381,16 +344,12 @@ async def update_champion_message():
 
 
 # === 개인별 선택 타이머 ===
+##
+# @brief 개인별 챔피언 선택 타이머를 관리한다.
+# @details 매 1초마다 남은 시간을 모든 채널 embed에 갱신하고, 시간 초과 시 현재 게임 챔피언
+#          중 랜덤으로 자동 배정한다. 다른 플레이어가 선택을 끝내면 index 검증으로 자동 종료된다.
+# @param picker_index 현재 선택할 플레이어의 인덱스.
 async def pick_timeout_handler(picker_index):
-    """
-    개인별 챔피언 선택 타이머 관리
-    - 매 1초마다 남은 시간을 모든 채널의 embed에 업데이트
-    - 시간 초과 시 현재 게임 챔피언에서 랜덤 자동 배정
-    - 다른 플레이어가 선택 완료하면 타이머 자동 종료 (index 검증)
-
-    Args:
-        picker_index (int): 현재 선택할 플레이어의 인덱스
-    """
     global selected_users, excluded, current_pick_index, current_timer_task
 
     timeout = config.get("pick_timeout", 15)
@@ -414,6 +373,7 @@ async def pick_timeout_handler(picker_index):
                     f"## ⏰ 남은 시간: **{remaining}초**"
                 )
 
+                # @brief 남은 시간·선택 현황을 반영해 단일 채널 embed을 갱신한다.
                 async def update_timer(channel_id, message):
                     try:
                         embed = message.embeds[0].copy()
@@ -486,6 +446,7 @@ async def pick_timeout_handler(picker_index):
             await update_champion_message()
 
             # 모든 채널에 타임아웃 메시지 전송 (병렬 처리)
+            # @brief 시간 초과 자동 배정 알림을 단일 채널에 전송한다.
             async def send_timeout_msg(channel):
                 try:
                     await channel.send(
@@ -508,6 +469,7 @@ async def pick_timeout_handler(picker_index):
                     msg += f"- {member.mention}: **{champ}**\n"
 
                 # 모든 채널에 완료 메시지 전송 (병렬 처리)
+                # @brief 전원 선택 완료 메시지와 승리 팀 선택 View를 전송한다.
                 async def send_complete_msg(channel):
                     try:
                         await channel.send(msg)
@@ -529,13 +491,13 @@ async def pick_timeout_handler(picker_index):
 
 
 # === 시작 버튼 클래스 ===
+##
+# @brief 게임 시작 버튼. /게임시작 후 수동으로 챔피언 선택을 시작한다.
+# @details 클릭 시 타이머를 시작하고 시작 버튼을 모든 채널 View에서 제거한다.
 class StartButton(Button):
-    """
-    게임 시작 버튼
-    - /게임시작 명령 후 수동으로 챔피언 선택 시작
-    - 클릭 시 타이머 시작 및 버튼 자동 제거
-    """
 
+    ##
+    # @brief 시작 버튼 라벨·스타일·custom_id를 설정한다.
     def __init__(self):
         super().__init__(
             label="🚀 챔피언 선택 시작",
@@ -543,6 +505,9 @@ class StartButton(Button):
             custom_id="start_button",
         )
 
+    ##
+    # @brief 시작 버튼 클릭 처리. 게임을 시작하고 첫 플레이어 타이머를 건다.
+    # @param interaction 버튼 클릭 상호작용 객체.
     async def callback(self, interaction: Interaction):
         global game_started, current_timer_task
 
@@ -560,6 +525,7 @@ class StartButton(Button):
         )
 
         # 클릭 채널을 제외한 나머지 게임 채널에도 시작 알림 전파
+        # @brief 클릭 채널 외 나머지 채널에 시작 알림을 전송한다.
         async def send_start_msg(channel):
             try:
                 await channel.send("🚀 **챔피언 선택을 시작합니다!**")
@@ -589,6 +555,7 @@ class StartButton(Button):
         )
 
         # 모든 채널의 메시지 업데이트 (병렬 처리)
+        # @brief 시작 시점의 embed description을 단일 채널에 반영한다.
         async def update_start(channel_id, message):
             try:
                 embed = message.embeds[0].copy()
@@ -606,19 +573,22 @@ class StartButton(Button):
 
 
 # === 챔피언 선택 버튼 클래스 ===
+##
+# @brief 챔피언 선택 버튼. 챔피언마다 하나씩 생성된다.
+# @details 자기 차례에만 선택 가능하며(DEV_MODE 제외), 선택 시 팀별 색상(🔵 team1 파랑, 🔴 team2 빨강)을
+#          적용한다. 본인이 고른 챔피언을 재클릭하면 선택이 취소된다.
 class ChampionButton(Button):
-    """
-    챔피언 선택 버튼
-    - 각 챔피언마다 버튼 생성
-    - 턴제 검증: 자기 차례에만 선택 가능 (DEV_MODE 제외)
-    - 선택 시 팀별 색상 적용 (🔵 team1 파란색, 🔴 team2 빨간색)
-    - 선택 취소 가능 (본인이 선택한 챔피언 재클릭)
-    """
 
+    ##
+    # @brief 챔피언 이름으로 버튼을 초기화한다.
+    # @param champ_name 이 버튼이 나타내는 챔피언 이름.
     def __init__(self, champ_name):
         super().__init__(label=champ_name, style=discord.ButtonStyle.secondary)
         self.champ_name = champ_name
 
+    ##
+    # @brief 챔피언 버튼 클릭 처리. 턴 검증 후 선택/취소하고 다음 차례로 넘긴다.
+    # @param interaction 버튼 클릭 상호작용 객체.
     async def callback(self, interaction: Interaction):
         global selected_users, excluded, current_pick_index, current_timer_task
 
@@ -682,6 +652,7 @@ class ChampionButton(Button):
             # 모든 채널의 embed 업데이트 (병렬 처리)
             selection_status = get_selection_status()
 
+            # @brief 선택 취소 후 선택 현황을 단일 채널 embed에 반영한다.
             async def update_cancel(channel_id, message):
                 try:
                     embed = message.embeds[0].copy()
@@ -765,6 +736,7 @@ class ChampionButton(Button):
         selection_status = get_selection_status()
 
         # 모든 채널의 embed 업데이트 (병렬 처리)
+        # @brief 선택 후 다음 차례 description·선택 현황을 단일 채널에 반영한다.
         async def update_pick(channel_id, message):
             try:
                 embed = message.embeds[0].copy()
@@ -791,6 +763,7 @@ class ChampionButton(Button):
                 msg += f"- {member.mention}: **{champ}**\n"
 
             # 모든 채널에 완료 메시지 전송 (병렬 처리)
+            # @brief 전원 선택 완료 메시지와 승리 팀 선택 View를 전송한다.
             async def send_final_msg(channel):
                 try:
                     await channel.send(msg)
@@ -812,6 +785,12 @@ class ChampionButton(Button):
 
 
 # === /게임시작 (기존 팀짜기) ===
+##
+# @brief /게임시작 슬래시 커맨드. 팀을 나누고 랜덤 챔피언 픽을 준비한다.
+# @details 온라인 유저(또는 DEV_MODE의 가상 유저) 중 6명을 뽑아 두 팀으로 나누고, 승수 기반
+#          픽 순서를 계산한 뒤 각 채널에 팀 구성 embed과 챔피언 선택 View를 전송한다.
+#          타이머는 시작 버튼을 누를 때까지 시작하지 않는다.
+# @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(name="게임시작", description="팀을 나누고 랜덤 챔피언을 보여줍니다.")
 async def 게임시작(ctx):
     global current_teams, selected_users, pick_order, current_pick_index, current_timer_task
@@ -948,8 +927,15 @@ async def 게임시작(ctx):
 
 
 # === 승리 셀렉트 ===
+##
+# @brief 승리한 팀을 고르는 셀렉트 메뉴.
+# @details 각 팀 멤버가 고른 챔피언을 라벨에 표시하고, 선택 시 전적·판 기록을 갱신한다.
 class VictorySelect(Select):
+
+    ##
+    # @brief 양 팀 옵션(팀명 + 픽한 챔피언 목록)을 만들어 셀렉트를 초기화한다.
     def __init__(self):
+        # @brief 팀 멤버가 고른 챔피언들을 라벨 문자열로 만든다.
         def label_with_champs(team_key):
             members = current_teams.get(team_key, [])
             champ_list = [selected_users.get(m.id, "❓") for m in members]
@@ -967,6 +953,9 @@ class VictorySelect(Select):
             max_values=1,
         )
 
+    ##
+    # @brief 승리 팀 선택 처리. 전적·wins_data·판 기록을 갱신하고 결과를 방송한다.
+    # @param interaction 셀렉트 상호작용 객체.
     async def callback(self, interaction: Interaction):
         global round_counter, current_teams, wins_data, victory_processed
 
@@ -1039,10 +1028,11 @@ class VictorySelect(Select):
                 DEV_MODE,
             )
             print(f"[RECORD] history_data: 시즌{season} R{round_counter} 기록 완료")
-            upload_async(DEV_MODE)  # 호스팅 자동 반영 (백그라운드, 실패해도 무영향)
+            # record_game 내부에서 호스팅 SFTP 업로드까지 처리 (백그라운드, 실패해도 무영향)
         except Exception as e:
             print(f"[WARN] history_data 기록 실패: {e}")
 
+        # @brief 팀 멤버와 픽한 챔피언을 embed용 문자열로 만든다.
         def format_team(key):
             return "\n".join(
                 f"{m.mention}: **{selected_users.get(m.id, '챔피언 없음')}**"
@@ -1058,6 +1048,7 @@ class VictorySelect(Select):
         )
 
         # 모든 게임 채널에 결과 embed 전송
+        # @brief 결과 embed을 단일 채널에 전송한다.
         async def send_result(channel):
             try:
                 await channel.send(embed=embed)
@@ -1126,17 +1117,28 @@ class VictorySelect(Select):
             await asyncio.gather(*total_tasks, return_exceptions=True)
 
 
+##
+# @brief 승리 팀 선택 셀렉트를 담는 View.
 class VictoryView(View):
+
+    ##
+    # @brief View를 초기화하고 VictorySelect를 추가한다.
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(VictorySelect())
 
 
+##
+# @brief /승리 슬래시 커맨드. 해당 라운드의 승리 팀 선택 View를 띄운다.
+# @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(name="승리", description="해당 라운드의 승리 팀을 선택합니다.")
 async def 승리(ctx):
     await ctx.respond("승리한 팀을 선택", view=VictoryView())
 
 
+##
+# @brief /누적결과 슬래시 커맨드. 전체 누적 전적(승/패/승률)을 출력한다.
+# @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(name="누적결과", description="전체 누적 전적을 확인합니다.")
 async def 누적결과(ctx):
     if not wins_data or len(wins_data) <= 1:
@@ -1173,6 +1175,9 @@ async def 누적결과(ctx):
 
 
 # === 봇 시작 시 챔피언 로드 ===
+##
+# @brief 봇 준비 완료 이벤트. 챔피언·전적·설정을 로드하고 커맨드를 동기화한다.
+# @details round_counter를 total_rounds+1로 초기화한 뒤 슬래시 커맨드를 등록한다.
 @bot.event
 async def on_ready():
     global champion_list, wins_data, config, round_counter

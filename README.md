@@ -215,13 +215,7 @@ python got_champe.py
    - `DEV_MODE=true`이면 대신 `wins_dev.json`을 사용하므로, 실제 전적을 쓰려면 반드시 `false`로 둔다.
 
 2. **`wins.json`에 6명의 실제 Discord User ID 입력**
-   - 처음이라면 `wins.json.example`을 복사해서 `wins.json`을 만든다.
-
-     ```bash
-     cp wins.json.example wins.json
-     ```
-
-   - 형식 (key는 **실제 Discord User ID**, `total_rounds`는 누적 판수).
+   - 처음이라면 아래 형식으로 `wins.json`을 새로 만든다 (key는 **실제 Discord User ID**, `total_rounds`는 누적 판수).
 
      ```json
      {

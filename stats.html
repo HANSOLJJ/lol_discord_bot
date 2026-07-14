@@ -1,4 +1,10 @@
-<!-- 현재 시즌 32판 조합/챔피언 승률 대시보드 (season_data.js 를 읽어 브라우저에서 동적 계산) -->
+<!--
+  투기장 시즌 전적 대시보드 (단일 파일, 정적)
+  - history_data.js(window.HISTORY_DATA)를 읽어 브라우저에서 전부 동적 계산
+  - 탭: 개인 / 2인·3인 시너지 / 챔피언 / 3:3 매치업, 기간(시즌·세션)·인원·최소판수 필터
+  - 외부 의존성 없음(챔프 초상화만 Data Dragon CDN, 실패해도 텍스트로 동작)
+  - 데이터 갱신은 봇(game_recorder)이 history_data.js를 재생성/업로드
+-->
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏟️</text></svg>" />
@@ -119,6 +125,11 @@
 
 <script src="history_data.js"></script>
 <script>
+/*
+ * 대시보드 로직 (IIFE로 전역 오염 방지)
+ * 흐름: 데이터 로드/파생 → 컨트롤(기간·인원·최소판수·탭) 구성 → render()가 현재 탭 계산·표시
+ * state = { tab, sel(선택 인원 Set), min(최소 판수), sort(테이블별 정렬 상태) }
+ */
 (function () {
   const D = window.HISTORY_DATA;
   if (!D) {
@@ -128,10 +139,11 @@
   }
   const players = D.players;                 // id -> name
   const ALL = D.games;                       // 전체 복구본 (시간순 정렬)
-  const nameOf = (id) => players[id] || id;
+  const nameOf = (id) => players[id] || id;  // id를 표시 이름으로
   const ids = Object.keys(players);
 
-  // 파생 데이터 + 시즌/세션 태깅 (season은 json 필드, 없으면 날짜 폴백)
+  // 판마다 파생 필드(t1/t2=팀 id배열, winIds/winSet=승팀, date, season) 부여 +
+  // 6시간 공백 기준으로 세션(SESS) 분리. season은 json 필드 우선, 없으면 날짜로 폴백.
   const SESS = [];
   ALL.forEach((g) => {
     g.t1 = g.team1.map((p) => p.id);
@@ -163,14 +175,16 @@
   periodSel.appendChild(og);
   periodSel.value = "season" + SEASONS[0];    // 기본: 최신 시즌
 
+  /** 현재 기간 드롭다운 선택값에 해당하는 판 배열을 반환 (all / season{N} / s{세션인덱스}). */
   function pickGames() {
     const v = periodSel.value;
     if (v.startsWith("season")) return ALL.filter((g) => g.season === +v.slice(6));
     if (v[0] === "s") return SESS[+v.slice(1)];
     return ALL;
   }
-  let games = pickGames();
+  let games = pickGames();  // 현재 선택 기간의 판들 (탭 계산의 입력)
 
+  /** 상단 요약줄(선택 기간 라벨·판수·날짜범위) 갱신. */
   function updateSummary() {
     const v = periodSel.value;
     const txt = periodSel.options[periodSel.selectedIndex].text;
@@ -204,11 +218,13 @@
   });
   clearBtn.onclick = () => { state.sel.clear(); refreshChips(); render(); };
 
+  /** 칩의 선택(on)·비활성(disabled) 상태를 현재 탭 최대 인원에 맞춰 갱신. */
   function refreshChips() {
     const max = selMax();
     ids.forEach((id) => {
       const c = chipEls[id];
       c.classList.toggle("on", state.sel.has(id));
+      // 최대치 도달 시 미선택 칩 비활성 (champ 탭은 max=0이라 전부 비활성)
       c.classList.toggle("disabled", max === 0 || (state.sel.size >= max && !state.sel.has(id)));
     });
     clearBtn.hidden = state.sel.size === 0;
@@ -243,9 +259,10 @@
     tabsEl.appendChild(b);
   });
 
-  // --- 조합 유틸 ---
-  const pairKey = (a, b) => [a, b].sort().join("|");
-  const trioKey = (arr) => [...arr].sort().join("|");
+  // --- 조합/수치 유틸 ---
+  const pairKey = (a, b) => [a, b].sort().join("|");   // 정렬로 순서 무관 페어 키
+  const trioKey = (arr) => [...arr].sort().join("|");  // 정렬로 순서 무관 조합 키
+  /** arr에서 k개를 뽑는 모든 조합을 반환 (재귀). */
   const combos = (arr, k) => {
     const res = [];
     const rec = (start, cur) => {
@@ -254,16 +271,16 @@
     };
     rec(0, []); return res;
   };
-  const wr = (w, n) => (n ? (w / n) * 100 : 0);
-  const wrColor = (v) => `hsl(${Math.round(v * 1.2)} 62% 45%)`; // 0=빨강 100=초록
+  const wr = (w, n) => (n ? (w / n) * 100 : 0);              // 승률(%) = 승/판
+  const wrColor = (v) => `hsl(${Math.round(v * 1.2)} 62% 45%)`; // 승률→색 (0=빨강, 100=초록)
 
-  // 표시용 정렬: 선택한 인원 먼저, 나머지는 이름순
+  /** id 목록을 표시용으로 정렬: 선택한 인원 먼저, 나머지는 한글 이름순. */
   const orderIds = (idList) => [...idList].sort((a, b) => {
     const sa = state.sel.has(a), sb = state.sel.has(b);
     if (sa !== sb) return sa ? -1 : 1;
     return nameOf(a).localeCompare(nameOf(b), "ko");
   });
-  const teamName = (idList) => orderIds(idList).map(nameOf).join("+");
+  const teamName = (idList) => orderIds(idList).map(nameOf).join("+"); // 팀 조합 표시 문자열
 
   // 챔피언 초상화 (Data Dragon, 로드 실패 시 초상화 없이 동작)
   let CHAMP_IMG = null; // 한글 챔프명 -> 이미지 URL
@@ -278,11 +295,13 @@
       render(); // 로드 완료 후 초상화 반영
     } catch (e) { /* 오프라인 등 - 텍스트만 표시 */ }
   })();
+  /** 챔프명 → 초상화 <img> HTML. 이미지 미로드 시 빈 문자열(텍스트만). @param cls 추가 클래스 @param title 툴팁 */
   const portrait = (champ, cls, title) => CHAMP_IMG && CHAMP_IMG[champ]
     ? `<img class="portrait ${cls || ""}" src="${CHAMP_IMG[champ]}" alt="${champ}" title="${title || champ}" loading="lazy">`
     : "";
 
   // --- 셀 렌더 ---
+  /** 승/패 텍스트 + 승률 막대바 + 퍼센트를 담은 <td>를 반환. */
   function barCell(w, n) {
     const v = wr(w, n);
     return `<td><div class="bar">
@@ -292,8 +311,15 @@
     </div></td>`;
   }
 
-  // --- 정렬 가능한 테이블 ---
-  // cols: [{label, num, val(row)->정렬값, cell(row)->'<td>..</td>'}]
+  // --- 정렬 가능한 테이블 렌더러 ---
+  /**
+   * 정렬 가능한 표를 #view(또는 지정 id)에 그린다.
+   * @param id       렌더 대상 요소 id 겸 정렬 상태 키 (state.sort[id]).
+   * @param cols     컬럼 정의 [{ label, num(우측정렬·숫자정렬), val(row)=>정렬값, cell(row)=>'<td>..</td>' }].
+   * @param rows     표시할 행 배열 (제자리 정렬됨; 동률이면 row._n 큰 순 보조 정렬).
+   * @param defSort  기본 정렬 { col, dir:'asc'|'desc' } (해당 id에 정렬 상태가 없을 때 적용).
+   * @param onRow    (선택) 행 클릭 콜백. 있으면 tr에 clickable + 클릭 핸들러 부착.
+   */
   function table(id, cols, rows, defSort, onRow) {
     const st = state.sort[id] || (state.sort[id] = { col: defSort.col, dir: defSort.dir });
     if (st.col >= cols.length) { st.col = defSort.col; st.dir = defSort.dir; }  // 컬럼 수 다른 테이블로 전환 시 방어
@@ -330,14 +356,17 @@
     if (onRow) view.querySelectorAll("tbody tr").forEach((tr, i) => { if (rows[i]) tr.onclick = () => onRow(rows[i]); });
   }
 
-  // 선택 필터: 선택한 인원을 "모두 포함"하는 조합만 (2명 고르면 그 2명 낀 조합 전부)
+  /** 조합(idList)이 선택한 인원을 모두 포함하는지 (2명 고르면 그 2명 낀 조합 전부 통과). */
   const selMatch = (idList) => {
     for (const s of state.sel) if (!idList.includes(s)) return false;
     return true;
   };
 
   // ================= 각 탭 계산 =================
-  // 챔프별 집계 (pred 로 픽 필터). pred 없으면 전체.
+  /**
+   * 챔프별 픽 수·승수 집계. pred(픽 필터)가 있으면 해당 픽만 세고, 없으면 전체.
+   * @return [{ champ, n(픽), w(승), _n }] (최소 판수 필터 적용).
+   */
   function champData(pred) {
     const map = new Map();
     games.forEach((g) => {
@@ -352,12 +381,17 @@
     });
     return [...map.values()].filter((e) => e.n >= state.min).map((e) => ({ ...e, _n: e.n }));
   }
+  /** 챔프 표의 공통 컬럼 정의(초상화+이름 / 픽 / 승률). @param firstLabel 첫 컬럼 헤더. */
   const champCols = (firstLabel) => [
     { label: firstLabel, num: false, val: (r) => r.champ, cell: (r) => `<td class="combo">${portrait(r.champ, "sm")}${r.champ}</td>` },
     { label: "픽", num: true, val: (r) => r.n, cell: (r) => `<td class="num">${r.n}</td>` },
     { label: "승률", num: true, val: (r) => wr(r.w, r.n), cell: (r) => barCell(r.w, r.n) },
   ];
 
+  /**
+   * 개인 탭. 미선택 시: 6명 승률표(판/고유챔프수/주력TOP5/승률/번 돈, 행 클릭 시 드릴다운).
+   * 인원 선택 시: 그 사람의 챔프별 승률(픽 순) + 상단에 요약 헤더와 뒤로가기.
+   */
   function renderPlayer() {
     // 인원 선택 시: 그 사람(들)의 챔프별 승률로 드릴다운 (픽 순 정렬)
     if (state.sel.size) {
@@ -418,6 +452,10 @@
       (r) => { state.sel = new Set([r.id]); state.sort = {}; refreshChips(); render(); });
   }
 
+  /**
+   * 2인/3인 시너지 탭. 같은 팀이었던 k인 조합의 승률을 집계.
+   * @param k 조합 크기 (2=페어, 3=트리오). 선택 인원을 모두 포함하는 조합만 표시.
+   */
   function renderCombo(k) {
     const map = new Map(); // key -> {ids, n, w}
     games.forEach((g) => {
@@ -442,11 +480,15 @@
       rows, { col: 2, dir: "desc" });
   }
 
+  /** 챔피언 탭. 인원 선택과 무관하게 챔프별 전체 픽 수·승률 (픽 순 정렬). */
   function renderChamp() {
-    // 인원 선택과 무관하게 챔프별 전체 픽·승률 (픽 순 정렬)
     table("view", champCols("챔피언"), champData(null), { col: 1, dir: "desc" });
   }
 
+  /**
+   * 3:3 매치업 탭. 2번 이상 반복된 같은 3:3 구도만 집계.
+   * canonical 키로 파티션을 dedup하고, 인원 1명 선택 시 그 사람 팀을 왼쪽(A)으로 고정.
+   */
   function renderMatchup() {
     const map = new Map(); // canonicalKey -> {a, b, n, aw, bw}  (a=id정렬상 작은 팀)
     games.forEach((g) => {
@@ -484,6 +526,7 @@
       rows, { col: focus ? 1 : 0, dir: "desc" });
   }
 
+  // 탭별 하단 안내 문구 (표 아래 .note에 표시)
   const NOTES = {
     player: "6명 개인 승률. '주력 챔프 TOP5'는 승수 많은 순(마우스 올리면 전적). '번 돈'은 승 +5000원 / 패 -5000원 정산(선택한 기간 기준). <b>플레이어 행 클릭</b> → 챔프별 승률 드릴다운.",
     pair: "두 명이 <b>같은 팀</b>이었던 판의 시너지 승률. 인원은 <b>2명까지</b>(1명이면 그 사람의 모든 페어).",
@@ -492,6 +535,7 @@
     matchup: "같은 3:3 구도가 2번 이상 반복된 경우만. 각 팀 아래는 그 팀 기준 전적. <b>인원 1명 선택 시 그 사람 팀이 왼쪽으로 고정</b>돼 '내 팀 vs 상대팀'으로 읽힘.",
   };
 
+  /** 현재 state.tab에 맞는 렌더 함수를 호출 (모든 컨트롤 변경의 최종 진입점). */
   function render() {
     document.getElementById("note").innerHTML = NOTES[state.tab] || "";
     if (state.tab === "player") renderPlayer();
