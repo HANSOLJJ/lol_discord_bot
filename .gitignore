@@ -29,9 +29,7 @@ wins.json
 wins_dev.json
 wins_prev_season.json
 history_data.json
-history_data.js
 history_data_dev.json
-history_data_dev.js
 *.bak
 
 # 로컬 작업 컨텍스트 (호스팅 경로 등 포함)

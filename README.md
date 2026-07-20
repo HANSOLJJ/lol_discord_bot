@@ -44,9 +44,7 @@ lol_discord_bot/
 ├── data/                  # 전적 데이터 (봇 I/O, gitignore)
 │   ├── wins.json          #   개인 누적 전적 (실제 모드)
 │   ├── wins_dev.json      #   개발용 전적
-│   └── history_data.json  #   전 판 상세 마스터 데이터
-├── dashboard/             # 봇이 업로드용 js 생성하는 스테이징 (gitignore)
-│   └── history_data.js    #   대시보드 데이터 (자동 생성 → lol_arena repo로 PUT)
+│   └── history_data.json  #   전 판 상세 마스터 (lol_arena repo로 업로드됨)
 ├── docs/                  # 문서
 │   └── PARSE_REPORT.md    #   과거 전적 복구·검증 리포트
 ├── backup/                # 백업 (bak, 구시즌 집계)
@@ -208,11 +206,11 @@ python got_champe.py
 
 ## 📈 전적 대시보드
 
-- **보기**: <https://arena.dcom.co.kr/> (또는 <https://hansoljj.github.io/lol_arena/>) · 로컬에선 `lol_arena` clone의 `index.html` 더블클릭 (같은 폴더의 `history_data.js`를 읽음)
-- **대시보드 원본**: 별도 public repo [`lol_arena`](https://github.com/HANSOLJJ/lol_arena) = GitHub Pages 본체. `index.html`(UI) + `history_data.js`(데이터)만 있음. 봇은 이 repo에 데이터만 push
+- **보기**: <https://arena.dcom.co.kr/> (또는 <https://hansoljj.github.io/lol_arena/>) · 로컬에선 `lol_arena` clone에서 `python -m http.server` 실행 후 localhost 접속 (index.html이 `history_data.json`을 fetch, file:// 더블클릭은 CORS로 데이터 안 뜸)
+- **대시보드 원본**: 별도 public repo [`lol_arena`](https://github.com/HANSOLJJ/lol_arena) = GitHub Pages 본체. `index.html`(UI) + `history_data.json`(데이터)만 있음. 봇은 이 repo에 데이터만 push
 - **탭**: 개인(행 클릭 → 챔프별 승률, 주력 챔프 TOP5 초상화, 번 돈 정산 승 +5000/패 -5000원) / 2인 시너지 / 3인 시너지 / 챔피언 / 3:3 매치업
 - **필터**: 시즌·세션(기간), 인원 선택(탭별 1~3명), 최소 판수 슬라이더, 컬럼 클릭 정렬
-- **데이터 갱신**: 봇이 `/승리` 처리 시 자동 (`history_data.json` + `history_data.js`) → **lol_arena repo에 Contents API로 자동 커밋** (GitHub Pages 실시간 반영, `.env`의 `ARENA_GH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회)
+- **데이터 갱신**: 봇이 `/승리` 처리 시 `history_data.json` 갱신 → **lol_arena repo에 Contents API로 자동 커밋** (GitHub Pages 실시간 반영, `.env`의 `ARENA_GH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회). 대시보드는 이 json을 fetch (캐시버스터로 새로고침 시 항상 최신)
 - **UI 수정**: `index.html`은 `lol_arena` repo에서 직접 편집·`git push` (봇 무관)
 - **새 시즌**: `data/wins.json` 백업 후 리셋 → 다음 판이 R1로 기록되며 시즌 자동 +1
 - **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱 (`data/history_data.json` 재생성)

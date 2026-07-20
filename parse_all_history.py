@@ -192,7 +192,7 @@ async def on_ready():
         "sessions_summary": report,
         "games": games,
     }
-    hist_json, _ = paths.history_files(False)
+    hist_json = paths.history_json(False)
     os.makedirs(os.path.dirname(hist_json), exist_ok=True)
     with open(hist_json, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)

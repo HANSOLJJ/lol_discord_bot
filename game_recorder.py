@@ -1,9 +1,9 @@
 ##
 # @file game_recorder.py
-# @brief 승리 확정 시 판 기록을 history_data.json/.js에 추가하고 GitHub Pages에 배포하는 모듈.
-# @details 봇(got_champe.py)이 판마다 호출한다. 로컬 마스터 데이터(history_data.json)와
-#          대시보드 로드용(history_data.js)을 갱신한 뒤, 설정이 있으면 GitHub Contents API로
-#          history_data.js를 리포에 커밋한다(GitHub Pages 반영). 업로드 실패는 봇 동작에 영향을 주지 않는다.
+# @brief 승리 확정 시 판 기록을 history_data.json에 추가하고 GitHub Pages에 배포하는 모듈.
+# @details 봇(got_champe.py)이 판마다 호출한다. 로컬 마스터 데이터(history_data.json)를 갱신한 뒤,
+#          설정이 있으면 GitHub Contents API로 이 json을 lol_arena 리포에 커밋한다(대시보드가 직접 fetch).
+#          업로드 실패는 봇 동작에 영향을 주지 않는다.
 import base64
 import json
 import os
@@ -20,7 +20,7 @@ import paths
 #          sha 경합(409)이면 재조회 후 1회 재시도한다. Contents API는 단일 커밋이라 별도 원자성
 #          처리가 필요없다. 모든 예외는 내부에서 삼켜 로그만 남긴다.
 # @param local_path 업로드할 로컬 파일 경로.
-# @param remote_path 리포 내 대상 경로(예: "history_data.js").
+# @param remote_path 리포 내 대상 경로(예: "history_data.json").
 # @param message 커밋 메시지.
 # @return bool 성공하면 True, 미설정/실패면 False.
 def _github_put_file(local_path, remote_path, message):
@@ -63,12 +63,12 @@ def _github_put_file(local_path, remote_path, message):
 
 
 ##
-# @brief history_data.js를 GitHub 리포에 커밋해 GitHub Pages에 반영한다.
-# @param local_js 업로드할 로컬 .js 파일 경로.
+# @brief history_data.json을 GitHub 리포에 커밋해 GitHub Pages에 반영한다.
+# @param local_json 업로드할 로컬 json 파일 경로.
 # @return 없음.
-def _upload_to_github(local_js):
-    remote = os.getenv("ARENA_GH_PATH", "history_data.js")
-    _github_put_file(local_js, remote, "chore: update history_data.js")
+def _upload_to_github(local_json):
+    remote = os.getenv("ARENA_GH_PATH", "history_data.json")
+    _github_put_file(local_json, remote, "chore: update history_data.json")
 
 
 ##
@@ -80,12 +80,12 @@ def _upload_to_github(local_js):
 def upload_async(dev_mode=False):
     if dev_mode:
         return
-    _, js_path = paths.history_files(dev_mode)
-    threading.Thread(target=_upload_to_github, args=(js_path,), daemon=True).start()
+    json_path = paths.history_json(dev_mode)
+    threading.Thread(target=_upload_to_github, args=(json_path,), daemon=True).start()
 
 
 ##
-# @brief 한 판 결과를 history_data 파일에 append하고 .js 재생성 + GitHub Pages 업로드까지 수행한다.
+# @brief 한 판 결과를 history_data.json에 append하고 GitHub Pages 업로드까지 수행한다.
 # @details 라운드 번호가 직전 기록 이하로 회귀하면(예: R32 다음에 R1) 새 시즌으로 판정한다
 #          (시즌 시작 = wins.json 리셋 = round_counter 1부터 재시작). 파일이 없으면
 #          빈 스켈레톤을 생성한다. players 매핑은 처음 보는 id만 추가해 기존 이름을 보존한다.
@@ -95,7 +95,7 @@ def upload_async(dev_mode=False):
 # @param dev_mode True면 history_data_dev.*에 기록(테스트 분리).
 # @return int 기록된 시즌 번호.
 def record_game(round_num, teams, winner, dev_mode=False):
-    json_path, js_path = paths.history_files(dev_mode)
+    json_path = paths.history_json(dev_mode)
 
     if os.path.exists(json_path):
         with open(json_path, "r", encoding="utf-8") as f:
@@ -138,17 +138,11 @@ def record_game(round_num, teams, winner, dev_mode=False):
     data["total_games"] = len(games)
     data["generated_at"] = now
 
-    # 대상 폴더(data/, dashboard/)가 없으면 생성
+    # 대상 폴더(data/)가 없으면 생성
     os.makedirs(os.path.dirname(json_path), exist_ok=True)
-    os.makedirs(os.path.dirname(js_path), exist_ok=True)
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    with open(js_path, "w", encoding="utf-8") as f:
-        f.write("// 자동 생성 - 봇이 판마다 갱신. 직접 수정 금지.\n")
-        f.write("window.HISTORY_DATA = ")
-        json.dump(data, f, ensure_ascii=False)
-        f.write(";\n")
 
     # GitHub Pages 자동 반영 (백그라운드, 실패해도 무해 - 다음 성공 업로드가 전체 파일이라 자동 만회)
     upload_async(dev_mode)

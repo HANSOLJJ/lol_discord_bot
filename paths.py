@@ -10,8 +10,6 @@ CONFIG_FILE = "config.json"
 
 ## 데이터 폴더 (개인 승수 + 판 상세 마스터).
 DATA_DIR = "data"
-## 봇이 업로드용 history_data.js를 생성하는 스테이징 폴더 (대시보드 원본은 lol_arena repo).
-DASHBOARD_DIR = "dashboard"
 
 
 ##
@@ -24,13 +22,10 @@ def wins_file(dev_mode):
 
 
 ##
-# @brief DEV_MODE에 따라 판 상세 마스터(json)와 대시보드용(js) 경로를 반환한다.
-# @details 마스터 json은 data/에, 업로드용 js는 dashboard/에 생성한다(lol_arena repo로 PUT).
-# @param dev_mode True면 *_dev 파일.
-# @return (json_path, js_path) 튜플.
-def history_files(dev_mode=False):
+# @brief DEV_MODE에 따라 판 상세 마스터(history_data.json) 경로를 반환한다.
+# @details 이 json이 마스터이자 lol_arena repo로 업로드되는 파일(대시보드가 직접 fetch).
+# @param dev_mode True면 history_data_dev.json.
+# @return json 파일 경로.
+def history_json(dev_mode=False):
     suffix = "_dev" if dev_mode else ""
-    return (
-        os.path.join(DATA_DIR, f"history_data{suffix}.json"),
-        os.path.join(DASHBOARD_DIR, f"history_data{suffix}.js"),
-    )
+    return os.path.join(DATA_DIR, f"history_data{suffix}.json")
