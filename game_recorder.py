@@ -1,9 +1,10 @@
 ##
 # @file game_recorder.py
-# @brief 승리 확정 시 판 기록을 history_data.json/.js에 추가하고 호스팅에 배포하는 모듈.
+# @brief 승리 확정 시 판 기록을 history_data.json/.js에 추가하고 GitHub Pages에 배포하는 모듈.
 # @details 봇(got_champe.py)이 판마다 호출한다. 로컬 마스터 데이터(history_data.json)와
-#          대시보드 로드용(history_data.js)을 갱신한 뒤, 설정이 있으면 호스팅에 SFTP로
-#          자동 업로드한다. 업로드 실패는 봇 동작에 영향을 주지 않는다.
+#          대시보드 로드용(history_data.js)을 갱신한 뒤, 설정이 있으면 GitHub Contents API로
+#          history_data.js를 리포에 커밋한다(GitHub Pages 반영). 업로드 실패는 봇 동작에 영향을 주지 않는다.
+import base64
 import json
 import os
 import threading
@@ -13,37 +14,65 @@ import paths
 
 
 ##
-# @brief history_data.js를 호스팅(SFTP)에 업로드한다.
-# @details .env의 ARENA_SSH_HOST/USER/PASS/REMOTE_PATH가 모두 설정된 경우에만 동작하며,
-#          미설정 시 조용히 반환한다. 업로드 중 반쪽 파일 노출을 막기 위해 임시 파일에
-#          올린 뒤 원자적으로 rename 한다. 모든 예외는 내부에서 삼켜 로그만 남긴다.
-# @param local_js 업로드할 로컬 .js 파일 경로.
-# @return 없음.
-def _upload_to_hosting(local_js):
-    host = os.getenv("ARENA_SSH_HOST")
-    user = os.getenv("ARENA_SSH_USER")
-    password = os.getenv("ARENA_SSH_PASS")
-    remote = os.getenv("ARENA_REMOTE_PATH")
-    if not all([host, user, password, remote]):
-        return  # 미설정이면 조용히 스킵 (로컬 기록만)
+# @brief 로컬 파일을 GitHub Contents API로 리포에 커밋(생성/갱신)한다.
+# @details .env의 ARENA_GH_TOKEN/ARENA_GH_REPO가 설정된 경우에만 동작하며, 미설정 시 조용히
+#          반환한다. 기존 파일이면 현재 sha를 조회해 함께 PUT하고(없으면 신규 생성),
+#          sha 경합(409)이면 재조회 후 1회 재시도한다. Contents API는 단일 커밋이라 별도 원자성
+#          처리가 필요없다. 모든 예외는 내부에서 삼켜 로그만 남긴다.
+# @param local_path 업로드할 로컬 파일 경로.
+# @param remote_path 리포 내 대상 경로(예: "history_data.js").
+# @param message 커밋 메시지.
+# @return bool 성공하면 True, 미설정/실패면 False.
+def _github_put_file(local_path, remote_path, message):
+    token = os.getenv("ARENA_GH_TOKEN")
+    repo = os.getenv("ARENA_GH_REPO")  # 예: "HANSOLJJ/lol_arena"
+    if not token or not repo:
+        return False  # 미설정이면 조용히 스킵 (로컬 기록만)
+    branch = os.getenv("ARENA_GH_BRANCH", "main")
     try:
-        import paramiko
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(host, username=user, password=password, timeout=15)
-        sftp = ssh.open_sftp()
-        tmp = remote + ".tmp"
-        sftp.put(local_js, tmp)
-        sftp.posix_rename(tmp, remote)  # 원자적 교체 (업로드 중 반쪽 파일 노출 방지)
-        sftp.close()
-        ssh.close()
-        print("[UPLOAD] history_data.js -> 호스팅 반영 완료")
+        import requests
+        url = f"https://api.github.com/repos/{repo}/contents/{remote_path}"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        with open(local_path, "rb") as f:
+            content_b64 = base64.b64encode(f.read()).decode()
+
+        def _get_sha():  # 기존 파일 sha 조회 (없으면 404 → None → 신규 생성)
+            r = requests.get(url, headers=headers, params={"ref": branch}, timeout=15)
+            return r.json().get("sha") if r.status_code == 200 else None
+
+        body = {"message": message, "content": content_b64, "branch": branch}
+        sha = _get_sha()
+        if sha:
+            body["sha"] = sha
+        r = requests.put(url, headers=headers, json=body, timeout=15)
+        if r.status_code == 409:  # sha 경합 → 재조회 후 1회 재시도
+            body["sha"] = _get_sha()
+            r = requests.put(url, headers=headers, json=body, timeout=15)
+        if r.status_code in (200, 201):
+            print(f"[UPLOAD] {remote_path} -> GitHub Pages 반영 완료")
+            return True
+        print(f"[WARN] GitHub 업로드 실패 {r.status_code}: {r.text[:200]}")
+        return False
     except Exception as e:
-        print(f"[WARN] 호스팅 업로드 실패 (로컬 기록은 정상): {e}")
+        print(f"[WARN] GitHub 업로드 실패 (로컬 기록은 정상): {e}")
+        return False
 
 
 ##
-# @brief 호스팅 업로드를 백그라운드 스레드에서 실행한다.
+# @brief history_data.js를 GitHub 리포에 커밋해 GitHub Pages에 반영한다.
+# @param local_js 업로드할 로컬 .js 파일 경로.
+# @return 없음.
+def _upload_to_github(local_js):
+    remote = os.getenv("ARENA_GH_PATH", "history_data.js")
+    _github_put_file(local_js, remote, "chore: update history_data.js")
+
+
+##
+# @brief GitHub Pages 업로드를 백그라운드 스레드에서 실행한다.
 # @details 승리 처리(async 이벤트 루프)를 막지 않도록 daemon 스레드로 분리한다.
 #          dev 모드에서는 테스트 데이터를 배포하지 않도록 스킵한다.
 # @param dev_mode True면 업로드하지 않음.
@@ -52,11 +81,11 @@ def upload_async(dev_mode=False):
     if dev_mode:
         return
     _, js_path = paths.history_files(dev_mode)
-    threading.Thread(target=_upload_to_hosting, args=(js_path,), daemon=True).start()
+    threading.Thread(target=_upload_to_github, args=(js_path,), daemon=True).start()
 
 
 ##
-# @brief 한 판 결과를 history_data 파일에 append하고 .js 재생성 + 호스팅 업로드까지 수행한다.
+# @brief 한 판 결과를 history_data 파일에 append하고 .js 재생성 + GitHub Pages 업로드까지 수행한다.
 # @details 라운드 번호가 직전 기록 이하로 회귀하면(예: R32 다음에 R1) 새 시즌으로 판정한다
 #          (시즌 시작 = wins.json 리셋 = round_counter 1부터 재시작). 파일이 없으면
 #          빈 스켈레톤을 생성한다. players 매핑은 처음 보는 id만 추가해 기존 이름을 보존한다.
@@ -121,7 +150,7 @@ def record_game(round_num, teams, winner, dev_mode=False):
         json.dump(data, f, ensure_ascii=False)
         f.write(";\n")
 
-    # 호스팅 자동 반영 (백그라운드, 실패해도 무해 - 다음 성공 업로드가 전체 파일이라 자동 만회)
+    # GitHub Pages 자동 반영 (백그라운드, 실패해도 무해 - 다음 성공 업로드가 전체 파일이라 자동 만회)
     upload_async(dev_mode)
 
     return season

@@ -17,7 +17,7 @@
    - 판별 상세 기록(팀·챔프·승자) 자동 저장 → `history_data.json`
    - 오늘의 전적 및 누적 전적 표시
    - 승률 자동 계산
-   - **웹 전적 대시보드** (`stats.html`, [dcom.co.kr/arena](https://dcom.co.kr/arena/))
+   - **웹 전적 대시보드** ([hansoljj.github.io/lol_arena](https://hansoljj.github.io/lol_arena/), 원본은 `lol_arena` repo)
 4. **시각적 표시**:
    - 팀별 색상 구분 (🔵 team1 파란색, 🔴 team2 빨간색)
    - 실시간 타이머 표시 (큰 폰트)
@@ -34,20 +34,19 @@
 ```
 lol_discord_bot/
 ├── got_champe.py          # 메인 봇 코드
-├── game_recorder.py       # 판 기록 모듈 (history_data 자동 갱신, 시즌 감지, 호스팅 업로드)
+├── game_recorder.py       # 판 기록 모듈 (history_data 자동 갱신, 시즌 감지, GitHub Pages 업로드)
 ├── parse_all_history.py   # 디스코드 채널 재파싱 (재해복구용)
 ├── paths.py               # 모든 데이터/산출물 경로 상수 (single source of truth)
 ├── config.json            # 게임 설정 (timeout, 챔피언 수, 채널)
 ├── requirements.txt       # 파이썬 패키지 목록
-├── .env                   # 환경변수 (토큰, DEV_MODE, ARENA_SSH_*)
+├── .env                   # 환경변수 (토큰, DEV_MODE, ARENA_GH_*)
 ├── README.md / CLAUDE.md  # 문서 (루트)
 ├── data/                  # 전적 데이터 (봇 I/O, gitignore)
 │   ├── wins.json          #   개인 누적 전적 (실제 모드)
 │   ├── wins_dev.json      #   개발용 전적
 │   └── history_data.json  #   전 판 상세 마스터 데이터
-├── dashboard/             # 대시보드 (서버와 동일한 flat 구조)
-│   ├── stats.html         #   전적 대시보드 (→ 서버 index.html)
-│   └── history_data.js    #   대시보드용 데이터 (자동 생성 → 서버 업로드)
+├── dashboard/             # 봇이 업로드용 js 생성하는 스테이징 (gitignore)
+│   └── history_data.js    #   대시보드 데이터 (자동 생성 → lol_arena repo로 PUT)
 ├── docs/                  # 문서
 │   └── PARSE_REPORT.md    #   과거 전적 복구·검증 리포트
 ├── backup/                # 백업 (bak, 구시즌 집계)
@@ -209,10 +208,12 @@ python got_champe.py
 
 ## 📈 전적 대시보드
 
-- **보기**: <https://dcom.co.kr/arena/> 또는 로컬에서 `dashboard/stats.html` 더블클릭 (같은 폴더의 `history_data.js`를 읽음)
+- **보기**: <https://hansoljj.github.io/lol_arena/> 또는 로컬에서 `lol_arena` clone의 `index.html` 더블클릭 (같은 폴더의 `history_data.js`를 읽음)
+- **대시보드 원본**: 별도 public repo [`lol_arena`](https://github.com/HANSOLJJ/lol_arena) = GitHub Pages 본체. `index.html`(UI) + `history_data.js`(데이터)만 있음. 봇은 이 repo에 데이터만 push
 - **탭**: 개인(행 클릭 → 챔프별 승률, 주력 챔프 TOP5 초상화, 번 돈 정산 승 +5000/패 -5000원) / 2인 시너지 / 3인 시너지 / 챔피언 / 3:3 매치업
 - **필터**: 시즌·세션(기간), 인원 선택(탭별 1~3명), 최소 판수 슬라이더, 컬럼 클릭 정렬
-- **데이터 갱신**: 봇이 `/승리` 처리 시 자동 (`history_data.json` + `history_data.js`) → **호스팅까지 SFTP 자동 업로드** (실시간 반영, `.env`의 `ARENA_SSH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회)
+- **데이터 갱신**: 봇이 `/승리` 처리 시 자동 (`history_data.json` + `history_data.js`) → **lol_arena repo에 Contents API로 자동 커밋** (GitHub Pages 실시간 반영, `.env`의 `ARENA_GH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회)
+- **UI 수정**: `index.html`은 `lol_arena` repo에서 직접 편집·`git push` (봇 무관)
 - **새 시즌**: `data/wins.json` 백업 후 리셋 → 다음 판이 R1로 기록되며 시즌 자동 +1
 - **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱 (`data/history_data.json` 재생성)
 - **경로 변경**: 모든 데이터/산출물 경로는 `paths.py` 한 곳에서 관리

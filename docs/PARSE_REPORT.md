@@ -141,5 +141,5 @@
 
 - **history_data.json 마이그레이션**: 전 판 `season` 필드 추가, 시즌 1 round를 시간순 1~150 연번 재부여 (원본 embed 번호는 `round_orig` 보존). 백업 `history_data.json.bak`
 - **봇 직접 기록 도입**: `game_recorder.py` — 승리 확정 시 `history_data.json/.js`에 자동 append (`sources: ["BOT"]`). 라운드 리셋(직전 이하로 회귀) 시 시즌 자동 +1. **이후 디스코드 파싱 불필요** (`parse_all_history.py`는 재해복구용)
-- **대시보드 배포**: <https://dcom.co.kr/arena/> (갱신 = history_data.js 재업로드)
+- **대시보드 배포**: <https://hansoljj.github.io/lol_arena/> (갱신 = history_data.js 재업로드. 2026-07-20 dcom.co.kr/arena에서 GitHub Pages로 이관)
 - **legacy 삭제**: parse_history.py, game_history.json, debug_missed_embeds.json, parse_season.py, season_data.json/js
