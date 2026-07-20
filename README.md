@@ -17,7 +17,7 @@
    - 판별 상세 기록(팀·챔프·승자) 자동 저장 → `history_data.json`
    - 오늘의 전적 및 누적 전적 표시
    - 승률 자동 계산
-   - **웹 전적 대시보드** ([hansoljj.github.io/lol_arena](https://hansoljj.github.io/lol_arena/), 원본은 `lol_arena` repo)
+   - **웹 전적 대시보드** ([arena.dcom.co.kr](https://arena.dcom.co.kr/), 원본은 `lol_arena` repo)
 4. **시각적 표시**:
    - 팀별 색상 구분 (🔵 team1 파란색, 🔴 team2 빨간색)
    - 실시간 타이머 표시 (큰 폰트)
@@ -208,7 +208,7 @@ python got_champe.py
 
 ## 📈 전적 대시보드
 
-- **보기**: <https://hansoljj.github.io/lol_arena/> 또는 로컬에서 `lol_arena` clone의 `index.html` 더블클릭 (같은 폴더의 `history_data.js`를 읽음)
+- **보기**: <https://arena.dcom.co.kr/> (또는 <https://hansoljj.github.io/lol_arena/>) · 로컬에선 `lol_arena` clone의 `index.html` 더블클릭 (같은 폴더의 `history_data.js`를 읽음)
 - **대시보드 원본**: 별도 public repo [`lol_arena`](https://github.com/HANSOLJJ/lol_arena) = GitHub Pages 본체. `index.html`(UI) + `history_data.js`(데이터)만 있음. 봇은 이 repo에 데이터만 push
 - **탭**: 개인(행 클릭 → 챔프별 승률, 주력 챔프 TOP5 초상화, 번 돈 정산 승 +5000/패 -5000원) / 2인 시너지 / 3인 시너지 / 챔피언 / 3:3 매치업
 - **필터**: 시즌·세션(기간), 인원 선택(탭별 1~3명), 최소 판수 슬라이더, 컬럼 클릭 정렬
