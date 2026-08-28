@@ -78,6 +78,7 @@ game_started = False  # 게임이 시작되었는지 여부 (시작 버튼 눌�
 victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 current_game_id = 0  # 게임 세대 번호(/게임시작마다 +1) - 이전 게임의 버튼·타이머 무효화용
 pick_lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (연타·타이머 동시 실행 방지)
+victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처리 후 비활성화용)
 
 
 # === 설정 로드 ===
@@ -489,9 +490,11 @@ async def pick_timeout_handler(picker_index, game_id):
                     async def send_complete_msg(channel):
                         try:
                             await channel.send(msg)
-                            await channel.send(
-                                "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
+                            victory_view = VictoryView()
+                            victory_msg = await channel.send(
+                                "🎯 승리한 팀을 선택해주세요:", view=victory_view
                             )
+                            victory_messages.append((victory_msg, victory_view))
                         except:
                             pass
 
@@ -546,6 +549,21 @@ def interaction_guard(ephemeral_defer=False):
         return wrapper
 
     return decorator
+
+
+##
+# @brief 띄워둔 승리 팀 드롭다운을 모두 비활성화한다.
+# @details 승리가 확정된 뒤에도 3채널의 드롭다운이 계속 눌리는 것을 막는다. 메시지가
+#          지워졌거나 편집에 실패해도 무시한다(정합성은 victory_processed가 담당).
+async def disable_victory_views():
+    for message, view in victory_messages:
+        try:
+            view.disable_all_items()
+            view.stop()
+            await message.edit(view=view)
+        except Exception:
+            pass
+    victory_messages.clear()
 
 
 # === 시작 버튼 클래스 ===
@@ -834,9 +852,11 @@ class ChampionButton(Button):
             async def send_final_msg(channel):
                 try:
                     await channel.send(msg)
-                    await channel.send(
-                        "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
+                    victory_view = VictoryView()
+                    victory_msg = await channel.send(
+                        "🎯 승리한 팀을 선택해주세요:", view=victory_view
                     )
+                    victory_messages.append((victory_msg, victory_view))
                 except:
                     pass
 
@@ -903,6 +923,7 @@ async def 게임시작(ctx):
     if current_timer_task and not current_timer_task.done():
         current_timer_task.cancel()
     current_timer_task = None
+    await disable_victory_views()
     selected_users.clear()
     game_started = False
     victory_processed = False
@@ -1137,6 +1158,9 @@ class VictorySelect(Select):
             f"✅ **{team_key.upper()}** 승리 기록 완료!", ephemeral=True
         )
 
+        # 남아있는 승리 드롭다운 비활성화 (3채널에 동시에 떠 있을 수 있다)
+        await disable_victory_views()
+
         # 모든 게임 채널에 결과 embed 전송
         # @brief 결과 embed을 단일 채널에 전송한다.
         async def send_result(channel):
@@ -1229,7 +1253,13 @@ async def 승리(ctx):
             ephemeral=True,
         )
         return
-    await ctx.respond("승리한 팀을 선택", view=VictoryView())
+
+    view = VictoryView()
+    await ctx.respond("승리한 팀을 선택", view=view)
+    try:
+        victory_messages.append((await ctx.interaction.original_response(), view))
+    except Exception:
+        pass  # 메시지 확보 실패는 무해 (비활성화만 못 할 뿐 정합성은 플래그가 담당)
 
 
 ##
