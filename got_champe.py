@@ -982,6 +982,29 @@ async def 게임시작(ctx):
     # 자동으로 챔피언 추천도 실행
     champ_count = config.get("champion_count", 8)
     picked_champ = pick_random_champions(champion_list, excluded, champ_count)
+
+    if not picked_champ:
+        # excluded는 세션 내 챔피언 중복을 막으려고 계속 쌓이기만 해서, 판을 거듭하면
+        # 남은 챔피언이 champion_count보다 적어진다. 이때 한 번 비우고 재시도한다.
+        excluded.clear()
+        picked_champ = pick_random_champions(champion_list, excluded, champ_count)
+        if picked_champ:
+            await asyncio.gather(
+                *[
+                    ch.send("♻️ 챔피언 풀이 소진되어 제외 목록을 초기화했습니다.")
+                    for ch in current_game_channels
+                ],
+                return_exceptions=True,
+            )
+
+    if not picked_champ:
+        # 챔피언 목록 자체가 부족(Data Dragon 로드 실패 등) - 버튼 0개로 진행하지 않는다
+        await ctx.channel.send(
+            f"⚠️ 챔피언 데이터가 부족합니다 (필요 {champ_count}명). "
+            "봇을 재시작하거나 config.json의 champion_count를 확인해주세요!"
+        )
+        return
+
     current_game_champions = picked_champ  # 현재 게임 챔피언 저장
     champ_names = [champ["name"] for champ in picked_champ]
 
