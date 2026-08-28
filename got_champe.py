@@ -414,92 +414,96 @@ async def pick_timeout_handler(picker_index, game_id):
         # 타이머 취소됨 (정상 선택)
         return
 
-    # 타임아웃 후에도 선택 안했으면 자동 배정
-    # 이 타이머가 여전히 현재 게임의 현재 차례인지 재확인
-    if picker_index != current_pick_index or game_id != current_game_id:
-        return
+    # 타임아웃 후에도 선택 안했으면 자동 배정.
+    # 픽 버튼과 같은 락으로 직렬화한다 (사람의 클릭과 자동 배정이 겹치면 상태가 꼬인다).
+    async with pick_lock:
+        # 락을 기다리는 사이 다른 클릭이 처리됐을 수 있으므로 재확인한다
+        if picker_index != current_pick_index or game_id != current_game_id:
+            return
 
-    current_picker = pick_order[picker_index]
-    if current_picker.id not in selected_users:
-        # 현재 게임의 챔피언 중 남은 챔피언에서 랜덤 선택
-        available_champs = [
-            champ for champ in current_game_champions if champ["name"] not in excluded
-        ]
+        current_picker = pick_order[picker_index]
+        if current_picker.id not in selected_users:
+            # 현재 게임의 챔피언 중 남은 챔피언에서 랜덤 선택
+            available_champs = [
+                champ
+                for champ in current_game_champions
+                if champ["name"] not in excluded
+            ]
 
-        if available_champs:
-            random_champ = random.choice(available_champs)
-            selected_users[current_picker.id] = random_champ["name"]
-            excluded.add(random_champ["name"])
+            if available_champs:
+                random_champ = random.choice(available_champs)
+                selected_users[current_picker.id] = random_champ["name"]
+                excluded.add(random_champ["name"])
 
-            # 팀별 버튼 스타일 및 이모지
-            team = get_member_team(current_picker)
-            team_emoji = "🔵" if team == "team1" else "🔴"
-            button_style = (
-                discord.ButtonStyle.primary
-                if team == "team1"
-                else discord.ButtonStyle.danger
-            )
+                # 팀별 버튼 스타일 및 이모지
+                team = get_member_team(current_picker)
+                team_emoji = "🔵" if team == "team1" else "🔴"
+                button_style = (
+                    discord.ButtonStyle.primary
+                    if team == "team1"
+                    else discord.ButtonStyle.danger
+                )
 
-            # 모든 채널의 챔피언 버튼 스타일 변경
-            for channel_id, view in champion_views.items():
-                for item in view.children:
-                    if (
-                        isinstance(item, ChampionButton)
-                        and item.champ_name == random_champ["name"]
-                    ):
-                        item.label = f"{team_emoji} {random_champ['name']}"
-                        item.style = button_style
-                        break
+                # 모든 채널의 챔피언 버튼 스타일 변경
+                for channel_id, view in champion_views.items():
+                    for item in view.children:
+                        if (
+                            isinstance(item, ChampionButton)
+                            and item.champ_name == random_champ["name"]
+                        ):
+                            item.label = f"{team_emoji} {random_champ['name']}"
+                            item.style = button_style
+                            break
 
-            # current_pick_index 증가 (embed 업데이트 전에 먼저 증가)
-            current_pick_index += 1
+                # current_pick_index 증가 (embed 업데이트 전에 먼저 증가)
+                current_pick_index += 1
 
-            # 버튼 변경사항을 즉시 Discord에 반영 (타임아웃 메시지 전에 먼저 업데이트)
-            await update_champion_message()
+                # 버튼 변경사항을 즉시 Discord에 반영 (타임아웃 메시지 전에 먼저 업데이트)
+                await update_champion_message()
 
-            # 모든 채널에 타임아웃 메시지 전송 (병렬 처리)
-            # @brief 시간 초과 자동 배정 알림을 단일 채널에 전송한다.
-            async def send_timeout_msg(channel):
-                try:
-                    await channel.send(
-                        f"⏰ **{current_picker.mention}** 님 시간 초과! "
-                        f"{team_emoji} **{random_champ['name']}** 자동 배정되었습니다."
-                    )
-                except:
-                    pass
-
-            await asyncio.gather(
-                *[send_timeout_msg(ch) for ch in current_game_channels],
-                return_exceptions=True,
-            )
-
-            # 모두 선택 완료
-            if len(selected_users) >= MAX_PLAYERS:
-                msg = f"{MAX_PLAYERS}명 모두 선택 완료!\n"
-                for member in pick_order:
-                    champ = selected_users.get(member.id, "❓")
-                    msg += f"- {member.mention}: **{champ}**\n"
-
-                # 모든 채널에 완료 메시지 전송 (병렬 처리)
-                # @brief 전원 선택 완료 메시지와 승리 팀 선택 View를 전송한다.
-                async def send_complete_msg(channel):
+                # 모든 채널에 타임아웃 메시지 전송 (병렬 처리)
+                # @brief 시간 초과 자동 배정 알림을 단일 채널에 전송한다.
+                async def send_timeout_msg(channel):
                     try:
-                        await channel.send(msg)
                         await channel.send(
-                            "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
+                            f"⏰ **{current_picker.mention}** 님 시간 초과! "
+                            f"{team_emoji} **{random_champ['name']}** 자동 배정되었습니다."
                         )
                     except:
                         pass
 
                 await asyncio.gather(
-                    *[send_complete_msg(ch) for ch in current_game_channels],
+                    *[send_timeout_msg(ch) for ch in current_game_channels],
                     return_exceptions=True,
                 )
-            else:
-                # 다음 유저 타이머 시작
-                current_timer_task = asyncio.create_task(
-                    pick_timeout_handler(current_pick_index, game_id)
-                )
+
+                # 모두 선택 완료
+                if len(selected_users) >= MAX_PLAYERS:
+                    msg = f"{MAX_PLAYERS}명 모두 선택 완료!\n"
+                    for member in pick_order:
+                        champ = selected_users.get(member.id, "❓")
+                        msg += f"- {member.mention}: **{champ}**\n"
+
+                    # 모든 채널에 완료 메시지 전송 (병렬 처리)
+                    # @brief 전원 선택 완료 메시지와 승리 팀 선택 View를 전송한다.
+                    async def send_complete_msg(channel):
+                        try:
+                            await channel.send(msg)
+                            await channel.send(
+                                "🎯 승리한 팀을 선택해주세요:", view=VictoryView()
+                            )
+                        except:
+                            pass
+
+                    await asyncio.gather(
+                        *[send_complete_msg(ch) for ch in current_game_channels],
+                        return_exceptions=True,
+                    )
+                else:
+                    # 다음 유저 타이머 시작
+                    current_timer_task = asyncio.create_task(
+                        pick_timeout_handler(current_pick_index, game_id)
+                    )
 
 
 # === 상호작용 공통 가드 ===
@@ -647,13 +651,17 @@ class ChampionButton(Button):
 
     ##
     # @brief 챔피언 버튼 클릭 처리. 턴 검증 후 선택/취소하고 다음 차례로 넘긴다.
+    # @details 가드가 클릭을 직렬화하므로 아래 검증들은 항상 최신 상태를 보고 판단한다.
+    #          (직렬화 전에는 첫 클릭이 응답을 기다리는 사이 두 번째 클릭이 끼어들어
+    #           챔피언 기록 없이 차례만 넘어가는 경우가 있었다)
     # @param interaction 버튼 클릭 상호작용 객체.
+    @interaction_guard()
     async def callback(self, interaction: Interaction):
         global selected_users, excluded, current_pick_index, current_timer_task
 
         # 게임 시작 확인
         if not game_started:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 먼저 '🚀 챔피언 선택 시작' 버튼을 눌러주세요!",
                 ephemeral=True,
             )
@@ -661,13 +669,13 @@ class ChampionButton(Button):
 
         # 픽 순서 확인
         if not pick_order:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 먼저 `/게임시작`으로 게임을 시작해주세요!", ephemeral=True
             )
             return
 
         if current_pick_index >= len(pick_order):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 모든 선택이 완료되었습니다!", ephemeral=True
             )
             return
@@ -677,7 +685,7 @@ class ChampionButton(Button):
         # 턴제 확인 (DEV_MODE가 아닐 때만)
         if not DEV_MODE:
             if interaction.user.id != current_picker.id:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!",
                     ephemeral=True,
                 )
@@ -703,7 +711,7 @@ class ChampionButton(Button):
                         break
 
             # 먼저 interaction에 응답
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"↩️ **{self.champ_name}** 선택 취소",
                 ephemeral=True,
             )
@@ -732,14 +740,14 @@ class ChampionButton(Button):
 
         # 이미 선택된 챔피언
         if self.champ_name in selected_users.values():
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 이미 선택된 챔피언입니다!", ephemeral=True
             )
             return
 
         # 현재 차례 유저가 이미 선택했는지 확인
         if current_picker.id in selected_users:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 이미 챔피언을 선택하셨습니다!", ephemeral=True
             )
             return
@@ -772,8 +780,8 @@ class ChampionButton(Button):
                     item.style = button_style
                     break
 
-        # 먼저 interaction에 응답 (3초 내) - 본인에게만 보임
-        await interaction.response.send_message(
+        # 선택 결과 응답 - 본인에게만 보임
+        await interaction.followup.send(
             f"{team_emoji} **{self.champ_name}** 선택 완료!",
             ephemeral=True,
         )
