@@ -59,6 +59,7 @@ champion_list = []
 excluded = set()
 selected_users = {}  # user_id: champ_name
 MAX_PLAYERS = 6
+DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 폴백(초)
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
 overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
@@ -78,7 +79,8 @@ victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 # === 설정 로드 ===
 ##
 # @brief config.json에서 게임 설정을 로드한다.
-# @details 파일이 없으면 기본값(pick_timeout=60, champion_count=8, channels=[팀짜기,TEAM1,TEAM2])을 반환한다.
+# @details 파일이 없으면 기본값(pick_timeout=DEFAULT_PICK_TIMEOUT, champion_count=8,
+#          channels=[팀짜기,TEAM1,TEAM2])을 반환한다.
 # @return pick_timeout(초), champion_count, channels를 담은 dict.
 def load_config():
     try:
@@ -87,7 +89,7 @@ def load_config():
     except FileNotFoundError:
         print("[WARNING] config.json not found, using defaults")
         return {
-            "pick_timeout": 60,
+            "pick_timeout": DEFAULT_PICK_TIMEOUT,
             "champion_count": 8,
             "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
@@ -316,7 +318,7 @@ async def update_champion_message():
     # Description 및 필드 값 미리 계산 (모든 채널에 동일하게 적용)
     if current_pick_index < len(pick_order):
         current_picker = pick_order[current_pick_index]
-        timeout_val = config.get("pick_timeout", 15)
+        timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
         description = (
             f"## 현재 차례 - {current_picker.mention} 님의 차례입니다!\n\n"
             f"## ⏰ 남은 시간: **{timeout_val}초**"
@@ -357,7 +359,7 @@ async def update_champion_message():
 async def pick_timeout_handler(picker_index):
     global selected_users, excluded, current_pick_index, current_timer_task
 
-    timeout = config.get("pick_timeout", 15)
+    timeout = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
     update_interval = 1
     elapsed = 0
 
@@ -553,7 +555,7 @@ class StartButton(Button):
                     view.remove_item(item)
 
         # Embed description 업데이트 (첫 번째 플레이어 차례)
-        timeout_val = config.get("pick_timeout", 15)
+        timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
         description = (
             f"## 현재 차례 - {pick_order[0].mention} 님의 차례입니다!\n\n"
             f"## ⏰ 남은 시간: **{timeout_val}초**"
@@ -730,7 +732,7 @@ class ChampionButton(Button):
         # Description 및 선택 현황 미리 계산
         if current_pick_index < len(pick_order):
             next_picker = pick_order[current_pick_index]
-            timeout_val = config.get("pick_timeout", 15)
+            timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
             description = (
                 f"## 현재 차례 - {next_picker.mention} 님의 차례입니다!\n\n"
                 f"## ⏰ 남은 시간: **{timeout_val}초**"
