@@ -141,8 +141,11 @@ def record_game(round_num, teams, winner, dev_mode=False):
     # 대상 폴더(data/)가 없으면 생성
     os.makedirs(os.path.dirname(json_path), exist_ok=True)
 
-    with open(json_path, "w", encoding="utf-8") as f:
+    # 임시 파일에 쓴 뒤 교체 (쓰기 중 크래시로 마스터 데이터가 절손되지 않게)
+    tmp_path = json_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, json_path)
 
     # GitHub Pages 자동 반영 (백그라운드, 실패해도 무해 - 다음 성공 업로드가 전체 파일이라 자동 만회)
     upload_async(dev_mode)

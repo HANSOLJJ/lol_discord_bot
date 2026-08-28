@@ -149,11 +149,15 @@ def load_wins():
 
 ##
 # @brief 전적 데이터를 파일에 저장한다(DEV_MODE에 따라 파일 선택).
+# @details 임시 파일에 쓴 뒤 os.replace로 교체한다. 쓰기 도중 크래시가 나도 기존 전적이
+#          절손되지 않는다.
 # @param data 저장할 전적 데이터(load_wins와 동일한 구조).
 def save_wins(data):
     filename = get_wins_file()
-    with open(filename, "w", encoding="utf-8") as f:
+    tmp_filename = filename + ".tmp"
+    with open(tmp_filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_filename, filename)
     print(f"[SAVED] Wins data saved to {filename}")
 
 
