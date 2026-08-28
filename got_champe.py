@@ -339,9 +339,11 @@ def turn_description(picker, deadline_ts):
 
 ##
 # @brief 지금부터 pick_timeout 초 뒤의 마감 유닉스 타임스탬프를 만든다.
+# @details 내림 대신 반올림한다. 내리면 화면 카운트다운이 실제 마감보다 최대 1초 먼저
+#          0에 닿아, 다 셌는데 자동 배정이 안 되는 것처럼 보인다.
 # @return int 마감 시각(초).
 def pick_deadline():
-    return int(time.time()) + config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
+    return round(time.time()) + config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
 
 
 ##
@@ -441,14 +443,14 @@ async def send_pick_complete():
 #          다른 플레이어가 선택을 끝내면 취소되거나 index 검증으로 종료된다.
 # @param picker_index 현재 선택할 플레이어의 인덱스.
 # @param game_id 이 타이머를 건 게임의 세대 번호. 현재 세대와 달라지면(=새 게임 시작) 종료한다.
-async def pick_timeout_handler(picker_index, game_id):
+# @param deadline_ts 마감 시각(유닉스 초). embed에 표시한 값과 같은 값을 받아, 화면
+#                    카운트다운이 0이 되는 순간과 자동 배정 시점을 일치시킨다.
+async def pick_timeout_handler(picker_index, game_id, deadline_ts):
     global selected_users, excluded, current_pick_index, current_timer_task
     global current_pick_deadline
 
-    timeout = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-
     try:
-        await asyncio.sleep(timeout)
+        await asyncio.sleep(max(0, deadline_ts - time.time()))
     except asyncio.CancelledError:
         # 타이머 취소됨 (정상 선택)
         return
@@ -506,7 +508,9 @@ async def pick_timeout_handler(picker_index, game_id):
                     # 다음 차례 시작: 마감 시각을 새로 잡고 타이머를 건다
                     current_pick_deadline = pick_deadline()
                     current_timer_task = asyncio.create_task(
-                        pick_timeout_handler(current_pick_index, game_id)
+                        pick_timeout_handler(
+                            current_pick_index, game_id, current_pick_deadline
+                        )
                     )
 
     if assigned is None:
@@ -656,7 +660,7 @@ class StartButton(Button):
         # 첫 번째 유저 타이머 시작. 마감 시각은 embed의 카운트다운에 함께 쓰인다
         current_pick_deadline = pick_deadline()
         current_timer_task = asyncio.create_task(
-            pick_timeout_handler(0, self.game_id)
+            pick_timeout_handler(0, self.game_id, current_pick_deadline)
         )
         request_embed_update()
 
@@ -771,7 +775,9 @@ class ChampionButton(Button):
                         # (이전 타이머는 index 체크로 스스로 종료)
                         current_pick_deadline = pick_deadline()
                         current_timer_task = asyncio.create_task(
-                            pick_timeout_handler(current_pick_index, self.game_id)
+                            pick_timeout_handler(
+                                current_pick_index, self.game_id, current_pick_deadline
+                            )
                         )
 
         # === 락 밖: 응답과 화면 갱신 (클릭끼리 서로 기다리지 않는다) ===
