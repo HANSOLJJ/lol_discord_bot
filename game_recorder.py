@@ -148,18 +148,26 @@ def get_current_season(dev_mode=False):
 
 
 ##
-# @brief 새 시즌을 시작한다(current_season +1 후 저장·업로드).
+# @brief 현재 시즌 번호를 지정 값으로 설정하고 저장·업로드한다.
 # @details 기존 판 기록은 건드리지 않는다. 각 판이 자기 season 값을 그대로 갖고 있어
 #          대시보드에서 이전 시즌을 계속 조회할 수 있다.
+# @param season 설정할 시즌 번호.
+# @param dev_mode True면 dev 파일 기준.
+# @return int 설정된 시즌 번호.
+def set_current_season(season, dev_mode=False):
+    data = _load_history(dev_mode)
+    data["current_season"] = season
+    _save_history(data, dev_mode)
+    upload_async(dev_mode)
+    return season
+
+
+##
+# @brief 새 시즌을 시작한다(current_season +1).
 # @param dev_mode True면 dev 파일 기준.
 # @return int 새로 시작된 시즌 번호.
 def start_new_season(dev_mode=False):
-    data = _load_history(dev_mode)
-    new_season = _season_of(data) + 1
-    data["current_season"] = new_season
-    _save_history(data, dev_mode)
-    upload_async(dev_mode)
-    return new_season
+    return set_current_season(get_current_season(dev_mode) + 1, dev_mode)
 
 
 ##
