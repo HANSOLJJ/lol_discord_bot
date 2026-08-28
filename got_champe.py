@@ -13,6 +13,7 @@ import os
 import logging
 import asyncio
 import functools
+import copy
 from discord.ui import View, Button, button
 from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
@@ -1022,64 +1023,78 @@ class VictorySelect(Select):
 
     ##
     # @brief 승리 팀 선택 처리. 전적·wins_data·판 기록을 갱신하고 결과를 방송한다.
+    # @details 검증을 전부 통과한 뒤에야 victory_processed를 세운다. 이 순서가 뒤집히면
+    #          픽 미완료 상태의 클릭 한 번으로 그 판이 영구 기록불능이 된다.
     # @param interaction 셀렉트 상호작용 객체.
+    @interaction_guard(ephemeral_defer=True)
     async def callback(self, interaction: Interaction):
         global round_counter, current_teams, wins_data, victory_processed
 
         if victory_processed:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 이미 승리 처리가 완료되었습니다!", ephemeral=True
             )
             return
 
         if not current_teams:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 먼저 `/게임시작`으로 팀을 구성해주세요!", ephemeral=True
             )
             return
 
-        victory_processed = True
-
+        # 전원이 챔피언을 골랐는지 먼저 확인한다 (플래그를 세우기 전에)
         for key in current_teams:
             for member in current_teams[key]:
                 if member.id not in selected_users:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"❌ {member.mention} 님이 챔피언을 선택하지 않았습니다!",
                         ephemeral=True,
                     )
                     return
 
+        victory_processed = True
         team_key = self.values[0]
 
-        # 전적 업데이트 (overall_results + wins_data)
+        # 누적 전적(영구)은 사본에 갱신한 뒤 저장에 성공해야 전역에 반영한다.
+        # 저장이 실패했는데 메모리만 올라가면 다음 판부터 승수가 어긋난다.
+        new_wins = copy.deepcopy(wins_data)
+        for member in current_teams[team_key]:
+            uid_str = str(member.id)
+            if uid_str in new_wins:
+                new_wins[uid_str]["wins"] += 1
+            else:
+                # 새 유저 추가
+                new_wins[uid_str] = {"name": member.display_name, "wins": 1}
+        new_wins["total_rounds"] = new_wins.get("total_rounds", 0) + 1
+
+        try:
+            save_wins(new_wins)
+        except Exception as e:
+            victory_processed = False  # 롤백 - 다시 선택해 복구할 수 있게 한다
+            print(f"[ERROR] 전적 저장 실패: {e}")
+            await interaction.followup.send(
+                f"❌ 전적 저장에 실패했습니다. 다시 선택해주세요: {e}", ephemeral=True
+            )
+            return
+
+        wins_data = new_wins
+
+        # 저장 성공 후에 세션 전적(오늘의 결과)을 반영한다
         for key in current_teams:
             for member in current_teams[key]:
                 uid = member.id
-                uid_str = str(uid)
-
-                # overall_results 업데이트 (세션 전적)
                 if uid not in overall_results:
                     overall_results[uid] = {"mention": member.mention, "results": []}
                 overall_results[uid]["results"].append("O" if key == team_key else "X")
 
-                # wins_data 업데이트 (영구 전적)
-                if key == team_key:  # 승리 팀만
-                    if uid_str in wins_data:
-                        wins_data[uid_str]["wins"] += 1
-                    else:
-                        # 새 유저 추가
-                        wins_data[uid_str] = {"name": member.display_name, "wins": 1}
-
-        # total_rounds 증가
-        wins_data["total_rounds"] = wins_data.get("total_rounds", 0) + 1
-
-        # wins 데이터 파일에 저장
-        save_wins(wins_data)
+        # 라운드 번호 확정. total_rounds와 사이에 await를 두지 않아 두 카운터가 어긋나지 않는다.
+        finished_round = round_counter
+        round_counter += 1
 
         # history_data에 판 기록 (대시보드용) - 실패해도 승리 처리에는 영향 없음
         try:
             season = record_game(
-                round_counter,
+                finished_round,
                 {
                     tk: [
                         {
@@ -1094,7 +1109,7 @@ class VictorySelect(Select):
                 team_key,
                 DEV_MODE,
             )
-            print(f"[RECORD] history_data: 시즌{season} R{round_counter} 기록 완료")
+            print(f"[RECORD] history_data: 시즌{season} R{finished_round} 기록 완료")
             # record_game 내부에서 호스팅 SFTP 업로드까지 처리 (백그라운드, 실패해도 무영향)
         except Exception as e:
             print(f"[WARN] history_data 기록 실패: {e}")
@@ -1106,11 +1121,11 @@ class VictorySelect(Select):
                 for m in current_teams[key]
             )
 
-        embed = Embed(title=f"🏆 ROUND {round_counter} 결과", color=0x44DD88)
+        embed = Embed(title=f"🏆 ROUND {finished_round} 결과", color=0x44DD88)
         embed.add_field(name="TEAM 1", value=format_team("team1"), inline=True)
         embed.add_field(name="TEAM 2", value=format_team("team2"), inline=True)
         embed.add_field(name="승리 팀", value=f"**{team_key.upper()}**", inline=False)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ **{team_key.upper()}** 승리 기록 완료!", ephemeral=True
         )
 
@@ -1127,7 +1142,6 @@ class VictorySelect(Select):
             return_exceptions=True,
         )
 
-        round_counter += 1
         current_teams.clear()
 
         # 전체 전적 출력
@@ -1197,9 +1211,16 @@ class VictoryView(View):
 
 ##
 # @brief /승리 슬래시 커맨드. 해당 라운드의 승리 팀 선택 View를 띄운다.
+# @details 진행 중인 게임이 없거나 이미 승리 처리된 판이면 드롭다운을 띄우지 않는다.
 # @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(name="승리", description="해당 라운드의 승리 팀을 선택합니다.")
 async def 승리(ctx):
+    if not current_teams or victory_processed:
+        await ctx.respond(
+            "⚠️ 승리 처리할 게임이 없습니다. 먼저 `/게임시작`을 실행해주세요!",
+            ephemeral=True,
+        )
+        return
     await ctx.respond("승리한 팀을 선택", view=VictoryView())
 
 
