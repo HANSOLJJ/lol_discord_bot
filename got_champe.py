@@ -14,6 +14,7 @@ import logging
 import asyncio
 import functools
 import copy
+import shutil
 from discord.ui import View, Button, button
 from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
@@ -21,7 +22,12 @@ from dotenv import load_dotenv
 import json
 import unicodedata
 import paths
-from game_recorder import record_game
+from game_recorder import (
+    record_game,
+    get_current_season,
+    start_new_season,
+    SeasonMismatchError,
+)
 
 intents = discord.Intents.default()
 intents.presences = True
@@ -1163,6 +1169,17 @@ class VictorySelect(Select):
             )
             print(f"[RECORD] history_data: 시즌{season} R{finished_round} 기록 완료")
             # record_game 내부에서 호스팅 SFTP 업로드까지 처리 (백그라운드, 실패해도 무영향)
+        except SeasonMismatchError as e:
+            # 라운드가 회귀했는데 시즌이 그대로 = wins가 리셋됐는데 /시즌시작을 안 한 상황.
+            # 잘못된 시즌으로 기록하느니 멈추고 알린다 (승수 저장은 이미 끝났다).
+            print(f"[WARN] history_data 기록 중단: {e}")
+            await asyncio.gather(
+                *[
+                    ch.send(f"⚠️ 판 기록이 중단되었습니다.\n{e}")
+                    for ch in current_game_channels
+                ],
+                return_exceptions=True,
+            )
         except Exception as e:
             print(f"[WARN] history_data 기록 실패: {e}")
 
@@ -1321,6 +1338,146 @@ async def 누적결과(ctx):
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     await ctx.respond(msg)
+
+
+# === 시즌 시작 ===
+##
+# @brief /시즌시작 확인 UI. 오클릭 방지용 확인/취소 버튼을 제공한다.
+# @details 전적을 초기화하는 되돌리기 어려운 동작이라 확인을 한 단계 둔다. ephemeral로
+#          띄우므로 실행자 본인에게만 보이고, done 플래그가 연타를 막는다.
+class SeasonConfirmView(View):
+
+    ##
+    # @brief 확인 View를 초기화한다(30초 후 자동 만료).
+    def __init__(self):
+        super().__init__(timeout=30)
+        self.done = False
+
+    ##
+    # @brief 새 시즌 시작 확정. 승수를 백업·초기화하고 시즌 번호를 올린다.
+    # @details 승수 초기화를 먼저, 시즌 번호 갱신을 나중에 한다. 중간에 실패하면 다음
+    #          /승리가 SeasonMismatchError로 시끄럽게 멈춰 운영자가 알아차릴 수 있다
+    #          (반대 순서면 라운드만 이어지면서 조용히 오염된다).
+    # @param button 눌린 버튼 객체.
+    # @param interaction 버튼 클릭 상호작용 객체.
+    @button(label="✅ 새 시즌 시작", style=discord.ButtonStyle.success)
+    async def confirm(self, button, interaction: Interaction):
+        global wins_data, round_counter
+
+        if self.done:
+            await interaction.response.send_message(
+                "⚠️ 이미 처리 중입니다.", ephemeral=True
+            )
+            return
+        self.done = True
+
+        # 확인을 기다리는 사이 게임이 시작됐을 수 있다
+        if current_teams:
+            self.disable_all_items()
+            self.stop()
+            await interaction.response.edit_message(
+                content="⚠️ 진행 중인 게임이 있어 취소되었습니다.", view=None
+            )
+            return
+
+        self.disable_all_items()
+        await interaction.response.edit_message(
+            content="⏳ 시즌 초기화 중...", view=self
+        )
+
+        try:
+            old_season = get_current_season(DEV_MODE)
+
+            # 1) 현재 승수 백업
+            backup_path = paths.season_backup_file(DEV_MODE, old_season)
+            wins_path = get_wins_file()
+            if os.path.exists(wins_path):
+                os.makedirs(paths.BACKUP_DIR, exist_ok=True)
+                shutil.copy2(wins_path, backup_path)
+
+            # 2) 승수 초기화. 멤버 항목은 유지한다
+            #    (/게임시작이 wins 파일의 항목으로 참가자 목록을 만든다)
+            new_wins = {"total_rounds": 0}
+            for uid, data in wins_data.items():
+                if uid == "total_rounds" or not isinstance(data, dict):
+                    continue
+                new_wins[uid] = {"name": data.get("name", "???"), "wins": 0}
+            save_wins(new_wins)
+            wins_data = new_wins
+
+            # 3) 시즌 번호 +1. 기존 판 기록은 그대로라 이전 시즌 조회가 계속 가능하다
+            new_season = start_new_season(DEV_MODE)
+
+            # 4) 라운드 1부터 재시작
+            round_counter = 1
+        except Exception as e:
+            print(f"[ERROR] 시즌 초기화 실패: {e}")
+            self.stop()
+            await interaction.followup.send(
+                f"❌ 시즌 초기화에 실패했습니다: {e}", ephemeral=True
+            )
+            return
+
+        self.stop()
+        print(f"[SEASON] 시즌 {new_season} 시작 (백업: {backup_path})")
+
+        await interaction.edit_original_response(
+            content=f"✅ **시즌 {new_season}** 시작 완료\n백업: `{backup_path}`",
+            view=None,
+        )
+
+        # 모든 게임 채널에 공지
+        channels = get_game_channels(interaction.guild, interaction.channel)
+        await asyncio.gather(
+            *[
+                ch.send(
+                    f"🆕 **시즌 {new_season} 시작!** 전적이 초기화되었습니다.\n"
+                    f"이전 시즌 기록은 대시보드에서 계속 볼 수 있습니다."
+                )
+                for ch in channels
+            ],
+            return_exceptions=True,
+        )
+
+    ##
+    # @brief 취소 버튼. 아무것도 바꾸지 않고 확인 UI를 닫는다.
+    # @param button 눌린 버튼 객체.
+    # @param interaction 버튼 클릭 상호작용 객체.
+    @button(label="취소", style=discord.ButtonStyle.secondary)
+    async def cancel(self, button, interaction: Interaction):
+        self.done = True
+        self.disable_all_items()
+        self.stop()
+        await interaction.response.edit_message(content="↩️ 취소되었습니다.", view=None)
+
+
+##
+# @brief /시즌시작 슬래시 커맨드. 현재 시즌을 마감하고 새 시즌을 시작한다.
+# @details 승수를 backup/에 보관한 뒤 0으로 초기화하고 라운드를 1부터 다시 센다.
+#          예전에는 wins 파일을 직접 지워서 시즌을 넘겼는데, 그러면 파일 유실 사고와
+#          구분되지 않아 유령 시즌이 생길 수 있었다.
+# @param ctx 슬래시 커맨드 상호작용 컨텍스트.
+@bot.slash_command(
+    name="시즌시작", description="현재 시즌을 마감하고 새 시즌을 시작합니다 (전적 초기화)."
+)
+async def 시즌시작(ctx):
+    if current_teams:
+        await ctx.respond(
+            "⚠️ 진행 중인 게임이 있습니다. `/승리`로 마무리한 뒤 실행해주세요!",
+            ephemeral=True,
+        )
+        return
+
+    current = get_current_season(DEV_MODE)
+    await ctx.respond(
+        f"⚠️ **시즌 {current} 마감 → 시즌 {current + 1} 시작**\n\n"
+        f"- 현재 승수를 `backup/`에 백업한 뒤 전원 0승으로 초기화합니다\n"
+        f"- 라운드를 1부터 다시 셉니다\n"
+        f"- 이전 시즌 기록은 대시보드에서 계속 조회할 수 있습니다\n\n"
+        f"정말 진행할까요?",
+        view=SeasonConfirmView(),
+        ephemeral=True,
+    )
 
 
 # === 봇 시작 시 챔피언 로드 ===
