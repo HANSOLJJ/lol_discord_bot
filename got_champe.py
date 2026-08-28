@@ -12,6 +12,7 @@ import random
 import os
 import logging
 import asyncio
+import functools
 from discord.ui import View, Button, button
 from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
@@ -74,6 +75,8 @@ current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
 current_game_champions = []  # 현재 게임에서 제시된 챔피언 리스트
 game_started = False  # 게임이 시작되었는지 여부 (시작 버튼 눌렀는지)
 victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
+current_game_id = 0  # 게임 세대 번호(/게임시작마다 +1) - 이전 게임의 버튼·타이머 무효화용
+pick_lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (연타·타이머 동시 실행 방지)
 
 
 # === 설정 로드 ===
@@ -356,7 +359,8 @@ async def update_champion_message():
 # @details 매 1초마다 남은 시간을 모든 채널 embed에 갱신하고, 시간 초과 시 현재 게임 챔피언
 #          중 랜덤으로 자동 배정한다. 다른 플레이어가 선택을 끝내면 index 검증으로 자동 종료된다.
 # @param picker_index 현재 선택할 플레이어의 인덱스.
-async def pick_timeout_handler(picker_index):
+# @param game_id 이 타이머를 건 게임의 세대 번호. 현재 세대와 달라지면(=새 게임 시작) 종료한다.
+async def pick_timeout_handler(picker_index, game_id):
     global selected_users, excluded, current_pick_index, current_timer_task
 
     timeout = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
@@ -367,9 +371,9 @@ async def pick_timeout_handler(picker_index):
         while elapsed < timeout:
             remaining = timeout - elapsed
 
-            # 이 타이머가 여전히 현재 차례인지 확인
-            if picker_index != current_pick_index:
-                # 이미 다음 차례로 넘어갔으면 타이머 종료
+            # 이 타이머가 여전히 현재 게임의 현재 차례인지 확인
+            if picker_index != current_pick_index or game_id != current_game_id:
+                # 다음 차례로 넘어갔거나 새 게임이 시작되었으면 타이머 종료
                 return
 
             # 모든 채널의 메시지 업데이트 (남은 시간 표시) - 병렬 처리
@@ -410,8 +414,8 @@ async def pick_timeout_handler(picker_index):
         return
 
     # 타임아웃 후에도 선택 안했으면 자동 배정
-    # 이 타이머가 여전히 현재 차례인지 재확인
-    if picker_index != current_pick_index:
+    # 이 타이머가 여전히 현재 게임의 현재 차례인지 재확인
+    if picker_index != current_pick_index or game_id != current_game_id:
         return
 
     current_picker = pick_order[picker_index]
@@ -493,8 +497,50 @@ async def pick_timeout_handler(picker_index):
             else:
                 # 다음 유저 타이머 시작
                 current_timer_task = asyncio.create_task(
-                    pick_timeout_handler(current_pick_index)
+                    pick_timeout_handler(current_pick_index, game_id)
                 )
+
+
+# === 상호작용 공통 가드 ===
+##
+# @brief 버튼·셀렉트 콜백의 공통 처리(낡은 게임 차단 → 3초 응답 확보 → 상태 변경 직렬화).
+# @details 클릭의 "운송"만 책임진다. 클릭의 의미(중복인지 의도된 취소인지, 검증 순서, 실패
+#          롤백)는 각 콜백 본문이 판단한다.
+#          ① self.game_id가 현재 세대와 다르면 이전 게임의 버튼이므로 거부한다.
+#          ② defer로 디스코드에 즉시 ACK해 3초 제한을 푼다. 따라서 콜백 본문은
+#             interaction.response 대신 interaction.followup을 써야 한다.
+#          ③ pick_lock으로 직렬화한다. 본문 중간의 await 사이에 다른 클릭이 끼어들어
+#             상태를 바꾸는 race가 사라지므로, 본문은 검증 순서를 의미대로 배치하면 된다.
+# @param ephemeral_defer True면 클릭자에게만 "생각 중"을 표시하고, False면 무표시로 ACK한다.
+def interaction_guard(ephemeral_defer=False):
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(self, interaction: Interaction, *args, **kwargs):
+            if getattr(self, "game_id", current_game_id) != current_game_id:
+                await interaction.response.send_message(
+                    "⚠️ 이전 게임의 버튼입니다!", ephemeral=True
+                )
+                return
+
+            await interaction.response.defer(
+                invisible=not ephemeral_defer, ephemeral=ephemeral_defer
+            )
+
+            async with pick_lock:
+                try:
+                    await func(self, interaction, *args, **kwargs)
+                except Exception as e:
+                    print(f"[ERROR] {func.__qualname__} 처리 실패: {e}")
+                    try:
+                        await interaction.followup.send(
+                            f"❌ 처리 중 오류가 발생했습니다: {e}", ephemeral=True
+                        )
+                    except Exception:
+                        pass
+
+        return wrapper
+
+    return decorator
 
 
 # === 시작 버튼 클래스 ===
@@ -504,22 +550,24 @@ async def pick_timeout_handler(picker_index):
 class StartButton(Button):
 
     ##
-    # @brief 시작 버튼 라벨·스타일·custom_id를 설정한다.
+    # @brief 시작 버튼 라벨·스타일·custom_id를 설정하고 생성 시점의 게임 세대를 기억한다.
     def __init__(self):
         super().__init__(
             label="🚀 챔피언 선택 시작",
             style=discord.ButtonStyle.success,
             custom_id="start_button",
         )
+        self.game_id = current_game_id
 
     ##
     # @brief 시작 버튼 클릭 처리. 게임을 시작하고 첫 플레이어 타이머를 건다.
     # @param interaction 버튼 클릭 상호작용 객체.
+    @interaction_guard()
     async def callback(self, interaction: Interaction):
         global game_started, current_timer_task
 
         if game_started:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "⚠️ 이미 게임이 시작되었습니다!", ephemeral=True
             )
             return
@@ -527,7 +575,7 @@ class StartButton(Button):
         # 게임 시작
         game_started = True
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "🚀 **챔피언 선택을 시작합니다!**", ephemeral=False
         )
 
@@ -576,7 +624,9 @@ class StartButton(Button):
         await asyncio.gather(*tasks, return_exceptions=True)
 
         # 첫 번째 유저 타이머 시작
-        current_timer_task = asyncio.create_task(pick_timeout_handler(0))
+        current_timer_task = asyncio.create_task(
+            pick_timeout_handler(0, self.game_id)
+        )
 
 
 # === 챔피언 선택 버튼 클래스 ===
@@ -587,11 +637,12 @@ class StartButton(Button):
 class ChampionButton(Button):
 
     ##
-    # @brief 챔피언 이름으로 버튼을 초기화한다.
+    # @brief 챔피언 이름으로 버튼을 초기화하고 생성 시점의 게임 세대를 기억한다.
     # @param champ_name 이 버튼이 나타내는 챔피언 이름.
     def __init__(self, champ_name):
         super().__init__(label=champ_name, style=discord.ButtonStyle.secondary)
         self.champ_name = champ_name
+        self.game_id = current_game_id
 
     ##
     # @brief 챔피언 버튼 클릭 처리. 턴 검증 후 선택/취소하고 다음 차례로 넘긴다.
@@ -787,7 +838,7 @@ class ChampionButton(Button):
         else:
             # 다음 유저 타이머 시작 (이전 타이머는 자동으로 index 체크로 종료됨)
             current_timer_task = asyncio.create_task(
-                pick_timeout_handler(current_pick_index)
+                pick_timeout_handler(current_pick_index, self.game_id)
             )
 
 
@@ -802,6 +853,7 @@ class ChampionButton(Button):
 async def 게임시작(ctx):
     global current_teams, selected_users, pick_order, current_pick_index, current_timer_task
     global champion_messages, champion_views, current_game_champions, game_started, current_game_channels, victory_processed
+    global current_game_id
 
     if DEV_MODE:
         # DEV_MODE: wins.json에서 가상 유저 생성
@@ -836,6 +888,12 @@ async def 게임시작(ctx):
             return
 
     # 게임 상태 초기화
+    # 세대를 올려 이전 게임의 버튼·드롭다운을 무효화하고, 살아있는 타이머를 끊는다.
+    # (취소하지 않으면 이전 게임 타이머가 새 게임에 자동 배정을 쏠 수 있다)
+    current_game_id += 1
+    if current_timer_task and not current_timer_task.done():
+        current_timer_task.cancel()
+    current_timer_task = None
     selected_users.clear()
     game_started = False
     victory_processed = False
@@ -941,6 +999,7 @@ class VictorySelect(Select):
 
     ##
     # @brief 양 팀 옵션(팀명 + 픽한 챔피언 목록)을 만들어 셀렉트를 초기화한다.
+    # @details 생성 시점의 게임 세대를 기억해 이전 판의 드롭다운 조작을 막는다.
     def __init__(self):
         # @brief 팀 멤버가 고른 챔피언들을 라벨 문자열로 만든다.
         def label_with_champs(team_key):
@@ -959,6 +1018,7 @@ class VictorySelect(Select):
             min_values=1,
             max_values=1,
         )
+        self.game_id = current_game_id
 
     ##
     # @brief 승리 팀 선택 처리. 전적·wins_data·판 기록을 갱신하고 결과를 방송한다.
