@@ -148,6 +148,17 @@ def get_current_season(dev_mode=False):
 
 
 ##
+# @brief 특정 시즌에 기록된 판 수를 센다.
+# @param season 셀 시즌 번호.
+# @param dev_mode True면 dev 파일 기준.
+# @return int 해당 시즌의 판 수.
+def count_games_in_season(season, dev_mode=False):
+    return sum(
+        1 for g in _load_history(dev_mode)["games"] if g.get("season") == season
+    )
+
+
+##
 # @brief 현재 시즌 번호를 지정 값으로 설정하고 저장·업로드한다.
 # @details 기존 판 기록은 건드리지 않는다. 각 판이 자기 season 값을 그대로 갖고 있어
 #          대시보드에서 이전 시즌을 계속 조회할 수 있다.

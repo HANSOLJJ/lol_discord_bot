@@ -18,7 +18,7 @@ import os
 import shutil
 
 import paths
-from game_recorder import get_current_season, set_current_season
+from game_recorder import count_games_in_season, get_current_season, set_current_season
 
 
 ##
@@ -37,6 +37,9 @@ def main():
     parser.add_argument("--dev", action="store_true", help="dev 파일 대상")
     parser.add_argument("--backup", help="복원할 승수 백업 파일 (기본: 가장 최근)")
     parser.add_argument("--yes", action="store_true", help="실제로 실행")
+    parser.add_argument(
+        "--force", action="store_true", help="되돌릴 시즌에 판이 있어도 강행"
+    )
     args = parser.parse_args()
 
     dev = args.dev
@@ -54,6 +57,17 @@ def main():
         print(f"[ERROR] 현재 시즌이 {current}이라 더 되돌릴 수 없습니다.")
         return 1
 
+    # 되돌릴 시즌에 이미 판이 있으면 시즌 번호가 뒤섞인다. 판 기록은 건드리지 않으므로
+    # 그 판들은 시즌 {current}로 남고, 다음 판부터 시즌 {target}으로 기록되기 때문이다.
+    recorded = count_games_in_season(current, dev)
+    if recorded and not args.force:
+        print(f"[ERROR] 시즌 {current}에 이미 {recorded}판이 기록돼 있습니다.")
+        print(f"        되돌리면 그 {recorded}판은 시즌 {current}로 남고 이후 판은")
+        print(f"        시즌 {target}으로 기록되어 시즌 번호가 뒤섞입니다.")
+        print("        /시즌시작을 실수로 눌렀고 아직 판을 안 했을 때 쓰는 도구입니다.")
+        print("        그래도 강행하려면 --force 를 붙이세요.")
+        return 1
+
     with open(backup_path, encoding="utf-8") as f:
         backup_wins = json.load(f)
     members = [k for k in backup_wins if k != "total_rounds"]
@@ -63,6 +77,8 @@ def main():
     print(f"승수 복원     : {backup_path} -> {wins_path}")
     print(f"                (총 {backup_wins.get('total_rounds')}라운드, {len(members)}명)")
     print("판 기록       : 건드리지 않음 (games 배열 그대로)")
+    if recorded:
+        print(f"                ⚠️ 시즌 {current}에 {recorded}판 있음 (--force 강행)")
     if not dev:
         print("업로드        : 복원 결과를 GitHub(lol_arena)에 반영")
 
