@@ -599,6 +599,28 @@ def interaction_guard(defer=False):
 
 
 ##
+# @brief 이전 게임의 챔피언 선택 메시지를 종료 상태로 바꾼다(버튼 제거 + 종료 표시).
+# @details 새 게임이 시작되면 이전 메시지의 버튼과 카운트다운은 의미가 없다. 그런데
+#          그냥 두면 마감 시각이 계속 상대 시각으로 렌더링돼서("N초 전 마감") 이전 판이
+#          아직 진행 중인 것처럼 보인다. 버튼을 떼고 종료됐음을 명시한다.
+# @param messages 정리할 이전 게임의 메시지 리스트.
+# @return 없음.
+async def close_champion_messages(messages):
+    # @brief 단일 메시지를 종료 표시로 바꾸고 버튼을 제거한다.
+    async def close_one(message):
+        try:
+            embed = message.embeds[0].copy()
+            embed.description = "## ⏹️ 종료된 게임입니다"
+            await message.edit(embed=embed, view=None)
+        except Exception:
+            pass  # 메시지가 지워졌거나 편집 실패해도 무해
+
+    await asyncio.gather(
+        *[close_one(message) for message in messages], return_exceptions=True
+    )
+
+
+##
 # @brief 띄워둔 승리 팀 드롭다운을 모두 비활성화한다.
 # @details 승리가 확정된 뒤에도 3채널의 드롭다운이 계속 눌리는 것을 막는다. 메시지가
 #          지워졌거나 편집에 실패해도 무시한다(정합성은 victory_processed가 담당).
@@ -876,8 +898,14 @@ async def 게임시작(ctx):
     game_started = False
     victory_processed = False
     current_pick_index = 0
+
+    # 이전 게임의 챔피언 선택 메시지 정리는 백그라운드로 (새 게임 시작을 지연시키지 않는다)
+    old_messages = list(champion_messages.values())
     champion_messages.clear()
     champion_views.clear()
+    if old_messages:
+        asyncio.create_task(close_champion_messages(old_messages))
+
     half = MAX_PLAYERS // 2
 
     if DEV_MODE:
