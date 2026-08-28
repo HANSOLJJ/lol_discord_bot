@@ -15,6 +15,7 @@ import asyncio
 import functools
 import copy
 import shutil
+import time
 from discord.ui import View, Button, button
 from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
@@ -85,6 +86,9 @@ victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 current_game_id = 0  # 게임 세대 번호(/게임시작마다 +1) - 이전 게임의 버튼·타이머 무효화용
 pick_lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (연타·타이머 동시 실행 방지)
 victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처리 후 비활성화용)
+embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
+embed_update_task = None  # 화면 갱신을 밀고 있는 태스크
+current_pick_deadline = 0  # 현재 차례의 선택 마감 시각(유닉스 초) - embed 카운트다운용
 
 
 # === 설정 로드 ===
@@ -319,46 +323,25 @@ def get_selection_status():
 
 
 ##
-# @brief 모든 채널의 챔피언 선택 embed을 병렬로 업데이트한다.
-# @details description에 현재 차례 플레이어와 남은 시간을, field 0에 선택 현황을 표시한다.
-#          embed description은 일반 field보다 크게 보이며, asyncio.gather로 모든 채널을 동시 갱신한다.
-async def update_champion_message():
-    if not champion_messages or not pick_order:
-        return
+# @brief 현재 차례 안내 문구를 만든다(남은 시간은 디스코드 상대 시각으로 표시).
+# @details `<t:유닉스초:R>`은 각 클라이언트가 스스로 카운트다운하므로 서버가 매초 embed을
+#          편집할 필요가 없다. 예전엔 1초마다 채널 수만큼 편집을 날려서 디스코드 편집
+#          rate limit을 다 써버렸고, 그 탓에 픽할 때 화면 갱신이 밀렸다.
+# @param picker 현재 차례인 멤버.
+# @param deadline_ts 선택 마감 시각(유닉스 타임스탬프, 초).
+# @return embed description 문자열.
+def turn_description(picker, deadline_ts):
+    return (
+        f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n"
+        f"## ⏰ 마감 <t:{deadline_ts}:R>"
+    )
 
-    # Description 및 필드 값 미리 계산 (모든 채널에 동일하게 적용)
-    if current_pick_index < len(pick_order):
-        current_picker = pick_order[current_pick_index]
-        timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-        description = (
-            f"## 현재 차례 - {current_picker.mention} 님의 차례입니다!\n\n"
-            f"## ⏰ 남은 시간: **{timeout_val}초**"
-        )
-    else:
-        description = "## ✅ 모든 선택 완료!"
 
-    selection_status = get_selection_status()
-
-    # 각 채널 업데이트 태스크 생성
-    # @brief 단일 채널 embed을 복사·수정 후 반영한다.
-    async def update_single_channel(channel_id, message):
-        try:
-            embed = message.embeds[0].copy()  # embed 복사하여 독립적으로 수정
-            embed.description = description
-            embed.set_field_at(
-                0,  # 선택 현황 필드
-                name="선택 현황 및 픽순",
-                value=selection_status,
-                inline=False,
-            )
-            view = champion_views.get(channel_id)
-            await message.edit(embed=embed, view=view)
-        except Exception as e:
-            print(f"[ERROR] Failed to update message in channel {channel_id}: {e}")
-
-    # 모든 채널 동시 업데이트 (병렬 처리)
-    tasks = [update_single_channel(cid, msg) for cid, msg in champion_messages.items()]
-    await asyncio.gather(*tasks, return_exceptions=True)
+##
+# @brief 지금부터 pick_timeout 초 뒤의 마감 유닉스 타임스탬프를 만든다.
+# @return int 마감 시각(초).
+def pick_deadline():
+    return int(time.time()) + config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
 
 
 ##
@@ -390,6 +373,40 @@ async def broadcast_embed_update(selection_status, description=None):
 
 
 ##
+# @brief 채널 embed 갱신을 예약한다. 연속된 요청은 하나로 합쳐진다.
+# @details 픽이 몰아칠 때 중간 상태를 전부 밀어넣으면 디스코드 편집 rate limit에 걸려
+#          오히려 화면이 늦게 따라온다. 화면에 필요한 건 마지막 상태뿐이므로 합쳐서 민다.
+#          내용은 미는 시점에 현재 상태에서 다시 만든다 — 요청이 어떤 순서로 들어오든
+#          화면에 최신 상태가 남게 하기 위해서다(응답 전송이 끼면 요청 순서가 뒤섞인다).
+# @return 없음.
+def request_embed_update():
+    global embed_update_pending, embed_update_task
+
+    embed_update_pending = True
+    if embed_update_task is None or embed_update_task.done():
+        embed_update_task = asyncio.create_task(flush_embed_updates())
+
+
+##
+# @brief 예약된 embed 갱신을 밀어낸다. 미는 동안 새 요청이 오면 최신 상태로 한 번 더 민다.
+# @return 없음.
+async def flush_embed_updates():
+    global embed_update_pending
+
+    while embed_update_pending:
+        embed_update_pending = False
+
+        if pick_order and current_pick_index < len(pick_order):
+            description = turn_description(
+                pick_order[current_pick_index], current_pick_deadline
+            )
+        else:
+            description = "## ✅ 모든 선택 완료!"
+
+        await broadcast_embed_update(get_selection_status(), description)
+
+
+##
 # @brief 전원 픽 완료 메시지와 승리 팀 선택 View를 모든 게임 채널에 보낸다.
 # @details 띄운 드롭다운은 victory_messages에 담아 승리 처리 후 일괄 비활성화할 수 있게 한다.
 # @return 없음.
@@ -418,59 +435,20 @@ async def send_pick_complete():
 # === 개인별 선택 타이머 ===
 ##
 # @brief 개인별 챔피언 선택 타이머를 관리한다.
-# @details 매 1초마다 남은 시간을 모든 채널 embed에 갱신하고, 시간 초과 시 현재 게임 챔피언
-#          중 랜덤으로 자동 배정한다. 다른 플레이어가 선택을 끝내면 index 검증으로 자동 종료된다.
+# @details 마감까지 기다렸다가, 그때도 선택이 없으면 현재 게임 챔피언 중 랜덤으로 자동
+#          배정한다. 남은 시간 표시는 embed의 `<t:...:R>`을 각 클라이언트가 스스로
+#          카운트다운하므로 여기서 매초 편집하지 않는다(편집 rate limit 절약).
+#          다른 플레이어가 선택을 끝내면 취소되거나 index 검증으로 종료된다.
 # @param picker_index 현재 선택할 플레이어의 인덱스.
 # @param game_id 이 타이머를 건 게임의 세대 번호. 현재 세대와 달라지면(=새 게임 시작) 종료한다.
 async def pick_timeout_handler(picker_index, game_id):
     global selected_users, excluded, current_pick_index, current_timer_task
+    global current_pick_deadline
 
     timeout = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-    update_interval = 1
-    elapsed = 0
 
     try:
-        while elapsed < timeout:
-            remaining = timeout - elapsed
-
-            # 이 타이머가 여전히 현재 게임의 현재 차례인지 확인
-            if picker_index != current_pick_index or game_id != current_game_id:
-                # 다음 차례로 넘어갔거나 새 게임이 시작되었으면 타이머 종료
-                return
-
-            # 모든 채널의 메시지 업데이트 (남은 시간 표시) - 병렬 처리
-            if champion_messages and pick_order and picker_index < len(pick_order):
-                current_picker = pick_order[picker_index]
-                description = (
-                    f"## 현재 차례 - {current_picker.mention} 님의 차례입니다!\n\n"
-                    f"## ⏰ 남은 시간: **{remaining}초**"
-                )
-
-                # @brief 남은 시간·선택 현황을 반영해 단일 채널 embed을 갱신한다.
-                async def update_timer(channel_id, message):
-                    try:
-                        embed = message.embeds[0].copy()
-                        embed.description = description
-                        # 선택 현황도 함께 업데이트 (선택 완료 상태 반영)
-                        embed.set_field_at(
-                            0,
-                            name="선택 현황 및 픽순",
-                            value=get_selection_status(),
-                            inline=False,
-                        )
-                        view = champion_views.get(channel_id)
-                        await message.edit(embed=embed, view=view)
-                    except:
-                        pass  # 메시지 삭제됨 등의 에러 무시
-
-                tasks = [
-                    update_timer(cid, msg) for cid, msg in champion_messages.items()
-                ]
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-            await asyncio.sleep(update_interval)
-            elapsed += update_interval
-
+        await asyncio.sleep(timeout)
     except asyncio.CancelledError:
         # 타이머 취소됨 (정상 선택)
         return
@@ -479,8 +457,6 @@ async def pick_timeout_handler(picker_index, game_id):
     # 픽 버튼과 같은 락으로 상태 변경만 직렬화하고, 통신은 락 밖에서 한다.
     assigned = None  # (배정된 챔피언 이름, 팀 이모지) - 배정이 일어났을 때만 채워진다
     all_picked = False
-    selection_status = None
-    description = None
 
     async with pick_lock:
         # 락을 기다리는 사이 사람이 이미 골랐을 수 있으므로 재확인한다
@@ -525,20 +501,10 @@ async def pick_timeout_handler(picker_index, game_id):
                 current_pick_index += 1
                 assigned = (champ_name, team_emoji)
                 all_picked = len(selected_users) >= MAX_PLAYERS
-                selection_status = get_selection_status()
-
-                if current_pick_index < len(pick_order):
-                    next_picker = pick_order[current_pick_index]
-                    timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-                    description = (
-                        f"## 현재 차례 - {next_picker.mention} 님의 차례입니다!\n\n"
-                        f"## ⏰ 남은 시간: **{timeout_val}초**"
-                    )
-                else:
-                    description = "## ✅ 모든 선택 완료!"
 
                 if not all_picked:
-                    # 다음 유저 타이머 시작
+                    # 다음 차례 시작: 마감 시각을 새로 잡고 타이머를 건다
+                    current_pick_deadline = pick_deadline()
                     current_timer_task = asyncio.create_task(
                         pick_timeout_handler(current_pick_index, game_id)
                     )
@@ -548,7 +514,7 @@ async def pick_timeout_handler(picker_index, game_id):
 
     # === 락 밖: 화면 갱신과 알림 ===
     champ_name, team_emoji = assigned
-    await broadcast_embed_update(selection_status, description)
+    request_embed_update()
 
     # @brief 시간 초과 자동 배정 알림을 단일 채널에 전송한다.
     async def send_timeout_msg(channel):
@@ -647,7 +613,7 @@ class StartButton(Button):
     # @param interaction 버튼 클릭 상호작용 객체.
     @interaction_guard()
     async def callback(self, interaction: Interaction):
-        global game_started, current_timer_task
+        global game_started, current_timer_task, current_pick_deadline
 
         # 임계 구역: 시작 여부 확인과 설정만 (연타로 두 번 시작되는 것을 막는다)
         async with pick_lock:
@@ -687,31 +653,12 @@ class StartButton(Button):
                 if isinstance(item, StartButton):
                     view.remove_item(item)
 
-        # Embed description 업데이트 (첫 번째 플레이어 차례)
-        timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-        description = (
-            f"## 현재 차례 - {pick_order[0].mention} 님의 차례입니다!\n\n"
-            f"## ⏰ 남은 시간: **{timeout_val}초**"
-        )
-
-        # 모든 채널의 메시지 업데이트 (병렬 처리)
-        # @brief 시작 시점의 embed description을 단일 채널에 반영한다.
-        async def update_start(channel_id, message):
-            try:
-                embed = message.embeds[0].copy()
-                embed.description = description
-                view = champion_views.get(channel_id)
-                await message.edit(embed=embed, view=view)
-            except:
-                pass
-
-        tasks = [update_start(cid, msg) for cid, msg in champion_messages.items()]
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-        # 첫 번째 유저 타이머 시작
+        # 첫 번째 유저 타이머 시작. 마감 시각은 embed의 카운트다운에 함께 쓰인다
+        current_pick_deadline = pick_deadline()
         current_timer_task = asyncio.create_task(
             pick_timeout_handler(0, self.game_id)
         )
+        request_embed_update()
 
 
 # === 챔피언 선택 버튼 클래스 ===
@@ -756,10 +703,9 @@ class ChampionButton(Button):
     @interaction_guard()
     async def callback(self, interaction: Interaction):
         global selected_users, excluded, current_pick_index, current_timer_task
+        global current_pick_deadline
 
         result = None  # None=거절 / "cancel"=선택 취소 / "pick"=선택 확정
-        description = None  # 취소 때는 현재 차례 표시를 유지해야 하므로 None
-        selection_status = None
         all_picked = False
 
         # === 임계 구역: 상태 판단과 변경만 (디스코드 통신 없음) ===
@@ -820,25 +766,13 @@ class ChampionButton(Button):
                     reply = f"{team_emoji} **{self.champ_name}** 선택 완료!"
                     all_picked = len(selected_users) >= MAX_PLAYERS
 
-                    if current_pick_index < len(pick_order):
-                        next_picker = pick_order[current_pick_index]
-                        timeout_val = config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-                        description = (
-                            f"## 현재 차례 - {next_picker.mention} 님의 차례입니다!\n\n"
-                            f"## ⏰ 남은 시간: **{timeout_val}초**"
-                        )
-                    else:
-                        description = "## ✅ 모든 선택 완료!"
-
                     if not all_picked:
-                        # 다음 유저 타이머 시작 (이전 타이머는 index 체크로 스스로 종료)
+                        # 다음 차례 시작: 마감 시각을 새로 잡고 타이머를 건다
+                        # (이전 타이머는 index 체크로 스스로 종료)
+                        current_pick_deadline = pick_deadline()
                         current_timer_task = asyncio.create_task(
                             pick_timeout_handler(current_pick_index, self.game_id)
                         )
-
-            # 화면에 쓸 문자열도 락 안에서 확정해 둔다
-            if result:
-                selection_status = get_selection_status()
 
         # === 락 밖: 응답과 화면 갱신 (클릭끼리 서로 기다리지 않는다) ===
         await interaction.response.send_message(reply, ephemeral=True)
@@ -846,7 +780,7 @@ class ChampionButton(Button):
         if result is None:
             return
 
-        await broadcast_embed_update(selection_status, description)
+        request_embed_update()
 
         if all_picked:
             await send_pick_complete()
