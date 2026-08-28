@@ -38,7 +38,7 @@ Cloudflare **Workers**는 정확히 이 두 번째 방식을 위한 물건이다
 | GitHub PUT 파이프라인 | **쉬움** | requests→fetch, 데몬 스레드(:84)→`ctx.waitUntil()`. sha 조회→PUT→409 재시도(:44-54) 로직 그대로 포팅 |
 | 챔프 버튼·픽 진행 | **중간** | py-cord는 메모리 View 객체로 버튼 콜백을 라우팅하는데 HTTP에는 그게 없다. **모든 버튼/셀렉트에 의미 있는 custom_id 설계 필수** (예: `pick:<gameId>:<champ>`). 현재는 StartButton(:506) 빼고 custom_id가 없음(:587, :950-955) |
 | 3채널 브로드캐스트 | **중간** | interaction 응답은 1개뿐. 나머지 채널은 Bot 토큰으로 REST(`POST /channels/{id}/messages`). 3초 응답 제한 → defer 후 waitUntil로 후속 전송 |
-| 게임 진행 상태 | **어려움** | 전역 변수 15개(:58-75)가 프로세스 메모리에 있음 → 전부 KV(또는 Durable Object)로 외부화. gameId 키 하나에 상태 JSON 통째로 넣는 게 단순 |
+| 게임 진행 상태 | **어려움** | 전역 변수 15개(:58-75)가 프로세스 메모리에 있음 → **처음부터 Durable Object로 외부화** (2026-08-26 결정, 5절 참조). 게임당 DO 인스턴스 1개에 상태 JSON |
 | 20초 픽 타이머(1초 틱 edit) | **어려움** | Workers엔 상주 asyncio 루프가 없음(:353-491). **권장: 타이머 표시를 디스코드 내장 상대시각 `<t:유닉스초:R>`로 바꾸면 서버 틱 자체가 불필요** (embed를 매초 edit할 이유가 사라짐). 자동 랜덤픽 마감 처리만 Durable Object Alarm 1발로 |
 | `/게임시작`의 온라인 유저 자동 감지 | **대체 불가** | `member.status != offline`(:820-824)은 presence 게이트웨이 캐시 전용 — HTTP Interactions에는 presence가 **존재하지 않는다**. 재설계 필수 → 4절 |
 
@@ -62,7 +62,8 @@ Cloudflare **Workers**는 정확히 이 두 번째 방식을 위한 물건이다
 디스코드 유저 → 슬래시커맨드/버튼
   → 디스코드 서버가 Worker URL로 POST (Ed25519 서명 첨부)
   → Worker: 서명 검증 → interaction 라우팅(custom_id 기준)
-      ├─ 상태 읽고쓰기: KV (game:<id>, wins, config)
+      ├─ 게임 진행 상태: Durable Object (게임당 1개, 요청 직렬화)
+      ├─ 저빈도 데이터: KV (wins, config, 챔프 캐시)
       ├─ 채널 전송/수정: 디스코드 REST API (Bot 토큰, waitUntil)
       ├─ 챔프 목록: Data Dragon fetch (KV 캐시)
       └─ 승리 확정 시: history_data.json KV 갱신 + GitHub PUT
@@ -70,7 +71,9 @@ Cloudflare **Workers**는 정확히 이 두 번째 방식을 위한 물건이다
 ```
 
 - **봇→lol_arena 파이프라인은 무변경으로 유효** — 봇의 역할은 "repo에 커밋"까지고, 대시보드가 GitHub Pages든 Cloudflare Pages든 repo를 보고 배포하는 구조라 봇 코드와 무관 (검증됨: 로컬 두 파일 크기 일치 155,199B)
-- 동시 게임이 1서버 1판뿐이므로 Durable Object 없이 **KV만으로 시작**하고, 픽 마감 자동 처리가 꼭 필요해지면 그때 DO Alarm 추가 (Simplicity First)
+- **게임 진행 상태는 처음부터 Durable Object로** (2026-08-26 결정): 현 파이썬 봇에서 연타/중복 클릭으로 상태가 꼬이는 문제가 실제로 빈발했음 (시즌1 R119/R126 유령 라운드, 141판 카운터 어긋남이 모두 중복 클릭 산물 — CLAUDE.md). DO는 게임당 인스턴스 1개가 모든 클릭을 직렬 처리하므로 경합을 원천 차단. 픽 마감(20초) 자동 랜덤픽도 같은 DO의 Alarm으로 해결. 무료 플랜에서도 DO(SQLite-backed) 사용 가능
+- **DO 직렬화 + 멱등 처리는 세트**: DO는 동시 처리만 막아줄 뿐, 줄 서서 들어온 두 번째 클릭의 무시는 앱 로직 몫. 이미 픽된 챔프·이미 확정된 승리의 재클릭은 상태 검사로 거부할 것
+- wins·챔프 캐시 등 게임 진행과 무관한 저빈도 데이터는 KV로 충분
 
 ## 6. Cloudflare에 올리는 절차 (구체)
 
@@ -86,6 +89,7 @@ Cloudflare **Workers**는 정확히 이 두 번째 방식을 위한 물건이다
 
 ### 6-3. 저장소·비밀 설정
 - KV namespace 생성: 대시보드 **Storage & Databases → KV** → 생성 후 `wrangler.toml`에 바인딩 (finance의 KV 바인딩과 동일 개념)
+- DO 바인딩: `wrangler.toml`에 `durable_objects` 바인딩 + `migrations` 선언 (무료 플랜은 `new_sqlite_classes` 사용). KV처럼 대시보드에서 미리 만드는 게 아니라 코드의 클래스 선언 + 배포로 생성됨
 - 비밀 3개 이전: `DISCORD_TOKEN`, `DISCORD_PUBLIC_KEY`(비밀 아니지만 같이), `ARENA_GH_TOKEN` → `npx wrangler secret put <이름>` 또는 대시보드 Worker → Settings → Variables and Secrets. **코드/커밋에 절대 넣지 않는다**
 - `config.json`·초기 wins 데이터는 KV에 시딩 (일회성 스크립트)
 
@@ -99,8 +103,8 @@ Cloudflare **Workers**는 정확히 이 두 번째 방식을 위한 물건이다
 
 1. **뼈대**: 서명 검증 + PING 응답 + `/누적결과` (KV wins 읽기) → 포털에 URL 등록, 첫 동작 확인
 2. 커맨드 등록 스크립트 + `/승리` (드롭다운 custom_id 설계, KV 기록, GitHub PUT waitUntil)
-3. `/게임시작` — 참가 방식 재설계(4절 결정 먼저) + 팀 배정·픽순·챔프 8개 로직 JS 포팅(순수 함수라 그대로 옮기면 됨, :189-301)
-4. 픽 버튼 진행 + `<t:...:R>` 타이머 + (필요 시) DO Alarm 마감
+3. `/게임시작` — 참가 방식 재설계(4절 결정 먼저) + **게임 상태 DO 도입** + 팀 배정·픽순·챔프 8개 로직 JS 포팅(순수 함수라 그대로 옮기면 됨, :189-301)
+4. 픽 버튼 진행 + `<t:...:R>` 타이머 + DO Alarm 마감(자동 랜덤픽)
 5. 파이썬 봇 종료·README 갱신. `parse_all_history.py`(재해복구 풀스캔)는 게이트웨이 읽기 전용이라 **로컬 파이썬으로 남겨둔다** (상시 실행 아님, 필요할 때만)
 
 ## 8. 검증
