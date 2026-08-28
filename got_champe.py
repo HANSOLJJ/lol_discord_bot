@@ -517,16 +517,18 @@ async def pick_timeout_handler(picker_index, game_id):
 
 # === 상호작용 공통 가드 ===
 ##
-# @brief 버튼·셀렉트 콜백의 공통 처리(낡은 게임 차단 → 3초 응답 확보 → 상태 변경 직렬화).
+# @brief 버튼·셀렉트 콜백의 공통 처리(낡은 게임 차단 → 상태 변경 직렬화).
 # @details 클릭의 "운송"만 책임진다. 클릭의 의미(중복인지 의도된 취소인지, 검증 순서, 실패
 #          롤백)는 각 콜백 본문이 판단한다.
 #          ① self.game_id가 현재 세대와 다르면 이전 게임의 버튼이므로 거부한다.
-#          ② defer로 디스코드에 즉시 ACK해 3초 제한을 푼다. 따라서 콜백 본문은
-#             interaction.response 대신 interaction.followup을 써야 한다.
-#          ③ pick_lock으로 직렬화한다. 본문 중간의 await 사이에 다른 클릭이 끼어들어
+#          ② pick_lock으로 직렬화한다. 본문 중간의 await 사이에 다른 클릭이 끼어들어
 #             상태를 바꾸는 race가 사라지므로, 본문은 검증 순서를 의미대로 배치하면 된다.
-# @param ephemeral_defer True면 클릭자에게만 "생각 중"을 표시하고, False면 무표시로 ACK한다.
-def interaction_guard(ephemeral_defer=False):
+# @param defer True면 응답 전에 ACK해 3초 제한을 푼다. 파일 I/O처럼 느린 작업이 있는
+#              콜백에만 쓴다. 응답이 한 번 더 왕복하므로 체감 반응이 느려져서, 메모리
+#              작업만 하는 콜백(픽 버튼 등)에는 쓰지 않는다.
+#              defer=True인 본문은 interaction.followup을, False인 본문은
+#              interaction.response를 써야 한다.
+def interaction_guard(defer=False):
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(self, interaction: Interaction, *args, **kwargs):
@@ -536,9 +538,8 @@ def interaction_guard(ephemeral_defer=False):
                 )
                 return
 
-            await interaction.response.defer(
-                invisible=not ephemeral_defer, ephemeral=ephemeral_defer
-            )
+            if defer:
+                await interaction.response.defer(invisible=False, ephemeral=True)
 
             async with pick_lock:
                 try:
@@ -546,9 +547,13 @@ def interaction_guard(ephemeral_defer=False):
                 except Exception as e:
                     print(f"[ERROR] {func.__qualname__} 처리 실패: {e}")
                     try:
-                        await interaction.followup.send(
-                            f"❌ 처리 중 오류가 발생했습니다: {e}", ephemeral=True
-                        )
+                        msg = f"❌ 처리 중 오류가 발생했습니다: {e}"
+                        if interaction.response.is_done():
+                            await interaction.followup.send(msg, ephemeral=True)
+                        else:
+                            await interaction.response.send_message(
+                                msg, ephemeral=True
+                            )
                     except Exception:
                         pass
 
@@ -596,7 +601,7 @@ class StartButton(Button):
         global game_started, current_timer_task
 
         if game_started:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "⚠️ 이미 게임이 시작되었습니다!", ephemeral=True
             )
             return
@@ -604,7 +609,7 @@ class StartButton(Button):
         # 게임 시작
         game_started = True
 
-        await interaction.followup.send(
+        await interaction.response.send_message(
             "🚀 **챔피언 선택을 시작합니다!**", ephemeral=False
         )
 
@@ -685,7 +690,7 @@ class ChampionButton(Button):
 
         # 게임 시작 확인
         if not game_started:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "⚠️ 먼저 '🚀 챔피언 선택 시작' 버튼을 눌러주세요!",
                 ephemeral=True,
             )
@@ -693,13 +698,13 @@ class ChampionButton(Button):
 
         # 픽 순서 확인
         if not pick_order:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "⚠️ 먼저 `/게임시작`으로 게임을 시작해주세요!", ephemeral=True
             )
             return
 
         if current_pick_index >= len(pick_order):
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "⚠️ 모든 선택이 완료되었습니다!", ephemeral=True
             )
             return
@@ -709,7 +714,7 @@ class ChampionButton(Button):
         # 턴제 확인 (DEV_MODE가 아닐 때만)
         if not DEV_MODE:
             if interaction.user.id != current_picker.id:
-                await interaction.followup.send(
+                await interaction.response.send_message(
                     f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!",
                     ephemeral=True,
                 )
@@ -735,7 +740,7 @@ class ChampionButton(Button):
                         break
 
             # 먼저 interaction에 응답
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 f"↩️ **{self.champ_name}** 선택 취소",
                 ephemeral=True,
             )
@@ -764,14 +769,14 @@ class ChampionButton(Button):
 
         # 이미 선택된 챔피언
         if self.champ_name in selected_users.values():
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "⚠️ 이미 선택된 챔피언입니다!", ephemeral=True
             )
             return
 
         # 현재 차례 유저가 이미 선택했는지 확인
         if current_picker.id in selected_users:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "⚠️ 이미 챔피언을 선택하셨습니다!", ephemeral=True
             )
             return
@@ -804,8 +809,8 @@ class ChampionButton(Button):
                     item.style = button_style
                     break
 
-        # 선택 결과 응답 - 본인에게만 보임
-        await interaction.followup.send(
+        # 먼저 interaction에 응답 (3초 내) - 본인에게만 보임
+        await interaction.response.send_message(
             f"{team_emoji} **{self.champ_name}** 선택 완료!",
             ephemeral=True,
         )
@@ -1084,7 +1089,7 @@ class VictorySelect(Select):
     # @details 검증을 전부 통과한 뒤에야 victory_processed를 세운다. 이 순서가 뒤집히면
     #          픽 미완료 상태의 클릭 한 번으로 그 판이 영구 기록불능이 된다.
     # @param interaction 셀렉트 상호작용 객체.
-    @interaction_guard(ephemeral_defer=True)
+    @interaction_guard(defer=True)
     async def callback(self, interaction: Interaction):
         global round_counter, current_teams, wins_data, victory_processed
 
