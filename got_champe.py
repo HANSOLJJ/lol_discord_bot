@@ -337,9 +337,11 @@ def get_selection_status():
 # @param deadline_ts 선택 마감 시각(유닉스 타임스탬프, 초).
 # @return embed description 문자열.
 def turn_description(picker, deadline_ts):
+    # 어순 주의: 디스코드가 마감을 지나면 "N초 전"으로 렌더링한다. "마감 N초 전"으로 쓰면
+    # 한국어로 "N초 남았다"로 읽혀 정반대 뜻이 되므로 "N초 전 마감" 순서로 둔다.
     return (
         f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n"
-        f"## ⏰ 마감 <t:{deadline_ts}:R>"
+        f"## ⏰ <t:{deadline_ts}:R> 마감"
     )
 
 
@@ -404,12 +406,16 @@ async def flush_embed_updates():
     while embed_update_pending:
         embed_update_pending = False
 
-        if pick_order and current_pick_index < len(pick_order):
+        if not pick_order or current_pick_index >= len(pick_order):
+            description = "## ✅ 모든 선택 완료!"
+        elif time.time() > current_pick_deadline:
+            # 마감이 지난 뒤에도 카운트다운을 그대로 두면 "N초 전"으로 뒤집혀 보인다.
+            # 자동 배정을 기다리는 중이라는 걸 그대로 알려준다.
+            description = "## ⏰ 시간 초과 - 자동 배정 중..."
+        else:
             description = turn_description(
                 pick_order[current_pick_index], current_pick_deadline
             )
-        else:
-            description = "## ✅ 모든 선택 완료!"
 
         await broadcast_embed_update(get_selection_status(), description)
 
@@ -456,7 +462,12 @@ async def pick_timeout_handler(picker_index, game_id, deadline_ts):
     global current_pick_deadline
 
     try:
-        await asyncio.sleep(max(0, deadline_ts + PICK_GRACE_SECONDS - time.time()))
+        # 1단계: 마감까지 대기
+        await asyncio.sleep(max(0, deadline_ts - time.time()))
+        # 마감을 알린다. 안 그러면 카운트다운이 "N초 전"으로 뒤집힌 채 남는다
+        request_embed_update()
+        # 2단계: 이미 접수된 클릭이 배달될 시간을 준다
+        await asyncio.sleep(PICK_GRACE_SECONDS)
     except asyncio.CancelledError:
         # 타이머 취소됨 (정상 선택)
         return
