@@ -69,6 +69,12 @@ excluded = set()
 selected_users = {}  # user_id: champ_name
 MAX_PLAYERS = 6
 DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 폴백(초)
+# 마감 뒤 자동 배정까지의 유예. 디스코드가 이미 접수한 클릭이 봇까지 배달되는 시간을
+# 벌어주기 위한 것이다. 이 구간에 눌러서 통과하는 게 아니라(그건 아래 접수 시각으로 거른다),
+# 마감 전에 눌렀는데 아직 도착 못 한 클릭을 기다려 주는 시간이다.
+PICK_GRACE_SECONDS = 1.0
+# 봇 시계와 디스코드 시계 차이를 감안한 여유. 둘 다 NTP로 맞춰져 있어 보통 훨씬 작다.
+CLOCK_TOLERANCE_SECONDS = 0.5
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
 overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
@@ -443,14 +449,14 @@ async def send_pick_complete():
 #          다른 플레이어가 선택을 끝내면 취소되거나 index 검증으로 종료된다.
 # @param picker_index 현재 선택할 플레이어의 인덱스.
 # @param game_id 이 타이머를 건 게임의 세대 번호. 현재 세대와 달라지면(=새 게임 시작) 종료한다.
-# @param deadline_ts 마감 시각(유닉스 초). embed에 표시한 값과 같은 값을 받아, 화면
-#                    카운트다운이 0이 되는 순간과 자동 배정 시점을 일치시킨다.
+# @param deadline_ts 마감 시각(유닉스 초). embed에 표시한 값과 같은 값을 받는다.
+#                    실제 자동 배정은 여기에 PICK_GRACE_SECONDS를 더한 시점에 한다.
 async def pick_timeout_handler(picker_index, game_id, deadline_ts):
     global selected_users, excluded, current_pick_index, current_timer_task
     global current_pick_deadline
 
     try:
-        await asyncio.sleep(max(0, deadline_ts - time.time()))
+        await asyncio.sleep(max(0, deadline_ts + PICK_GRACE_SECONDS - time.time()))
     except asyncio.CancelledError:
         # 타이머 취소됨 (정상 선택)
         return
@@ -712,6 +718,11 @@ class ChampionButton(Button):
         result = None  # None=거절 / "cancel"=선택 취소 / "pick"=선택 확정
         all_picked = False
 
+        # 마감 전에 누른 클릭인지는 "디스코드가 인터랙션을 접수한 시각"으로 판단한다.
+        # 봇이 처리한 시각으로 보면 게이트웨이 배달 지연과 락 대기가 전부 유저 탓이 된다.
+        # (인터랙션 ID는 스노플레이크라 접수 시각이 들어 있고, 클라이언트가 못 위조한다)
+        clicked_at = discord.utils.snowflake_time(interaction.id).timestamp()
+
         # === 임계 구역: 상태 판단과 변경만 (디스코드 통신 없음) ===
         async with pick_lock:
             if not game_started:
@@ -726,6 +737,11 @@ class ChampionButton(Button):
                 # 턴제 확인 (DEV_MODE가 아닐 때만)
                 if not DEV_MODE and interaction.user.id != current_picker.id:
                     reply = f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!"
+
+                # 마감 뒤에 누른 클릭은 거절한다. 유예는 배달 지연을 기다리는 시간이지
+                # 마감을 늘려주는 시간이 아니다.
+                elif clicked_at > current_pick_deadline + CLOCK_TOLERANCE_SECONDS:
+                    reply = "⏰ 선택 시간이 지났습니다!"
 
                 # 본인이 고른 챔피언 재클릭 = 선택 취소
                 elif (
