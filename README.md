@@ -175,6 +175,7 @@ python got_champe.py
 /승리              # 승리 팀 선택 후 전적 업데이트
 /누적결과          # 전체 누적 전적 확인
 /시즌시작          # 현재 시즌 마감 후 새 시즌 시작 (확인 버튼 필요, 전적 초기화)
+/번복 [라운드]     # 기록된 승리 팀 뒤집기 (확인 버튼 필요, 현재 시즌만, 생략 시 마지막 판)
 ```
 
 ---
@@ -215,6 +216,7 @@ python got_champe.py
 - **데이터 갱신**: 봇이 `/승리` 처리 시 `history_data.json` 갱신 → **lol_arena repo에 Contents API로 자동 커밋** (GitHub Pages 실시간 반영, `.env`의 `ARENA_GH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회). 대시보드는 이 json을 fetch (캐시버스터로 새로고침 시 항상 최신)
 - **UI 수정**: `index.html`은 `lol_arena` repo에서 직접 편집·`git push` (봇 무관)
 - **새 시즌**: `/시즌시작` 커맨드 (확인 버튼 → 승수를 `backup/`에 백업 후 0으로 초기화, `history_data.json`의 `current_season` +1, 라운드 1부터 재시작). 이전 시즌 판은 자기 `season` 값을 그대로 유지하므로 대시보드에서 계속 조회 가능
+- **결과 번복**: `/번복 [라운드]` 커맨드 (확인 버튼 → 해당 판의 승자를 뒤집고 `wins.json` 승수 ±1, `history_data.json`에 `corrected` 이력 기록 후 대시보드 업로드, 3채널에 정정 embed 방송). 현재 시즌 판만 가능 — 지난 시즌은 승수가 이미 초기화돼 되돌릴 수 없음
 - **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱 (`data/history_data.json` 재생성)
 - **경로 변경**: 모든 데이터/산출물 경로는 `paths.py` 한 곳에서 관리
 
