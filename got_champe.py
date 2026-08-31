@@ -27,6 +27,8 @@ from game_recorder import (
     record_game,
     get_current_season,
     start_new_season,
+    find_game,
+    set_game_winner,
     SeasonMismatchError,
 )
 
@@ -81,6 +83,7 @@ COUNTDOWN_TICK_SECONDS = 1
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
 overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
+session_rounds = []  # 이 세션에서 끝난 라운드 번호(순서대로). overall_results의 results 인덱스와 짝 - /번복용
 wins_data = {}  # user_id: {'name': str, 'wins': int}
 pick_order = []  # 픽 순서 (member 객체 리스트)
 current_pick_index = 0  # 현재 픽 순서
@@ -1136,6 +1139,7 @@ class VictorySelect(Select):
         # 라운드 번호 확정. total_rounds와 사이에 await를 두지 않아 두 카운터가 어긋나지 않는다.
         finished_round = round_counter
         round_counter += 1
+        session_rounds.append(finished_round)  # 위 results append와 같은 순서 - /번복이 인덱스로 찾는다
 
         # history_data에 판 기록 (대시보드용) - 실패해도 승리 처리에는 영향 없음
         try:
@@ -1464,6 +1468,175 @@ async def 시즌시작(ctx):
         f"- 이전 시즌 기록은 대시보드에서 계속 조회할 수 있습니다\n\n"
         f"정말 진행할까요?",
         view=SeasonConfirmView(),
+        ephemeral=True,
+    )
+
+
+# === 결과 번복 ===
+##
+# @brief history 판 기록의 한 팀을 embed용 문자열로 만든다(멘션 + 챔피언).
+# @param game history_data의 판 dict.
+# @param team_key "team1" 또는 "team2".
+# @return 줄바꿈으로 이어진 문자열.
+def format_recorded_team(game, team_key):
+    return "\n".join(
+        f"<@{p['id']}>: **{p.get('champ') or '챔피언 없음'}**" for p in game[team_key]
+    )
+
+
+##
+# @brief /번복 확인 UI. 지정 판의 승자를 뒤집고 wins·세션 전적·대시보드를 함께 정정한다.
+# @details 원본은 history 판 기록이다(승리 처리 뒤엔 메모리에 지난 판이 없다). 3:3이라 결과는
+#          둘 중 하나이므로 번복 = 승자 뒤집기. ephemeral + done 래치로 오클릭·연타를 막는다.
+class ReverseConfirmView(View):
+
+    ##
+    # @brief 확인 View를 초기화한다(30초 후 자동 만료).
+    # @param game 미리보기 시점의 판 기록 스냅샷.
+    def __init__(self, game):
+        super().__init__(timeout=30)
+        self.done = False
+        self.game = game
+
+    ##
+    # @brief 번복 확정. history → wins 순으로 바꾸고, wins 저장이 실패하면 history를 원복한다.
+    # @details 락 안은 동기 파일 쓰기만이라(await 없음) 락을 I/O 위로 잡는 문제가 없다.
+    # @param button 눌린 버튼 객체.
+    # @param interaction 버튼 클릭 상호작용 객체.
+    @button(label="✅ 번복", style=discord.ButtonStyle.danger)
+    async def confirm(self, button, interaction: Interaction):
+        global wins_data
+
+        if self.done:
+            await interaction.response.send_message(
+                "⚠️ 이미 처리 중입니다.", ephemeral=True
+            )
+            return
+        self.done = True
+
+        self.disable_all_items()
+        await interaction.response.edit_message(content="⏳ 번복 처리 중...", view=self)
+
+        round_num = self.game["round"]
+        old_winner = self.game["winner"]
+        new_winner = "team2" if old_winner == "team1" else "team1"
+
+        try:
+            async with pick_lock:
+                # 미리보기 뒤에 다른 /번복이 먼저 뒤집었을 수 있다 - 스냅샷과 대조한다
+                current = find_game(round_num, DEV_MODE)
+                if current is None or current["winner"] != old_winner:
+                    raise RuntimeError(
+                        f"R{round_num} 기록이 미리보기와 달라져 중단했습니다. 다시 실행해주세요."
+                    )
+
+                # 1) 판 기록 (대시보드 업로드 포함)
+                set_game_winner(round_num, new_winner, DEV_MODE)
+
+                # 2) 승수: 옛 승자 -1, 새 승자 +1. total_rounds는 그대로
+                new_wins = copy.deepcopy(wins_data)
+                for p in self.game[old_winner]:
+                    entry = new_wins.get(p["id"])
+                    if isinstance(entry, dict):
+                        entry["wins"] = max(0, entry["wins"] - 1)
+                for p in self.game[new_winner]:
+                    entry = new_wins.setdefault(p["id"], {"name": p["id"], "wins": 0})
+                    entry["wins"] += 1
+                try:
+                    save_wins(new_wins)
+                except Exception:
+                    set_game_winner(round_num, old_winner, DEV_MODE)  # 판 기록 원복
+                    raise
+                wins_data = new_wins
+
+                # 3) 세션 "오늘의 결과" O/X (이 세션에 친 판일 때만 표시가 있다)
+                if round_num in session_rounds:
+                    idx = session_rounds.index(round_num)
+                    for record in overall_results.values():
+                        if idx < len(record["results"]):
+                            record["results"][idx] = (
+                                "X" if record["results"][idx] == "O" else "O"
+                            )
+        except Exception as e:
+            print(f"[ERROR] 번복 실패 R{round_num}: {e}")
+            self.stop()
+            await interaction.followup.send(
+                f"❌ 번복에 실패했습니다: {e}", ephemeral=True
+            )
+            return
+
+        self.stop()
+        print(f"[REVERSE] R{round_num}: {old_winner} -> {new_winner}")
+        await interaction.edit_original_response(
+            content=f"✅ ROUND {round_num} 결과 번복 완료: **{new_winner.upper()}** 승리",
+            view=None,
+        )
+
+        # 모든 게임 채널에 정정 공지 (결과 embed과 같은 3채널)
+        embed = Embed(title=f"🔁 ROUND {round_num} 결과 번복", color=0xFFA500)
+        embed.add_field(
+            name="TEAM 1", value=format_recorded_team(self.game, "team1"), inline=True
+        )
+        embed.add_field(
+            name="TEAM 2", value=format_recorded_team(self.game, "team2"), inline=True
+        )
+        embed.add_field(
+            name="승리 팀",
+            value=f"~~{old_winner.upper()}~~ → **{new_winner.upper()}**",
+            inline=False,
+        )
+        channels = get_game_channels(interaction.guild, interaction.channel)
+        await asyncio.gather(
+            *[ch.send(embed=embed) for ch in channels], return_exceptions=True
+        )
+
+    ##
+    # @brief 취소 버튼. 아무것도 바꾸지 않고 확인 UI를 닫는다.
+    # @param button 눌린 버튼 객체.
+    # @param interaction 버튼 클릭 상호작용 객체.
+    @button(label="취소", style=discord.ButtonStyle.secondary)
+    async def cancel(self, button, interaction: Interaction):
+        self.done = True
+        self.disable_all_items()
+        self.stop()
+        await interaction.response.edit_message(content="↩️ 취소되었습니다.", view=None)
+
+
+##
+# @brief /번복 슬래시 커맨드. 현재 시즌의 판 하나를 골라 승자 뒤집기 확인 UI를 띄운다.
+# @details 현재 시즌만 허용한다. wins.json이 현재 시즌 승수라 지난 시즌은 승수를 못 맞춘다.
+#          진행 중인 게임이 있어도 된다 - 지난 판 기록만 건드리고 현재 판 상태와 무관하다.
+# @param ctx 슬래시 커맨드 상호작용 컨텍스트.
+# @param 라운드 번복할 라운드 번호. 생략하면 현재 시즌의 마지막 판.
+@bot.slash_command(name="번복", description="기록된 승리 결과를 뒤집습니다 (현재 시즌만).")
+async def 번복(
+    ctx,
+    라운드: discord.Option(
+        int, "번복할 라운드 번호 (생략하면 마지막 판)", required=False
+    ) = None,
+):
+    game = find_game(라운드, DEV_MODE)
+    if game is None:
+        season = get_current_season(DEV_MODE)
+        if 라운드 is None:
+            msg = f"⚠️ 시즌 {season}에 기록된 판이 없습니다."
+        else:
+            msg = (
+                f"⚠️ 시즌 {season}에 R{라운드} 기록이 없습니다.\n"
+                f"지난 시즌 판은 승수를 되돌릴 수 없어 번복 대상이 아닙니다."
+            )
+        await ctx.respond(msg, ephemeral=True)
+        return
+
+    old_winner = game["winner"]
+    new_winner = "team2" if old_winner == "team1" else "team1"
+    await ctx.respond(
+        f"🔁 **ROUND {game['round']} 결과 번복**\n\n"
+        f"**TEAM 1**\n{format_recorded_team(game, 'team1')}\n\n"
+        f"**TEAM 2**\n{format_recorded_team(game, 'team2')}\n\n"
+        f"승리 팀: {old_winner.upper()} → **{new_winner.upper()}**\n\n"
+        f"정말 바꿀까요?",
+        view=ReverseConfirmView(game),
         ephemeral=True,
     )
 
