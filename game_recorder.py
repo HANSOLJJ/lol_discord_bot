@@ -182,6 +182,62 @@ def start_new_season(dev_mode=False):
 
 
 ##
+# @brief 로드된 데이터의 현재 시즌에서 지정 라운드의 판을 찾는다.
+# @details 같은 라운드 번호가 시즌마다 있으므로 현재 시즌만 본다. 뒤에서부터 찾는다.
+# @param data _load_history()가 반환한 판 기록 데이터.
+# @param round_num 찾을 라운드 번호. None이면 현재 시즌의 마지막 판.
+# @return 판 dict. 없으면 None.
+def _find_in_current_season(data, round_num):
+    season = _season_of(data)
+    return next(
+        (
+            g
+            for g in reversed(data["games"])
+            if g.get("season") == season
+            and (round_num is None or g["round"] == round_num)
+        ),
+        None,
+    )
+
+
+##
+# @brief 현재 시즌에서 지정 라운드의 판을 찾는다(읽기 전용).
+# @param round_num 찾을 라운드 번호. None이면 현재 시즌의 마지막 판.
+# @param dev_mode True면 dev 파일 기준.
+# @return 판 dict의 사본. 없으면 None.
+def find_game(round_num=None, dev_mode=False):
+    game = _find_in_current_season(_load_history(dev_mode), round_num)
+    return dict(game) if game else None
+
+
+##
+# @brief 현재 시즌 지정 라운드의 승자를 바꾸고 저장·업로드한다(/번복).
+# @details 판 기록에 corrected={"from": 이전 승자, "at": 시각}을 남겨 정정 이력을 보존한다
+#          (대시보드는 모르는 필드를 무시한다). 다시 뒤집으면 마지막 정정만 남는다.
+#          wins.json은 호출부(봇)가 맞춘다 — 이 모듈은 판 기록만 책임진다.
+# @param round_num 바꿀 라운드 번호.
+# @param winner 새 승자. "team1" 또는 "team2".
+# @param dev_mode True면 dev 파일 기준.
+# @return str 이전 승자.
+# @throws ValueError 현재 시즌에 그 라운드가 없을 때.
+def set_game_winner(round_num, winner, dev_mode=False):
+    data = _load_history(dev_mode)
+    game = _find_in_current_season(data, round_num)
+    if game is None:
+        raise ValueError(f"시즌 {_season_of(data)}에 R{round_num} 기록이 없습니다.")
+
+    old_winner = game["winner"]
+    now = datetime.now(timezone.utc).isoformat()
+    game["winner"] = winner
+    game["corrected"] = {"from": old_winner, "at": now}
+    data["generated_at"] = now
+
+    _save_history(data, dev_mode)
+    upload_async(dev_mode)
+    return old_winner
+
+
+##
 # @brief 한 판 결과를 history_data.json에 append하고 GitHub Pages 업로드까지 수행한다.
 # @details 시즌은 최상위 current_season에서 읽는다(/시즌시작이 갱신). 라운드가 회귀했는데
 #          시즌이 그대로면 SeasonMismatchError를 던지고 아무것도 기록하지 않는다.
