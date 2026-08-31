@@ -75,6 +75,9 @@ DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 �
 PICK_GRACE_SECONDS = 1.0
 # 봇 시계와 디스코드 시계 차이를 감안한 여유. 둘 다 NTP로 맞춰져 있어 보통 훨씬 작다.
 CLOCK_TOLERANCE_SECONDS = 0.5
+# 카운트다운 embed 갱신 주기(초). 봇 시계로 남은 시간을 다시 그리는 간격이다.
+# 틱과 픽 갱신이 coalescing 한 스트림으로 합쳐지므로 1초여도 편집 한도(~5회/5초)를 넘지 않는다.
+COUNTDOWN_TICK_SECONDS = 1
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
 overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
@@ -329,19 +332,21 @@ def get_selection_status():
 
 
 ##
-# @brief 현재 차례 안내 문구를 만든다(남은 시간은 디스코드 상대 시각으로 표시).
-# @details `<t:유닉스초:R>`은 각 클라이언트가 스스로 카운트다운하므로 서버가 매초 embed을
-#          편집할 필요가 없다. 예전엔 1초마다 채널 수만큼 편집을 날려서 디스코드 편집
-#          rate limit을 다 써버렸고, 그 탓에 픽할 때 화면 갱신이 밀렸다.
+# @brief 현재 차례 안내 문구를 만든다(남은 시간은 봇 시계로 계산해 텍스트로 박는다).
+# @details 디스코드 상대 시각 `<t:...:R>`을 쓰지 않는다. 그건 보는 사람의 PC 시계로
+#          렌더링되어 시계가 틀어진 사람은 60초부터 시작하거나 3초 남았는데 초과되는 식으로
+#          사람마다 다른 값을 봤다(2026-08-29 실전, docs/COUNTDOWN_ANALYSIS.md).
+#          봇이 그리면 전원이 같은 값을 보고, 0이 되는 순간이 곧 자동 배정 순간이다.
+#          매초 편집은 pick_timeout_handler의 틱이 request_embed_update()로 예약하며,
+#          픽 갱신과 한 스트림으로 합쳐지므로 예전(38e2bc8 이전)처럼 한도를 넘기지 않는다.
 # @param picker 현재 차례인 멤버.
 # @param deadline_ts 선택 마감 시각(유닉스 타임스탬프, 초).
 # @return embed description 문자열.
 def turn_description(picker, deadline_ts):
-    # 어순 주의: 디스코드가 마감을 지나면 "N초 전"으로 렌더링한다. "마감 N초 전"으로 쓰면
-    # 한국어로 "N초 남았다"로 읽혀 정반대 뜻이 되므로 "N초 전 마감" 순서로 둔다.
+    remaining = max(0, round(deadline_ts - time.time()))
     return (
         f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n"
-        f"## ⏰ <t:{deadline_ts}:R> 마감"
+        f"## ⏰ 남은 시간: **{remaining}초**"
     )
 
 
@@ -408,9 +413,8 @@ async def flush_embed_updates():
 
         if not pick_order or current_pick_index >= len(pick_order):
             description = "## ✅ 모든 선택 완료!"
-        elif time.time() > current_pick_deadline:
-            # 마감이 지난 뒤에도 카운트다운을 그대로 두면 "N초 전"으로 뒤집혀 보인다.
-            # 자동 배정을 기다리는 중이라는 걸 그대로 알려준다.
+        elif time.time() >= current_pick_deadline:
+            # 마감 도달. 0초를 띄우는 대신 자동 배정을 기다리는 중이라는 걸 알려준다
             description = "## ⏰ 시간 초과 - 자동 배정 중..."
         else:
             description = turn_description(
@@ -449,10 +453,9 @@ async def send_pick_complete():
 # === 개인별 선택 타이머 ===
 ##
 # @brief 개인별 챔피언 선택 타이머를 관리한다.
-# @details 마감까지 기다렸다가, 그때도 선택이 없으면 현재 게임 챔피언 중 랜덤으로 자동
-#          배정한다. 남은 시간 표시는 embed의 `<t:...:R>`을 각 클라이언트가 스스로
-#          카운트다운하므로 여기서 매초 편집하지 않는다(편집 rate limit 절약).
-#          다른 플레이어가 선택을 끝내면 취소되거나 index 검증으로 종료된다.
+# @details 마감까지 매초 남은 시간 갱신을 예약하고(request_embed_update — 실제 편집은
+#          coalescing 스트림이 함), 마감이 지나도 선택이 없으면 현재 게임 챔피언 중 랜덤으로
+#          자동 배정한다. 다른 플레이어가 선택을 끝내면 취소되거나 index 검증으로 종료된다.
 # @param picker_index 현재 선택할 플레이어의 인덱스.
 # @param game_id 이 타이머를 건 게임의 세대 번호. 현재 세대와 달라지면(=새 게임 시작) 종료한다.
 # @param deadline_ts 마감 시각(유닉스 초). embed에 표시한 값과 같은 값을 받는다.
@@ -462,9 +465,15 @@ async def pick_timeout_handler(picker_index, game_id, deadline_ts):
     global current_pick_deadline
 
     try:
-        # 1단계: 마감까지 대기
-        await asyncio.sleep(max(0, deadline_ts - time.time()))
-        # 마감을 알린다. 안 그러면 카운트다운이 "N초 전"으로 뒤집힌 채 남는다
+        # 1단계: 마감까지 매초 남은 시간을 다시 그린다(내용은 flush 시점에 봇 시계로 재계산).
+        # 틱을 마감 기준 정수 경계에 맞춘다 — 남은 시간이 정확히 N초가 되는 순간 갱신되고,
+        # 마지막 틱이 마감과 일치한다(턴 시작 기준으로 재면 마감 직전 자투리 틱이 생긴다)
+        while (remaining := deadline_ts - time.time()) > 0:
+            await asyncio.sleep(
+                remaining % COUNTDOWN_TICK_SECONDS or COUNTDOWN_TICK_SECONDS
+            )
+            request_embed_update()
+        # 마감 도달. flush가 "시간 초과 - 자동 배정 중..."으로 바꿔 그린다
         request_embed_update()
         # 2단계: 이미 접수된 클릭이 배달될 시간을 준다
         await asyncio.sleep(PICK_GRACE_SECONDS)
@@ -853,6 +862,13 @@ async def 게임시작(ctx):
     global current_teams, selected_users, pick_order, current_pick_index, current_timer_task
     global champion_messages, champion_views, current_game_champions, game_started, current_game_channels, victory_processed
     global current_game_id
+
+    # 봇 시계 진단: 디스코드가 이 커맨드를 접수한 시각과 봇 시계의 차이. 카운트다운과
+    # 마감 판정이 봇 시계 기준이므로, 시계가 틀어지면 여기서 먼저 드러난다.
+    clock_skew = time.time() - discord.utils.snowflake_time(ctx.interaction.id).timestamp()
+    print(f"[CLOCK] 봇 시계 - 디스코드 접수 시각 = {clock_skew:+.2f}s")
+    if abs(clock_skew) > 2:
+        print("[WARN] 봇 시계가 디스코드와 2초 이상 어긋남 - 호스트 시간 동기화 확인 필요")
 
     if DEV_MODE:
         # DEV_MODE: wins.json에서 가상 유저 생성
