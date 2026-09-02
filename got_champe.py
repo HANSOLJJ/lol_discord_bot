@@ -611,24 +611,28 @@ def interaction_guard(defer=False):
 
 
 ##
-# @brief 이전 게임의 챔피언 선택 메시지를 종료 상태로 바꾼다(버튼 제거 + 종료 표시).
+# @brief 이전 게임의 챔피언 선택 메시지를 종료 상태로 바꾼다(버튼 비활성화 + 종료 표시).
 # @details 새 게임이 시작되면 이전 메시지의 버튼과 카운트다운은 의미가 없다. 그런데
-#          그냥 두면 마감 시각이 계속 상대 시각으로 렌더링돼서("N초 전 마감") 이전 판이
-#          아직 진행 중인 것처럼 보인다. 버튼을 떼고 종료됐음을 명시한다.
-# @param messages 정리할 이전 게임의 메시지 리스트.
+#          그냥 두면 이전 판이 아직 진행 중인 것처럼 보인다. 버튼은 제거하지 않고
+#          비활성화만 한다 - 색과 라벨(고른 6개는 팀 색, 안 고른 챔피언은 회색)이
+#          판 결과 요약으로 남는다.
+# @param items 정리할 (메시지, 뷰) 쌍 리스트. 뷰가 None이면 버튼 없이 편집한다.
 # @return 없음.
-async def close_champion_messages(messages):
-    # @brief 단일 메시지를 종료 표시로 바꾸고 버튼을 제거한다.
-    async def close_one(message):
+async def close_champion_messages(items):
+    # @brief 단일 메시지를 종료 표시로 바꾸고 버튼을 비활성화한다.
+    async def close_one(message, view):
         try:
             embed = message.embeds[0].copy()
             embed.description = "## ⏹️ 종료된 게임입니다"
-            await message.edit(embed=embed, view=None)
+            if view is not None:
+                view.disable_all_items()
+                view.stop()
+            await message.edit(embed=embed, view=view)
         except Exception:
             pass  # 메시지가 지워졌거나 편집 실패해도 무해
 
     await asyncio.gather(
-        *[close_one(message) for message in messages], return_exceptions=True
+        *[close_one(message, view) for message, view in items], return_exceptions=True
     )
 
 
@@ -919,11 +923,13 @@ async def 게임시작(ctx):
     current_pick_index = 0
 
     # 이전 게임의 챔피언 선택 메시지 정리는 백그라운드로 (새 게임 시작을 지연시키지 않는다)
-    old_messages = list(champion_messages.values())
+    old_items = [
+        (msg, champion_views.get(cid)) for cid, msg in champion_messages.items()
+    ]
     champion_messages.clear()
     champion_views.clear()
-    if old_messages:
-        asyncio.create_task(close_champion_messages(old_messages))
+    if old_items:
+        asyncio.create_task(close_champion_messages(old_items))
 
     half = MAX_PLAYERS // 2
 
