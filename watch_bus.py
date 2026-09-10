@@ -575,8 +575,8 @@ def main(argv=None):
     parser.add_argument("--channel", default="bus-watchdog", help="알림 채널 이름")
     parser.add_argument(
         "--mention",
-        default="365414320332472332",
-        help="알림에 붙일 멘션. 쉼표 구분 유저 ID, everyone/here 가능, 빈 값이면 멘션 없음",
+        default="everyone",
+        help="알림에 붙일 멘션. everyone/here 또는 쉼표 구분 유저 ID, 빈 값이면 멘션 없음",
     )
     parser.add_argument(
         "--route-name", default="서울경부 → 삼척", help="표시용 노선 이름"
