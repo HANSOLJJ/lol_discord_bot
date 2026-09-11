@@ -71,6 +71,9 @@ excluded = set()
 selected_users = {}  # user_id: champ_name
 MAX_PLAYERS = 6
 DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 폴백(초)
+# /게임시작 후 챔피언 선택이 자동으로 시작되기까지의 시간. 예전엔 시작 버튼을 눌러야 했는데,
+# 아무나 누를 수 있어서 팀·챔프 카드를 보기도 전에 픽이 시작되는 일이 있었다.
+DEFAULT_AUTO_START_SECONDS = 10  # config.json에 auto_start_seconds가 없을 때 쓰는 폴백(초)
 # 마감 뒤 자동 배정까지의 유예. 디스코드가 이미 접수한 클릭이 봇까지 배달되는 시간을
 # 벌어주기 위한 것이다. 이 구간에 눌러서 통과하는 게 아니라(그건 아래 접수 시각으로 거른다),
 # 마감 전에 눌렀는데 아직 도착 못 한 클릭을 기다려 주는 시간이다.
@@ -96,7 +99,7 @@ champion_messages = {}  # {channel_id: message} - 여러 채널의 챔피언 선
 champion_views = {}  # {channel_id: view} - 여러 채널의 View
 current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
 current_game_champions = []  # 현재 게임에서 제시된 챔피언 리스트
-game_started = False  # 게임이 시작되었는지 여부 (시작 버튼 눌렀는지)
+game_started = False  # 챔피언 선택이 시작되었는지 여부 (자동 시작 카운트다운이 끝났는지)
 victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
 current_game_id = 0  # 게임 세대 번호(/게임시작마다 +1) - 이전 게임의 버튼·타이머 무효화용
 pick_lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (연타·타이머 동시 실행 방지)
@@ -104,6 +107,8 @@ victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처�
 embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
 embed_update_task = None  # 화면 갱신을 밀고 있는 태스크
 current_pick_deadline = 0  # 현재 차례의 선택 마감 시각(유닉스 초) - embed 카운트다운용
+game_start_deadline = 0  # 자동 시작 예정 시각(유닉스 초). 시작되면 0으로 되돌린다
+auto_start_task = None  # 자동 시작 카운트다운 태스크
 
 
 # === 설정 로드 ===
@@ -120,6 +125,7 @@ def load_config():
         print("[WARNING] config.json not found, using defaults")
         return {
             "pick_timeout": DEFAULT_PICK_TIMEOUT,
+            "auto_start_seconds": DEFAULT_AUTO_START_SECONDS,
             "champion_count": 8,
             "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
@@ -366,6 +372,21 @@ def pick_deadline():
 
 
 ##
+# @brief 자동 시작까지 남은 시간을 안내하는 문구를 만든다.
+# @details turn_description과 같이 봇 시계로 남은 초를 계산해 텍스트로 박는다. /게임시작이 처음
+#          그릴 때와 이후 매초 갱신이 같은 함수를 쓰므로 첫 화면과 카운트다운이 어긋나지 않는다.
+# @param deadline_ts 자동 시작 예정 시각(유닉스 타임스탬프, 초).
+# @return embed description 문자열.
+def start_countdown_description(deadline_ts):
+    remaining = max(0, round(deadline_ts - time.time()))
+    return (
+        f"## 🚀 준비 완료!\n"
+        f"**{pick_order[0].mention} 님부터 시작합니다.**\n\n"
+        f"## ⏰ {remaining}초 후 자동 시작"
+    )
+
+
+##
 # @brief 모든 채널의 챔피언 선택 embed을 갱신한다.
 # @details pick_lock을 잡지 않은 상태에서 호출한다. 락 안에서 확정해 둔 문자열을 인자로
 #          받으므로, 호출 시점에 상태가 더 진행돼 있어도 표시가 뒤섞이지 않는다.
@@ -417,7 +438,11 @@ async def flush_embed_updates():
     while embed_update_pending:
         embed_update_pending = False
 
-        if not pick_order or current_pick_index >= len(pick_order):
+        if not game_started and game_start_deadline:
+            # 아직 시작 전. 이 분기가 없으면 current_pick_deadline이 0이라 아래 마감 검사에
+            # 걸려서 "시간 초과 - 자동 배정 중..."으로 잘못 그려진다
+            description = start_countdown_description(game_start_deadline)
+        elif not pick_order or current_pick_index >= len(pick_order):
             description = "## ✅ 모든 선택 완료!"
         elif time.time() >= current_pick_deadline:
             # 마감 도달. 0초를 띄우는 대신 자동 배정을 기다리는 중이라는 걸 알려준다
@@ -654,73 +679,56 @@ async def disable_victory_views():
     victory_messages.clear()
 
 
-# === 시작 버튼 클래스 ===
+# === 챔피언 선택 자동 시작 ===
 ##
-# @brief 게임 시작 버튼. /게임시작 후 수동으로 챔피언 선택을 시작한다.
-# @details 클릭 시 타이머를 시작하고 시작 버튼을 모든 채널 View에서 제거한다.
-class StartButton(Button):
+# @brief 챔피언 선택을 시작한다(알림 방송 + 첫 플레이어 타이머).
+# @details 예전엔 시작 버튼 콜백이 하던 일이다. 버튼은 아무나 누를 수 있어서 팀·챔프 카드를
+#          보기도 전에 픽이 시작되는 일이 있었고, 지금은 카운트다운이 끝나면 여기로 들어온다.
+#          래치와 세대 검증을 락 안에서 함께 해, 카운트다운 중 /게임시작이 다시 실행됐으면
+#          낡은 카운트다운이 새 게임을 시작시키지 못한다.
+# @param game_id 이 시작을 예약한 게임의 세대 번호.
+# @return 없음.
+async def begin_champion_select(game_id):
+    global game_started, current_timer_task, current_pick_deadline, game_start_deadline
 
-    ##
-    # @brief 시작 버튼 라벨·스타일·custom_id를 설정하고 생성 시점의 게임 세대를 기억한다.
-    def __init__(self):
-        super().__init__(
-            label="🚀 챔피언 선택 시작",
-            style=discord.ButtonStyle.success,
-            custom_id="start_button",
-        )
-        self.game_id = current_game_id
-
-    ##
-    # @brief 시작 버튼 클릭 처리. 게임을 시작하고 첫 플레이어 타이머를 건다.
-    # @param interaction 버튼 클릭 상호작용 객체.
-    @interaction_guard()
-    async def callback(self, interaction: Interaction):
-        global game_started, current_timer_task, current_pick_deadline
-
-        # 임계 구역: 시작 여부 확인과 설정만 (연타로 두 번 시작되는 것을 막는다)
-        async with pick_lock:
-            already_started = game_started
-            game_started = True
-
-        if already_started:
-            await interaction.response.send_message(
-                "⚠️ 이미 게임이 시작되었습니다!", ephemeral=True
-            )
+    # 임계 구역: 시작 여부·세대 확인과 설정만 (두 번 시작되는 것을 막는다)
+    async with pick_lock:
+        if game_started or game_id != current_game_id:
             return
+        game_started = True
+        game_start_deadline = 0
 
-        await interaction.response.send_message(
-            "🚀 **챔피언 선택을 시작합니다!**", ephemeral=False
-        )
+    await asyncio.gather(
+        *[ch.send("🚀 **챔피언 선택을 시작합니다!**") for ch in current_game_channels],
+        return_exceptions=True,
+    )
 
-        # 클릭 채널을 제외한 나머지 게임 채널에도 시작 알림 전파
-        # @brief 클릭 채널 외 나머지 채널에 시작 알림을 전송한다.
-        async def send_start_msg(channel):
-            try:
-                await channel.send("🚀 **챔피언 선택을 시작합니다!**")
-            except:
-                pass
+    # 첫 번째 유저 타이머 시작. 마감 시각은 embed의 카운트다운에 함께 쓰인다
+    current_pick_deadline = pick_deadline()
+    current_timer_task = asyncio.create_task(
+        pick_timeout_handler(0, game_id, current_pick_deadline)
+    )
+    request_embed_update()
 
-        await asyncio.gather(
-            *[
-                send_start_msg(ch)
-                for ch in current_game_channels
-                if ch.id != interaction.channel.id
-            ],
-            return_exceptions=True,
-        )
 
-        # 모든 채널의 View에서 시작 버튼 제거
-        for channel_id, view in champion_views.items():
-            for item in view.children[:]:
-                if isinstance(item, StartButton):
-                    view.remove_item(item)
+##
+# @brief 자동 시작까지 남은 시간을 매초 갱신하다가, 마감에 챔피언 선택을 시작한다.
+# @details 틱은 pick_timeout_handler와 같은 방식으로 마감 기준 정수 경계에 맞춘다 - 남은 시간이
+#          정확히 N초가 되는 순간 화면이 갱신되고 마지막 틱이 마감과 일치한다.
+# @param game_id 이 카운트다운을 건 게임의 세대 번호.
+# @param deadline_ts 자동 시작 예정 시각(유닉스 초). embed에 표시한 값과 같은 값을 받는다.
+# @return 없음.
+async def auto_start_handler(game_id, deadline_ts):
+    try:
+        while (remaining := deadline_ts - time.time()) > 0:
+            await asyncio.sleep(
+                remaining % COUNTDOWN_TICK_SECONDS or COUNTDOWN_TICK_SECONDS
+            )
+            request_embed_update()
+    except asyncio.CancelledError:
+        return  # 새 게임이 시작돼 취소됨
 
-        # 첫 번째 유저 타이머 시작. 마감 시각은 embed의 카운트다운에 함께 쓰인다
-        current_pick_deadline = pick_deadline()
-        current_timer_task = asyncio.create_task(
-            pick_timeout_handler(0, self.game_id, current_pick_deadline)
-        )
-        request_embed_update()
+    await begin_champion_select(game_id)
 
 
 # === 챔피언 선택 버튼 클래스 ===
@@ -778,7 +786,7 @@ class ChampionButton(Button):
         # === 임계 구역: 상태 판단과 변경만 (디스코드 통신 없음) ===
         async with pick_lock:
             if not game_started:
-                reply = "⚠️ 먼저 '🚀 챔피언 선택 시작' 버튼을 눌러주세요!"
+                reply = "⏳ 아직 시작 전입니다. 카운트다운이 끝날 때까지 기다려주세요!"
             elif not pick_order:
                 reply = "⚠️ 먼저 `/게임시작`으로 게임을 시작해주세요!"
             elif current_pick_index >= len(pick_order):
@@ -865,13 +873,13 @@ class ChampionButton(Button):
 # @brief /게임시작 슬래시 커맨드. 팀을 나누고 랜덤 챔피언 픽을 준비한다.
 # @details 온라인 유저(또는 DEV_MODE의 가상 유저) 중 6명을 뽑아 두 팀으로 나누고, 승수 기반
 #          픽 순서를 계산한 뒤 각 채널에 팀 구성 embed과 챔피언 선택 View를 전송한다.
-#          타이머는 시작 버튼을 누를 때까지 시작하지 않는다.
+#          픽은 auto_start_seconds 카운트다운이 끝나면 자동으로 시작된다.
 # @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(name="게임시작", description="팀을 나누고 랜덤 챔피언을 보여줍니다.")
 async def 게임시작(ctx):
     global current_teams, selected_users, pick_order, current_pick_index, current_timer_task
     global champion_messages, champion_views, current_game_champions, game_started, current_game_channels, victory_processed
-    global current_game_id
+    global current_game_id, game_start_deadline, auto_start_task
 
     # 봇 시계 진단: 디스코드가 이 커맨드를 접수한 시각과 봇 시계의 차이. 카운트다운과
     # 마감 판정이 봇 시계 기준이므로, 시계가 틀어지면 여기서 먼저 드러난다.
@@ -919,6 +927,10 @@ async def 게임시작(ctx):
     if current_timer_task and not current_timer_task.done():
         current_timer_task.cancel()
     current_timer_task = None
+    if auto_start_task and not auto_start_task.done():
+        auto_start_task.cancel()
+    auto_start_task = None
+    game_start_deadline = 0
     await disable_victory_views()
     selected_users.clear()
     game_started = False
@@ -1012,13 +1024,12 @@ async def 게임시작(ctx):
     current_game_champions = picked_champ  # 현재 게임 챔피언 저장
     champ_names = [champ["name"] for champ in picked_champ]
 
-    # Embed 생성 - description에 게임 시작 대기 메시지
-    embed2 = Embed(title=f"무작위 챔피언 {champ_count}명", color=0x00CCFF)
-    embed2.description = (
-        f"## 🚀 준비 완료!\n"
-        f"**'{pick_order[0].mention}' 님부터 시작합니다.**\n\n"
-        f"아래 **'🚀 챔피언 선택 시작'** 버튼을 눌러 게임을 시작하세요!"
+    # Embed 생성 - description에 자동 시작 카운트다운
+    game_start_deadline = round(time.time()) + config.get(
+        "auto_start_seconds", DEFAULT_AUTO_START_SECONDS
     )
+    embed2 = Embed(title=f"무작위 챔피언 {champ_count}명", color=0x00CCFF)
+    embed2.description = start_countdown_description(game_start_deadline)
 
     # Field 0: 선택 현황 및 픽순
     embed2.add_field(
@@ -1030,9 +1041,8 @@ async def 게임시작(ctx):
     # 각 채널에 챔피언 선택 메시지 전송
     for channel in current_game_channels:
         try:
-            # View 생성 - 시작 버튼 + 챔피언 버튼들 (각 채널마다 독립적인 View 필요)
+            # View 생성 - 챔피언 버튼들 (각 채널마다 독립적인 View 필요)
             view = View(timeout=None)
-            view.add_item(StartButton())  # 시작 버튼 추가
             for champ in champ_names:
                 view.add_item(ChampionButton(champ))
 
@@ -1045,7 +1055,20 @@ async def 게임시작(ctx):
         except Exception as e:
             print(f"[ERROR] Failed to send message to channel {channel.name}: {e}")
 
-    # 타이머는 시작 버튼을 누를 때까지 시작하지 않음
+    if not champion_messages:
+        # 버튼이 한 채널에도 안 떴다(권한 없음 등). 자동 시작을 걸면 아무도 못 보는 게임이
+        # 혼자 진행되므로 여기서 멈춘다.
+        game_start_deadline = 0
+        await ctx.channel.send(
+            "⚠️ 챔피언 선택 메시지를 어느 채널에도 보내지 못했습니다. "
+            "봇의 채널 권한을 확인해주세요!"
+        )
+        return
+
+    # 카운트다운이 끝나면 자동으로 챔피언 선택 시작
+    auto_start_task = asyncio.create_task(
+        auto_start_handler(current_game_id, game_start_deadline)
+    )
 
 
 # === 승리 셀렉트 ===
