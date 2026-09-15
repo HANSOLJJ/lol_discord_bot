@@ -706,16 +706,17 @@ async def begin_champion_select(game_id):
             return
         game_started = True
         game_start_deadline = 0
+        # 첫 번째 유저 타이머 시작. 마감 시각은 embed의 카운트다운에 함께 쓰인다.
+        # 시작 플래그와 함께 설정해야 한다 - 아래 알림 전송을 기다리는 사이 화면 갱신이 나가면
+        # 마감이 0이라 "시간 초과 - 자동 배정 중..."으로 잘못 그려진다
+        current_pick_deadline = pick_deadline()
+        current_timer_task = asyncio.create_task(
+            pick_timeout_handler(0, game_id, current_pick_deadline)
+        )
 
     await asyncio.gather(
         *[ch.send("🚀 **챔피언 선택을 시작합니다!**") for ch in current_game_channels],
         return_exceptions=True,
-    )
-
-    # 첫 번째 유저 타이머 시작. 마감 시각은 embed의 카운트다운에 함께 쓰인다
-    current_pick_deadline = pick_deadline()
-    current_timer_task = asyncio.create_task(
-        pick_timeout_handler(0, game_id, current_pick_deadline)
     )
     request_embed_update()
 
