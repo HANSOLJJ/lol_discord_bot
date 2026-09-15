@@ -84,7 +84,8 @@ PICK_GRACE_SECONDS = 2.0
 # 봇 시계와 디스코드 시계 차이를 감안한 여유. 둘 다 NTP로 맞춰져 있어 보통 훨씬 작다.
 CLOCK_TOLERANCE_SECONDS = 0.5
 # 카운트다운 embed 갱신 주기(초). 봇 시계로 남은 시간을 다시 그리는 간격이다.
-# 틱과 픽 갱신이 coalescing 한 스트림으로 합쳐지므로 1초여도 편집 한도(~5회/5초)를 넘지 않는다.
+# 화면 갱신 전송 간격의 하한이기도 하다(flush_embed_updates). 합치기만으로는 부족했다 - 픽이 몰리면
+# 편집이 끝나자마자 다시 보내 채널당 초당 2~3회가 되고, 편집 버킷이 바닥나 4초씩 멈췄다(실측).
 COUNTDOWN_TICK_SECONDS = 1
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
@@ -106,6 +107,7 @@ pick_lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (연타·타이머 
 victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처리 후 비활성화용)
 embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
 embed_update_task = None  # 화면 갱신을 밀고 있는 태스크
+last_embed_update_at = 0.0  # 마지막 화면 갱신 전송을 시작한 시각 (전송 간격 제한용)
 current_pick_deadline = 0  # 현재 차례의 선택 마감 시각(유닉스 초) - embed 카운트다운용
 game_start_deadline = 0  # 자동 시작 예정 시각(유닉스 초). 시작되면 0으로 되돌린다
 auto_start_task = None  # 자동 시작 카운트다운 태스크
@@ -431,12 +433,19 @@ def request_embed_update():
 
 ##
 # @brief 예약된 embed 갱신을 밀어낸다. 미는 동안 새 요청이 오면 최신 상태로 한 번 더 민다.
+# @details 전송은 직전 전송 시작으로부터 COUNTDOWN_TICK_SECONDS가 지나야 보낸다. 채널당 편집을
+#          초당 1회 이하로 묶어 편집 버킷이 바닥나지 않게 한다. 카운트다운 중에는 틱이 정수 초
+#          경계에서 보내므로, 사이에 끼어든 픽은 다음 경계까지 기다렸다가 틱과 합쳐져 숫자가 건너뛰지 않는다.
 # @return 없음.
 async def flush_embed_updates():
-    global embed_update_pending
+    global embed_update_pending, last_embed_update_at
 
     while embed_update_pending:
+        wait = last_embed_update_at + COUNTDOWN_TICK_SECONDS - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)  # 기다리는 동안 들어온 요청도 이번 전송에 합쳐진다
         embed_update_pending = False
+        last_embed_update_at = time.time()
 
         if not game_started and game_start_deadline:
             # 아직 시작 전. 이 분기가 없으면 current_pick_deadline이 0이라 아래 마감 검사에
