@@ -87,6 +87,10 @@ CLOCK_TOLERANCE_SECONDS = 0.5
 # 화면 갱신 전송 간격의 하한이기도 하다(flush_embed_updates). 합치기만으로는 부족했다 - 픽이 몰리면
 # 편집이 끝나자마자 다시 보내 채널당 초당 2~3회가 되고, 편집 버킷이 바닥나 4초씩 멈췄다(실측).
 COUNTDOWN_TICK_SECONDS = 1
+# 틱 타이밍 오차 허용치(초). 틱이 경계보다 이만큼 이내로 일찍 깨면 그 경계에 도착한 것으로 보고
+# (안 그러면 나머지가 아주 작게 나와 같은 경계에서 틱이 두 번 돈다), 화면 갱신 루프는 경계보다
+# 이만큼 늦게 깨서 같은 경계의 틱 요청과 합친다(flush_embed_updates)
+TICK_EARLY_WAKE_SECONDS = 0.05
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
 overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
@@ -108,6 +112,9 @@ victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처�
 embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
 embed_update_task = None  # 화면 갱신을 밀고 있는 태스크
 last_embed_update_at = 0.0  # 마지막 화면 갱신 전송을 시작한 시각 (전송 간격 제한용)
+channel_update_latest = {}  # {channel_id: (message, selection_status, description)} - 채널별 아직 못 보낸 최신 갱신
+channel_update_tasks = {}  # {channel_id: task} - 채널별 embed 편집 태스크
+channel_update_last_at = {}  # {channel_id: 시각} - 채널별 마지막 편집 시작 시각
 current_pick_deadline = 0  # 현재 차례의 선택 마감 시각(유닉스 초) - embed 카운트다운용
 game_start_deadline = 0  # 자동 시작 예정 시각(유닉스 초). 시작되면 0으로 되돌린다
 auto_start_task = None  # 자동 시작 카운트다운 태스크
@@ -374,6 +381,35 @@ def pick_deadline():
 
 
 ##
+# @brief 마감까지 남은 시간에서 다음 틱(정수 초 경계)까지 기다릴 시간을 구한다.
+# @details 경계보다 조금 일찍 깨서 나머지가 아주 작게 나오면, 이번 경계는 이미 그린 것으로 보고
+#          다음 경계까지 기다린다.
+# @param remaining 마감까지 남은 초.
+# @return 기다릴 초.
+def next_tick_delay(remaining):
+    delay = remaining % COUNTDOWN_TICK_SECONDS
+    if delay <= TICK_EARLY_WAKE_SECONDS:
+        delay += COUNTDOWN_TICK_SECONDS
+    return delay
+
+
+##
+# @brief 직전 전송 뒤 다음 화면 갱신을 보낼 수 있는 시각을 구한다.
+# @details "직전 전송 + 1초"로 재면 전송 준비에 걸리는 몇 ms가 매번 쌓이고, 틱 사이에 바로 나간
+#          픽 전송이 기준을 옮기면 이후 전송이 전부 경계에서 밀려 반올림한 숫자가 건너뛴다.
+#          마감은 항상 정수 초(pick_deadline, game_start_deadline)라 틱도 정수 초에 찍히므로 다음 정수 초
+#          경계로 맞춘다. 간격이 1초보다 짧아지는 건 틱 사이에 바로 나간 전송 직후 한 번뿐이고,
+#          그때도 최소 0.5초는 띄운다(경계보다 조금 늦게 나가도 반올림 숫자는 같다).
+# @param last_sent_at 직전 전송 시작 시각(유닉스 초). 0이면 바로 보낼 수 있다.
+# @return 다음 전송 가능 시각(유닉스 초).
+def next_send_slot(last_sent_at):
+    return max(
+        int(last_sent_at) + COUNTDOWN_TICK_SECONDS,
+        last_sent_at + COUNTDOWN_TICK_SECONDS / 2,
+    )
+
+
+##
 # @brief 자동 시작까지 남은 시간을 안내하는 문구를 만든다.
 # @details turn_description과 같이 봇 시계로 남은 초를 계산해 텍스트로 박는다. /게임시작이 처음
 #          그릴 때와 이후 매초 갱신이 같은 함수를 쓰므로 첫 화면과 카운트다운이 어긋나지 않는다.
@@ -389,16 +425,38 @@ def start_countdown_description(deadline_ts):
 
 
 ##
-# @brief 모든 채널의 챔피언 선택 embed을 갱신한다.
-# @details pick_lock을 잡지 않은 상태에서 호출한다. 락 안에서 확정해 둔 문자열을 인자로
-#          받으므로, 호출 시점에 상태가 더 진행돼 있어도 표시가 뒤섞이지 않는다.
+# @brief 모든 채널의 챔피언 선택 embed 갱신을 채널별 편집 태스크에 맡긴다.
+# @details 편집이 끝나기를 기다리지 않고 바로 돌아온다. 예전엔 3채널 편집을 모두 기다려서,
+#          한 채널 응답이 2초씩 걸리면 나머지 채널 카운트다운까지 같이 멈췄다(실측).
+#          pick_lock을 잡지 않은 상태에서 호출한다.
 # @param selection_status field 0(선택 현황 및 픽순)에 넣을 문자열.
 # @param description None이 아니면 embed description도 교체한다.
-#                    (선택 취소 때는 현재 차례 표시를 그대로 둬야 하므로 None을 넘긴다)
 # @return 없음.
 async def broadcast_embed_update(selection_status, description=None):
-    # @brief 단일 채널 embed에 선택 현황(과 description)을 반영한다.
-    async def update_one(channel_id, message):
+    for channel_id, message in champion_messages.items():
+        channel_update_latest[channel_id] = (message, selection_status, description)
+        task = channel_update_tasks.get(channel_id)
+        if task is None or task.done():
+            channel_update_tasks[channel_id] = asyncio.create_task(
+                push_channel_embed(channel_id)
+            )
+
+
+##
+# @brief 한 채널의 최신 embed 갱신을 보낸다. 보내는 동안 더 새 갱신이 오면 그것만 이어서 보낸다.
+# @details 채널별로도 직전 편집 뒤 다음 정수 초 경계(next_send_slot)가 되어야 보낸다. 응답이 느린
+#          채널은 밀린 중간 상태를 건너뛰고 최신 상태만 보낸다.
+# @param channel_id 갱신할 채널 ID.
+# @return 없음.
+async def push_channel_embed(channel_id):
+    while channel_id in channel_update_latest:
+        wait = next_send_slot(channel_update_last_at.get(channel_id, 0)) - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        message, selection_status, description = channel_update_latest.pop(channel_id)
+        if champion_messages.get(channel_id) is not message:
+            continue  # 그 사이 새 게임이 시작됐다 - 낡은 갱신을 새 메시지에 쓰지 않는다
+        channel_update_last_at[channel_id] = time.time()
         try:
             embed = message.embeds[0].copy()
             if description is not None:
@@ -407,13 +465,8 @@ async def broadcast_embed_update(selection_status, description=None):
                 0, name="선택 현황 및 픽순", value=selection_status, inline=False
             )
             await message.edit(embed=embed, view=champion_views.get(channel_id))
-        except:
+        except Exception:
             pass  # 메시지 삭제됨 등의 에러 무시
-
-    await asyncio.gather(
-        *[update_one(cid, msg) for cid, msg in champion_messages.items()],
-        return_exceptions=True,
-    )
 
 
 ##
@@ -433,17 +486,20 @@ def request_embed_update():
 
 ##
 # @brief 예약된 embed 갱신을 밀어낸다. 미는 동안 새 요청이 오면 최신 상태로 한 번 더 민다.
-# @details 전송은 직전 전송 시작으로부터 COUNTDOWN_TICK_SECONDS가 지나야 보낸다. 채널당 편집을
-#          초당 1회 이하로 묶어 편집 버킷이 바닥나지 않게 한다. 카운트다운 중에는 틱이 정수 초
+# @details 전송은 직전 전송 뒤 다음 정수 초 경계(next_send_slot)가 되어야 보낸다. 채널당 편집을
+#          초당 1회 안팎으로 묶어 편집 버킷이 바닥나지 않게 한다. 카운트다운 중에는 틱이 정수 초
 #          경계에서 보내므로, 사이에 끼어든 픽은 다음 경계까지 기다렸다가 틱과 합쳐져 숫자가 건너뛰지 않는다.
 # @return 없음.
 async def flush_embed_updates():
     global embed_update_pending, last_embed_update_at
 
     while embed_update_pending:
-        wait = last_embed_update_at + COUNTDOWN_TICK_SECONDS - time.time()
+        wait = next_send_slot(last_embed_update_at) - time.time()
         if wait > 0:
-            await asyncio.sleep(wait)  # 기다리는 동안 들어온 요청도 이번 전송에 합쳐진다
+            # 기다리는 동안 들어온 요청도 이번 전송에 합쳐진다. 경계보다 조금 늦게 깨는 건 같은 경계에
+            # 깨는 틱의 요청을 먼저 받기 위해서다 - 이 루프가 먼저 깨면 틱 요청이 다음 경계로 밀려
+            # 그때 상태로 한 번 더 그려진다(마감 경계에서는 "0초 후 자동 시작"이 첫 차례 표시를 1초 늦췄다)
+            await asyncio.sleep(wait + TICK_EARLY_WAKE_SECONDS)
         embed_update_pending = False
         last_embed_update_at = time.time()
 
@@ -508,10 +564,8 @@ async def pick_timeout_handler(picker_index, game_id, deadline_ts):
         # 1단계: 마감까지 매초 남은 시간을 다시 그린다(내용은 flush 시점에 봇 시계로 재계산).
         # 틱을 마감 기준 정수 경계에 맞춘다 — 남은 시간이 정확히 N초가 되는 순간 갱신되고,
         # 마지막 틱이 마감과 일치한다(턴 시작 기준으로 재면 마감 직전 자투리 틱이 생긴다)
-        while (remaining := deadline_ts - time.time()) > 0:
-            await asyncio.sleep(
-                remaining % COUNTDOWN_TICK_SECONDS or COUNTDOWN_TICK_SECONDS
-            )
+        while (remaining := deadline_ts - time.time()) > TICK_EARLY_WAKE_SECONDS:
+            await asyncio.sleep(next_tick_delay(remaining))
             request_embed_update()
         # 마감 도달. flush가 "시간 초과 - 자동 배정 중..."으로 바꿔 그린다
         request_embed_update()
@@ -730,11 +784,12 @@ async def begin_champion_select(game_id):
 # @return 없음.
 async def auto_start_handler(game_id, deadline_ts):
     try:
-        while (remaining := deadline_ts - time.time()) > 0:
-            await asyncio.sleep(
-                remaining % COUNTDOWN_TICK_SECONDS or COUNTDOWN_TICK_SECONDS
-            )
-            request_embed_update()
+        while (remaining := deadline_ts - time.time()) > TICK_EARLY_WAKE_SECONDS:
+            await asyncio.sleep(next_tick_delay(remaining))
+            # 마지막 경계(0초)는 곧바로 begin_champion_select가 차례 표시로 그린다. 여기서도 요청하면
+            # "0초 후 자동 시작"이 그 초의 전송 기회를 차지해 첫 차례 표시가 1초 늦어진다
+            if deadline_ts - time.time() > TICK_EARLY_WAKE_SECONDS:
+                request_embed_update()
     except asyncio.CancelledError:
         return  # 새 게임이 시작돼 취소됨
 
