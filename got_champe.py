@@ -73,7 +73,9 @@ MAX_PLAYERS = 6
 DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 폴백(초)
 # /게임시작 후 챔피언 선택이 자동으로 시작되기까지의 시간. 예전엔 시작 버튼을 눌러야 했는데,
 # 아무나 누를 수 있어서 팀·챔프 카드를 보기도 전에 픽이 시작되는 일이 있었다.
-DEFAULT_AUTO_START_SECONDS = 10  # config.json에 auto_start_seconds가 없을 때 쓰는 폴백(초)
+DEFAULT_AUTO_START_SECONDS = (
+    10  # config.json에 auto_start_seconds가 없을 때 쓰는 폴백(초)
+)
 # 마감 뒤 자동 배정까지의 유예. 디스코드가 이미 접수한 클릭이 봇까지 배달되는 시간을
 # 벌어주기 위한 것이다. 이 구간에 눌러서 통과하는 게 아니라(그건 아래 접수 시각으로 거른다),
 # 마감 전에 눌렀는데 아직 도착 못 한 클릭을 기다려 주는 시간이다.
@@ -94,7 +96,9 @@ TICK_EARLY_WAKE_SECONDS = 0.05
 round_counter = 1
 current_teams = {}  # {'team1': [member1, ...], 'team2': [member4, ...]}
 overall_results = {}  # user_id: {'mention': str, 'results': ["O", "X"]}
-session_rounds = []  # 이 세션에서 끝난 라운드 번호(순서대로). overall_results의 results 인덱스와 짝 - /번복용
+session_rounds = (
+    []
+)  # 이 세션에서 끝난 라운드 번호(순서대로). overall_results의 results 인덱스와 짝 - /번복용
 wins_data = {}  # user_id: {'name': str, 'wins': int}
 pick_order = []  # 픽 순서 (member 객체 리스트)
 current_pick_index = 0  # 현재 픽 순서
@@ -104,9 +108,13 @@ champion_messages = {}  # {channel_id: message} - 여러 채널의 챔피언 선
 champion_views = {}  # {channel_id: view} - 여러 채널의 View
 current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
 current_game_champions = []  # 현재 게임에서 제시된 챔피언 리스트
-game_started = False  # 챔피언 선택이 시작되었는지 여부 (자동 시작 카운트다운이 끝났는지)
+game_started = (
+    False  # 챔피언 선택이 시작되었는지 여부 (자동 시작 카운트다운이 끝났는지)
+)
 victory_processed = False  # 승리 처리 완료 여부 (중복 방지)
-current_game_id = 0  # 게임 세대 번호(/게임시작마다 +1) - 이전 게임의 버튼·타이머 무효화용
+current_game_id = (
+    0  # 게임 세대 번호(/게임시작마다 +1) - 이전 게임의 버튼·타이머 무효화용
+)
 pick_lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (연타·타이머 동시 실행 방지)
 victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처리 후 비활성화용)
 embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
@@ -964,10 +972,14 @@ async def 게임시작(ctx):
 
     # 봇 시계 진단: 디스코드가 이 커맨드를 접수한 시각과 봇 시계의 차이. 카운트다운과
     # 마감 판정이 봇 시계 기준이므로, 시계가 틀어지면 여기서 먼저 드러난다.
-    clock_skew = time.time() - discord.utils.snowflake_time(ctx.interaction.id).timestamp()
+    clock_skew = (
+        time.time() - discord.utils.snowflake_time(ctx.interaction.id).timestamp()
+    )
     print(f"[CLOCK] 봇 시계 - 디스코드 접수 시각 = {clock_skew:+.2f}s")
     if abs(clock_skew) > 2:
-        print("[WARN] 봇 시계가 디스코드와 2초 이상 어긋남 - 호스트 시간 동기화 확인 필요")
+        print(
+            "[WARN] 봇 시계가 디스코드와 2초 이상 어긋남 - 호스트 시간 동기화 확인 필요"
+        )
 
     if DEV_MODE:
         # DEV_MODE: wins.json에서 가상 유저 생성
@@ -1252,7 +1264,9 @@ class VictorySelect(Select):
         # 라운드 번호 확정. total_rounds와 사이에 await를 두지 않아 두 카운터가 어긋나지 않는다.
         finished_round = round_counter
         round_counter += 1
-        session_rounds.append(finished_round)  # 위 results append와 같은 순서 - /번복이 인덱스로 찾는다
+        session_rounds.append(
+            finished_round
+        )  # 위 results append와 같은 순서 - /번복이 인덱스로 찾는다
 
         # history_data에 판 기록 (대시보드용) - 실패해도 승리 처리에는 영향 없음
         try:
@@ -1563,7 +1577,8 @@ class SeasonConfirmView(View):
 #          구분되지 않아 유령 시즌이 생길 수 있었다.
 # @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(
-    name="시즌시작", description="현재 시즌을 마감하고 새 시즌을 시작합니다 (전적 초기화)."
+    name="시즌시작",
+    description="현재 시즌을 마감하고 새 시즌을 시작합니다 (전적 초기화).",
 )
 async def 시즌시작(ctx):
     if current_teams:
@@ -1721,7 +1736,9 @@ class ReverseConfirmView(View):
 #          진행 중인 게임이 있어도 된다 - 지난 판 기록만 건드리고 현재 판 상태와 무관하다.
 # @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 # @param 라운드 번복할 라운드 번호. 생략하면 현재 시즌의 마지막 판.
-@bot.slash_command(name="번복", description="기록된 승리 결과를 뒤집습니다 (현재 시즌만).")
+@bot.slash_command(
+    name="번복", description="기록된 승리 결과를 뒤집습니다 (현재 시즌만)."
+)
 async def 번복(
     ctx,
     라운드: discord.Option(
