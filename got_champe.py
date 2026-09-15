@@ -731,6 +731,22 @@ async def auto_start_handler(game_id, deadline_ts):
     await begin_champion_select(game_id)
 
 
+# === 챔피언 선택 View 클래스 ===
+##
+# @brief 챔피언 선택 메시지 전용 View. 버튼 상태는 봇이 가진 값을 원본으로 유지한다.
+# @details py-cord 2.8은 메시지 편집 응답이 오면 버튼 상태를 응답값(편집을 보낸 시점의 상태)으로
+#          덮어쓴다. 카운트다운 편집이 진행 중일 때 픽이 버튼 색을 바꾸면 회색으로 되돌려지므로 막는다.
+#          챔피언 버튼의 라벨·색은 봇만 바꾸기 때문에 디스코드 응답으로 덮어쓸 이유가 없다.
+class ChampionView(View):
+
+    ##
+    # @brief 편집 응답으로 버튼 상태를 덮어쓰지 않는다.
+    # @param components 디스코드가 돌려준 컴포넌트 목록 (사용하지 않음).
+    # @return 없음.
+    def _refresh(self, components):
+        pass
+
+
 # === 챔피언 선택 버튼 클래스 ===
 ##
 # @brief 챔피언 선택 버튼. 챔피언마다 하나씩 생성된다.
@@ -1042,7 +1058,7 @@ async def 게임시작(ctx):
     for channel in current_game_channels:
         try:
             # View 생성 - 챔피언 버튼들 (각 채널마다 독립적인 View 필요)
-            view = View(timeout=None)
+            view = ChampionView(timeout=None)
             for champ in champ_names:
                 view.add_item(ChampionButton(champ))
 
