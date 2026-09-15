@@ -69,6 +69,7 @@ class MockUser:
 champion_list = []
 excluded = set()
 selected_users = {}  # user_id: champ_name
+auto_assigned_users = set()  # 이번 게임에서 시간 초과로 자동 배정된 user_id
 MAX_PLAYERS = 6
 DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 폴백(초)
 # /게임시작 후 챔피언 선택이 자동으로 시작되기까지의 시간. 예전엔 시작 버튼을 눌러야 했는데,
@@ -76,15 +77,11 @@ DEFAULT_PICK_TIMEOUT = 20  # config.json에 pick_timeout이 없을 때 쓰는 �
 DEFAULT_AUTO_START_SECONDS = (
     10  # config.json에 auto_start_seconds가 없을 때 쓰는 폴백(초)
 )
-# 마감 뒤 자동 배정까지의 유예. 디스코드가 이미 접수한 클릭이 봇까지 배달되는 시간을
-# 벌어주기 위한 것이다. 이 구간에 눌러서 통과하는 게 아니라(그건 아래 접수 시각으로 거른다),
-# 마감 전에 눌렀는데 아직 도착 못 한 클릭을 기다려 주는 시간이다.
-# 1초로는 빠듯했다 - 카운트다운 편집이 각자 화면에 닿는 데 0.3초쯤 걸려서, 화면에 "1초 남음"이
-# 떠 있을 때 이미 마감을 지난 경우가 있다. 거기에 클릭 배달 지연이 얹히면 제시간에 누른
-# 클릭도 자동 배정에 밀린다(2026-09-09 실측).
-PICK_GRACE_SECONDS = 2.0
-# 봇 시계와 디스코드 시계 차이를 감안한 여유. 둘 다 NTP로 맞춰져 있어 보통 훨씬 작다.
-CLOCK_TOLERANCE_SECONDS = 0.5
+# 카운트가 0에 닿은 뒤 자동 배정까지의 유예(초). 이 안에 디스코드가 접수한 클릭은 모두 인정한다.
+# 채널마다 편집 반영이 늦을 수 있어서(보통 0.3초, 느린 채널은 1~2.6초 실측) 늦게 본 사람이 화면의
+# "1초"를 보고 눌러도 손해 보지 않게 하려는 것이다. 픽은 자기 차례만 할 수 있고 순서대로라서 이 여유가
+# 다른 선수에게 손해가 되지 않는다. 1초로는 빠듯했다(2026-09-09 실측).
+DEFAULT_PICK_GRACE_SECONDS = 2.0  # config.json에 pick_grace_seconds가 없을 때 쓰는 폴백(초)
 # 카운트다운은 시계가 아니라 횟수로 센다(show_countdown_step). 한 칸 = 숫자를 1 줄여 그리고, 편집이
 # 끝나기를 기다린 뒤 쉰다. 시계 기준으로 매초 정확히 편집했을 때는 봇이 8,7,6,5를 빠짐없이 보냈는데도
 # 디스코드 화면에서 2초씩 줄거나 1초가 휙 지나갔다(2026-09-15 실측). 편집 사이에 1초 이상 빈틈을 두던
@@ -144,6 +141,7 @@ def load_config():
         return {
             "pick_timeout": DEFAULT_PICK_TIMEOUT,
             "auto_start_seconds": DEFAULT_AUTO_START_SECONDS,
+            "pick_grace_seconds": DEFAULT_PICK_GRACE_SECONDS,
             "champion_count": 8,
             "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
@@ -354,7 +352,8 @@ def get_selection_status():
 
         if member.id in selected_users:
             # 이미 선택 완료 (승수를 3자리로 고정, "--완료"만 간격 조정)
-            status += f"{check_emoji} {member.mention}({wins:3d}승){name_padding}　　　--완료\n"
+            done = "--완료(자동 배정)" if member.id in auto_assigned_users else "--완료"
+            status += f"{check_emoji} {member.mention}({wins:3d}승){name_padding}　　　{done}\n"
         else:
             # 선택 대기 중 (승수를 3자리로 고정)
             status += f"{check_emoji} {member.mention}({wins:3d}승)\n"
@@ -468,13 +467,14 @@ async def flush_embed_updates():
 
         if not game_started and start_remaining:
             # 아직 시작 전. 이 분기가 없으면 current_pick_deadline이 0이라 아래 마감 검사에
-            # 걸려서 "시간 초과 - 자동 배정 중..."으로 잘못 그려진다
+            # 걸려서 "시간 종료"로 잘못 그려진다
             description = start_countdown_description(start_remaining)
         elif not pick_order or current_pick_index >= len(pick_order):
             description = "## ✅ 모든 선택 완료!"
         elif time.time() >= current_pick_deadline:
-            # 마감 도달. 0초를 띄우는 대신 자동 배정을 기다리는 중이라는 걸 알려준다
-            description = "## ⏰ 시간 초과 - 자동 배정 중..."
+            # 0 도달, 유예 중. 이 사이 들어온 클릭도 인정되므로 자동 배정이라고 단정하지 않는다
+            # (단정하면 빠른 채널에서는 "자동 배정 중"을 보다가 정상 선택으로 끝나 헷갈린다)
+            description = "## ⏰ 시간 종료 - 마지막 선택 확인 중..."
         else:
             description = turn_description(
                 pick_order[current_pick_index], current_pick_remaining
@@ -529,7 +529,7 @@ async def show_countdown_step():
 ##
 # @brief 한 차례의 선택 타이머를 시작한다. pick_lock 안에서 호출한다.
 # @details 마감(inf)과 남은 칸을 태스크보다 먼저 동기적으로 설정한다. 태스크가 돌기 전에 화면 갱신이
-#          나가도 이전 차례 값이나 0으로 그려지지 않게 하기 위해서다("시간 초과" 오표시, 7567c64).
+#          나가도 이전 차례 값이나 0으로 그려지지 않게 하기 위해서다(시작 직후 시간 초과 오표시, 7567c64).
 # @param picker_index 선택할 플레이어의 인덱스.
 # @param game_id 현재 게임의 세대 번호.
 # @return 없음.
@@ -564,18 +564,20 @@ async def pick_timeout_handler(picker_index, game_id):
             await show_countdown_step()
         if picker_index != current_pick_index or game_id != current_game_id:
             return
-        # 0에 닿은 순간이 마감이다. flush가 "시간 초과 - 자동 배정 중..."으로 바꿔 그린다
+        # 0에 닿은 순간이 마감이다. flush가 "시간 종료 - 마지막 선택 확인 중..."으로 바꿔 그린다
         current_pick_deadline = time.time()
         request_embed_update()
-        # 2단계: 이미 접수된 클릭이 배달될 시간을 준다
-        await asyncio.sleep(PICK_GRACE_SECONDS)
+        # 2단계: 유예. 늦게 반영된 화면을 보고 누른 클릭과 배달이 늦은 클릭을 기다린다
+        await asyncio.sleep(
+            config.get("pick_grace_seconds", DEFAULT_PICK_GRACE_SECONDS)
+        )
     except asyncio.CancelledError:
         # 타이머 취소됨 (정상 선택)
         return
 
     # 타임아웃 후에도 선택 안했으면 자동 배정.
     # 픽 버튼과 같은 락으로 상태 변경만 직렬화하고, 통신은 락 밖에서 한다.
-    assigned = None  # (배정된 챔피언 이름, 팀 이모지) - 배정이 일어났을 때만 채워진다
+    assigned = False  # 자동 배정이 실제로 일어났는지
     all_picked = False
 
     async with pick_lock:
@@ -597,6 +599,7 @@ async def pick_timeout_handler(picker_index, game_id):
                 champ_name = random_champ["name"]
                 selected_users[current_picker.id] = champ_name
                 excluded.add(champ_name)
+                auto_assigned_users.add(current_picker.id)  # 선택 현황에 "(자동 배정)"으로 남긴다
 
                 # 팀별 버튼 스타일 및 이모지
                 team = get_member_team(current_picker)
@@ -619,33 +622,19 @@ async def pick_timeout_handler(picker_index, game_id):
                             break
 
                 current_pick_index += 1
-                assigned = (champ_name, team_emoji)
+                assigned = True
                 all_picked = len(selected_users) >= MAX_PLAYERS
 
                 if not all_picked:
                     start_pick_timer(current_pick_index, game_id)  # 다음 차례 시작
 
-    if assigned is None:
+    if not assigned:
         return
 
-    # === 락 밖: 화면 갱신과 알림 ===
-    champ_name, team_emoji = assigned
+    # === 락 밖: 화면 갱신 ===
+    # 자동 배정 알림을 채널 메시지로 따로 보내지 않는다 - 메시지가 쌓이면 챔피언 UI가 위로 밀려난다.
+    # 선택 현황의 "--완료(자동 배정)" 표시가 게임 끝까지 남는다
     request_embed_update()
-
-    # @brief 시간 초과 자동 배정 알림을 단일 채널에 전송한다.
-    async def send_timeout_msg(channel):
-        try:
-            await channel.send(
-                f"⏰ **{current_picker.mention}** 님 시간 초과! "
-                f"{team_emoji} **{champ_name}** 자동 배정되었습니다."
-            )
-        except:
-            pass
-
-    await asyncio.gather(
-        *[send_timeout_msg(ch) for ch in current_game_channels],
-        return_exceptions=True,
-    )
 
     if all_picked:
         await send_pick_complete()
@@ -753,7 +742,7 @@ async def begin_champion_select(game_id):
         game_started = True
         start_remaining = 0
         # 첫 번째 유저 타이머 시작. 시작 플래그와 함께 설정해야 한다 - 아래 알림 전송을 기다리는
-        # 사이 화면 갱신이 나가면 마감이 0이라 "시간 초과 - 자동 배정 중..."으로 잘못 그려진다
+        # 사이 화면 갱신이 나가면 마감이 0이라 "시간 종료" 문구로 잘못 그려진다
         start_pick_timer(0, game_id)
 
     await asyncio.gather(
@@ -869,9 +858,12 @@ class ChampionButton(Button):
                 if not DEV_MODE and interaction.user.id != current_picker.id:
                     reply = f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!"
 
-                # 마감 뒤에 누른 클릭은 거절한다. 유예는 배달 지연을 기다리는 시간이지
-                # 마감을 늘려주는 시간이 아니다.
-                elif clicked_at > current_pick_deadline + CLOCK_TOLERANCE_SECONDS:
+                # 카운트가 0에 닿은 뒤 유예까지 지나서 접수된 클릭은 거절한다. 유예 안 클릭은 인정한다 -
+                # 편집이 늦게 반영된 채널에서 화면의 "1초"를 보고 누른 사람이 손해 보지 않게 한다.
+                # (카운트 중에는 마감이 inf라 항상 통과)
+                elif clicked_at > current_pick_deadline + config.get(
+                    "pick_grace_seconds", DEFAULT_PICK_GRACE_SECONDS
+                ):
                     reply = "⏰ 선택 시간이 지났습니다!"
 
                 # 본인이 고른 챔피언 재클릭 = 선택 취소
@@ -881,6 +873,7 @@ class ChampionButton(Button):
                 ):
                     del selected_users[current_picker.id]
                     excluded.discard(self.champ_name)
+                    auto_assigned_users.discard(current_picker.id)
                     self.restyle_everywhere(
                         self.champ_name, discord.ButtonStyle.secondary
                     )
@@ -1002,6 +995,7 @@ async def 게임시작(ctx):
     start_remaining = 0
     await disable_victory_views()
     selected_users.clear()
+    auto_assigned_users.clear()
     game_started = False
     victory_processed = False
     current_pick_index = 0
