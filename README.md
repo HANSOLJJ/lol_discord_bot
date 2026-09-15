@@ -38,7 +38,9 @@ lol_discord_bot/
 ├── parse_all_history.py   # 디스코드 채널 재파싱 (재해복구용)
 ├── paths.py               # 모든 데이터/산출물 경로 상수 (single source of truth)
 ├── config.json            # 게임 설정 (timeout, 챔피언 수, 채널)
-├── requirements.txt       # 파이썬 패키지 목록
+├── pyproject.toml         # 파이썬 패키지 목록 (uv)
+├── uv.lock                # 패키지 버전 고정 (uv sync가 이 버전 그대로 설치)
+├── .python-version        # 파이썬 버전 고정 (3.14.7)
 ├── .env                   # 환경변수 (토큰, DEV_MODE, ARENA_GH_*)
 ├── README.md / CLAUDE.md  # 문서 (루트)
 ├── data/                  # 전적 데이터 (봇 I/O, gitignore)
@@ -111,8 +113,9 @@ DEV_MODE=true    # 개발 모드: true, 실제 모드: false
 ## 🚀 실행 방법
 
 ### 1. 필요한 패키지 설치
+[uv](https://docs.astral.sh/uv/)가 필요하다. 파이썬(3.14.7)과 `.venv`는 uv가 알아서 준비한다.
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. 환경 설정
@@ -122,7 +125,7 @@ pip install -r requirements.txt
 
 ### 3. 봇 실행
 ```bash
-python got_champe.py
+uv run got_champe.py
 ```
 
 ### 📌 wins.json으로 실행하기 (실제 모드)
@@ -156,7 +159,7 @@ python got_champe.py
 3. **봇 실행**
 
    ```bash
-   python got_champe.py
+   uv run got_champe.py
    ```
 
    - 정상 실행 시 콘솔에 `[DEV_MODE] False`가 찍히면 `wins.json` 모드로 동작 중인 것이다.

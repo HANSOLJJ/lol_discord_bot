@@ -25,7 +25,7 @@ Cloudflare **Workers**는 정확히 이 두 번째 방식을 위한 물건이다
 - **외부 연동**: Data Dragon(챔프 목록, 키 불필요, :164-179) / GitHub Contents API PUT(game_recorder.py:26-71 → `HANSOLJJ/lol_arena`의 `history_data.json`)
 - **저장**: 전부 로컬 파일 — `data/wins.json`(누적 승수+총 판수), `data/history_data.json`(마스터 기록). DB 없음
 - **자격증명**: `.env`에 `DISCORD_TOKEN`, `ARENA_GH_TOKEN`(fine-grained PAT, lol_arena Contents RW), `ARENA_GH_REPO`, `DEV_MODE`. 하드코딩 없음 (확인됨)
-- **의존성**: py-cord / requests / python-dotenv 3개뿐 (requirements.txt)
+- **의존성**: py-cord / requests / python-dotenv 3개뿐 (pyproject.toml)
 - **정기 작업 없음** — GitHub 업로드는 승리 확정 시 1회 트리거(game_recorder.py:148), 스케줄 아님
 
 ## 3. 기능별 이식 판정 ★ 핵심
