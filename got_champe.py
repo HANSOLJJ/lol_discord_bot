@@ -120,6 +120,7 @@ embed_update_task = None  # 화면 갱신을 밀고 있는 태스크
 channel_update_latest = {}  # {channel_id: (message, selection_status, description)} - 채널별 아직 못 보낸 최신 갱신
 channel_update_tasks = {}  # {channel_id: task} - 채널별 embed 편집 태스크
 channel_update_last_at = {}  # {channel_id: 시각} - 채널별 마지막 편집 시작 시각
+channel_update_last_sent = {}  # {channel_id: (message, selection_status, description)} - 채널별 마지막으로 보낸 내용
 current_pick_deadline = 0  # 현재 차례 마감 시각(유닉스 초). 카운트 중엔 inf, 0에 닿은 순간의 시각으로 확정
 current_pick_remaining = 0  # 현재 차례 카운트다운에 표시할 남은 칸(초)
 start_remaining = 0  # 자동 시작 카운트다운에 표시할 남은 칸(초). 0이면 카운트다운 중이 아니다
@@ -411,7 +412,9 @@ async def broadcast_embed_update(selection_status, description=None):
 ##
 # @brief 한 채널의 최신 embed 갱신을 보낸다. 보내는 동안 더 새 갱신이 오면 그것만 이어서 보낸다.
 # @details 직전 편집 시작으로부터 CHANNEL_EDIT_MIN_GAP_SECONDS가 지나야 보낸다. 응답이 느린
-#          채널은 밀린 중간 상태를 건너뛰고 최신 상태만 보낸다.
+#          채널은 밀린 중간 상태를 건너뛰고 최신 상태만 보낸다. 직전에 보낸 것과 내용이 같으면
+#          아예 보내지 않는다 - 차례가 넘어갈 때 픽 갱신과 새 타이머 첫 칸이 같은 화면을 두 번
+#          그리던 것을 막는다.
 # @param channel_id 갱신할 채널 ID.
 # @return 없음.
 async def push_channel_embed(channel_id):
@@ -423,9 +426,12 @@ async def push_channel_embed(channel_id):
         )
         if wait > 0:
             await asyncio.sleep(wait)
-        message, selection_status, description = channel_update_latest.pop(channel_id)
+        latest = channel_update_latest.pop(channel_id)
+        message, selection_status, description = latest
         if champion_messages.get(channel_id) is not message:
             continue  # 그 사이 새 게임이 시작됐다 - 낡은 갱신을 새 메시지에 쓰지 않는다
+        if channel_update_last_sent.get(channel_id) == latest:
+            continue  # 화면에 이미 같은 내용이 떠 있다 - 편집을 낭비하지 않는다
         channel_update_last_at[channel_id] = time.time()
         try:
             embed = message.embeds[0].copy()
@@ -435,6 +441,7 @@ async def push_channel_embed(channel_id):
                 0, name="선택 현황 및 픽순", value=selection_status, inline=False
             )
             await message.edit(embed=embed, view=champion_views.get(channel_id))
+            channel_update_last_sent[channel_id] = latest  # 실패한 편집은 기록하지 않는다 - 다음에 다시 보낸다
         except Exception:
             pass  # 메시지 삭제됨 등의 에러 무시
 
