@@ -82,12 +82,15 @@ DEFAULT_AUTO_START_SECONDS = (
 # "1초"를 보고 눌러도 손해 보지 않게 하려는 것이다. 픽은 자기 차례만 할 수 있고 순서대로라서 이 여유가
 # 다른 선수에게 손해가 되지 않는다. 1초로는 빠듯했다(2026-09-09 실측).
 DEFAULT_PICK_GRACE_SECONDS = 2.0  # config.json에 pick_grace_seconds가 없을 때 쓰는 폴백(초)
-# 카운트다운은 시계가 아니라 횟수로 센다(show_countdown_step). 한 칸 = 숫자를 1 줄여 그리고, 편집이
-# 끝나기를 기다린 뒤 쉰다. 시계 기준으로 매초 정확히 편집했을 때는 봇이 8,7,6,5를 빠짐없이 보냈는데도
-# 디스코드 화면에서 2초씩 줄거나 1초가 휙 지나갔다(2026-09-15 실측). 편집 사이에 1초 이상 빈틈을 두던
-# 맨 처음 방식(38e2bc8 이전)에서는 이런 불만이 없었다. 대신 표시 20초는 실제로 약 26~30초가 된다.
-COUNTDOWN_REST_SECONDS = 1  # 한 칸 편집이 끝난 뒤 쉬는 시간(초)
-COUNTDOWN_EDIT_WAIT_SECONDS = 1  # 한 칸에서 편집 완료를 기다리는 최대 시간(초). 느린 채널 하나가 전체를 늘리지 않게
+# 카운트다운은 시계가 아니라 횟수로 센다(show_countdown_step). 한 칸 = 숫자를 1 줄여 그리고, 편집 응답을
+# 기다린 뒤, 박자가 찰 때까지(최소 COUNTDOWN_MIN_REST_SECONDS) 쉰다.
+# 2026-09-16 실측(게이트웨이 + 웹 클라이언트 DOM 관찰): 디스코드는 1.0초 간격 편집도 하나도 합치지 않고
+# 전부 그린다. 숫자가 "빠진 것처럼" 보이는 진짜 원인은 서버가 편집 하나를 가끔 1초 넘게 붙잡았다가 풀어
+# 주는 것으로, 시계대로만 보내면 그 직후 다음 편집이 바로 적용돼 앞 숫자가 0.4초만 떠 있다가 넘어간다.
+# 그래서 다음 숫자는 직전 편집 응답을 받고 최소 휴식이 지난 뒤에만 보낸다(V1이 문제없던 이유).
+DEFAULT_COUNTDOWN_STEP_SECONDS = 1.2  # config.json에 countdown_step_seconds가 없을 때 쓰는 폴백(초)
+COUNTDOWN_MIN_REST_SECONDS = 0.8  # 편집 응답을 받은 뒤 다음 숫자까지 최소 휴식(초) = 숫자가 화면에 떠 있는 최소 시간
+COUNTDOWN_EDIT_WAIT_SECONDS = 1  # 한 칸에서 편집 응답을 기다리는 최대 시간(초). 느린 채널 하나가 전체를 끝없이 늘리지 않게
 # 채널당 편집 최소 간격(초). 틱 사이에 픽 갱신이 끼어도 편집이 몰려 버킷이 바닥나지 않게 한다
 # (편집이 끝나자마자 다시 보내 채널당 초당 2~3회가 되면 4초씩 멈췄다, 실측)
 CHANNEL_EDIT_MIN_GAP_SECONDS = 0.5
@@ -143,6 +146,7 @@ def load_config():
             "pick_timeout": DEFAULT_PICK_TIMEOUT,
             "auto_start_seconds": DEFAULT_AUTO_START_SECONDS,
             "pick_grace_seconds": DEFAULT_PICK_GRACE_SECONDS,
+            "countdown_step_seconds": DEFAULT_COUNTDOWN_STEP_SECONDS,
             "champion_count": 8,
             "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
@@ -518,19 +522,30 @@ async def send_pick_complete():
 
 # === 카운트다운 ===
 ##
-# @brief 카운트다운 한 칸을 그리고, 편집이 끝나기를 기다린 뒤 쉰다.
-# @details 편집 완료는 최대 COUNTDOWN_EDIT_WAIT_SECONDS까지만 기다린다 - 한 채널 응답이 2초씩
-#          걸려도(실측) 나머지 채널 박자가 같이 늘어나지 않게 한다. 느린 채널은 채널별 편집 태스크가
-#          끝나는 대로 최신 숫자를 따라 보낸다.
+# @brief 카운트다운 한 칸을 그리고, 편집 응답을 기다린 뒤, 박자가 찰 때까지 쉰다.
+# @details 평소(왕복 0.3초)에는 한 칸이 정확히 박자(countdown_step_seconds)가 된다. 서버가 편집을
+#          붙잡아 응답이 늦으면 그 칸만 늘어나되, 응답 뒤 최소 휴식(COUNTDOWN_MIN_REST_SECONDS)은
+#          지켜서 어느 숫자도 화면에 너무 짧게 떠 있지 않게 한다. 응답 대기는 최대
+#          COUNTDOWN_EDIT_WAIT_SECONDS까지만 - 한 채널이 2초 넘게 걸려도 전체가 끝없이 멈추지 않는다.
 # @return 없음.
 async def show_countdown_step():
+    step_started = time.time()
     request_embed_update()
     # await task가 아니라 wait로 기다린다 - 픽으로 타이머가 취소될 때 화면 갱신 태스크까지 취소되면 안 된다
     await asyncio.wait([embed_update_task])
     editing = [task for task in channel_update_tasks.values() if not task.done()]
     if editing:
         await asyncio.wait(editing, timeout=COUNTDOWN_EDIT_WAIT_SECONDS)
-    await asyncio.sleep(COUNTDOWN_REST_SECONDS)
+    await asyncio.sleep(
+        max(step_started + countdown_step_seconds() - time.time(), COUNTDOWN_MIN_REST_SECONDS)
+    )
+
+
+##
+# @brief 카운트다운 한 칸의 길이(초)를 config에서 읽는다.
+# @return countdown_step_seconds 값. 없으면 DEFAULT_COUNTDOWN_STEP_SECONDS.
+def countdown_step_seconds():
+    return config.get("countdown_step_seconds", DEFAULT_COUNTDOWN_STEP_SECONDS)
 
 
 ##
@@ -770,7 +785,7 @@ async def auto_start_handler(game_id, seconds):
     global start_remaining
 
     try:
-        await asyncio.sleep(COUNTDOWN_REST_SECONDS)
+        await asyncio.sleep(countdown_step_seconds())
         for remaining in range(seconds - 1, 0, -1):
             if game_id != current_game_id:
                 return

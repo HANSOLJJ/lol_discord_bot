@@ -77,6 +77,7 @@ DEV_MODE=true    # 개발 모드: true, 실제 모드: false
 {
   "pick_timeout": 15,      // 챔피언 선택 제한 시간 (초)
   "pick_grace_seconds": 2, // 카운트가 0이 된 뒤 자동 배정까지 기다리는 시간 (초). 이 안에 누른 클릭은 인정
+  "countdown_step_seconds": 1.2, // 카운트다운 한 칸의 길이 (초). 서버 응답이 늦으면 그 칸만 늘어나되 숫자는 0.8초 이상 표시
   "champion_count": 8,     // 제시할 챔피언 수
   "channels": {
     "team1": "TEAM1",      // 팀1 음성 채널 이름 (자유롭게 변경 가능)
@@ -192,7 +193,7 @@ uv run got_champe.py
    - 랜덤 챔피언 8개 제시
 
 2. **10초 카운트다운 후 자동 시작** (`config.json`의 `auto_start_seconds`)
-   - 화면에 "⏰ N초 후 자동 시작"이 한 칸씩 줄어듦 (한 칸 = 화면 반영 후 1초 쉼, 실제로는 1초보다 조금 김)
+   - 화면에 "⏰ N초 후 자동 시작"이 한 칸씩 줄어듦 (한 칸 = `countdown_step_seconds`, 기본 1.2초)
    - 0이 되면 타이머 시작 + 첫 번째 플레이어 차례
 
 3. **챔피언 선택**
