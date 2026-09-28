@@ -5,7 +5,8 @@
 #          순으로 픽 순서를 정해 순차적으로 랜덤 챔피언을 고르게 한다. 승리 팀을 선택하면
 #          wins.json(개인 누적 승수)을 갱신하고 game_recorder.record_game()으로 판을 기록한다.
 #          팀짜기/TEAM1/TEAM2 3채널에 결과 embed을 동시 전송한다. DEV_MODE면 wins_dev.json으로
-#          테스트를 분리한다.
+#          테스트를 분리한다. 게임 상태와 공통 게임 함수는 game_core.py에 있고, config의 pick_mode가
+#          "activity"면 픽을 디스코드 액티비티(activity_server.py)에서 하고 채널에는 현황판만 둔다.
 import discord
 import requests
 import os
@@ -17,6 +18,7 @@ import time
 from discord.ui import View, Button, button
 from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
+from discord.http import Route
 from dotenv import load_dotenv
 import json
 import unicodedata
@@ -121,6 +123,8 @@ def load_config():
             "pick_grace_seconds": DEFAULT_PICK_GRACE_SECONDS,
             "countdown_step_seconds": DEFAULT_COUNTDOWN_STEP_SECONDS,
             "champion_count": 8,
+            "pick_mode": "embed",  # 운영 봇 픽 방식: "embed"(채널 버튼) | "activity"
+            "dev_pick_mode": "activity",  # DEV_MODE 봇 픽 방식
             "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
 
@@ -316,6 +320,41 @@ def start_countdown_description(remaining):
 
 
 ##
+# @brief activity 모드 현황판의 안내 문구를 만든다. 남은 시간은 넣지 않는다(매초 편집하지 않는다).
+# @return embed description 문자열.
+def activity_board_description():
+    guide = "아래 **픽 화면 열기** 버튼으로 액티비티에서 챔피언을 고르세요."
+    phase = game.visible_phase()
+    if phase == "starting":
+        return (
+            f"## 🚀 준비 완료!\n"
+            f"**{game.pick_order[0].mention} 님부터 시작합니다.**\n\n{guide}"
+        )
+    if phase == "picking":
+        picker = game.pick_order[game.current_pick_index]
+        return f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n{guide}"
+    return "## ✅ 모든 선택 완료!"
+
+
+##
+# @brief activity 모드 채널 현황판 embed를 만든다. 제목에 ROUND N, 선택 현황·픽순, TEAM 1·TEAM 2 명단을 담는다.
+# @details field 0은 선택 현황이어야 한다. push_channel_embed가 field 0과 description만 바꿔 다시 그린다.
+# @return discord.Embed.
+def build_activity_board():
+    embed = Embed(title=f"🔀 ROUND {game.game_round}: 팀 구성", color=0xFFD700)
+    embed.description = activity_board_description()
+    embed.add_field(name="선택 현황 및 픽순", value=get_selection_status(), inline=False)
+    for key in ["team1", "team2"]:
+        team_emoji = "🔵" if key == "team1" else "🔴"
+        embed.add_field(
+            name=f"{team_emoji} {key.upper()}",
+            value="\n".join([m.mention for m in game.current_teams[key]]),
+            inline=True,
+        )
+    return embed
+
+
+##
 # @brief 모든 채널의 챔피언 선택 embed 갱신을 채널별 편집 태스크에 맡긴다.
 # @details 편집이 끝나기를 기다리지 않고 바로 돌아온다. 예전엔 3채널 편집을 모두 기다려서,
 #          한 채널 응답이 2초씩 걸리면 나머지 채널 카운트다운까지 같이 멈췄다(실측).
@@ -396,7 +435,10 @@ async def flush_embed_updates():
     while embed_update_pending:
         embed_update_pending = False
 
-        if not game.game_started and start_remaining:
+        if game.mode == "activity":
+            # activity 모드 현황판. 카운트다운 숫자는 액티비티가 그리므로 넣지 않는다
+            description = activity_board_description()
+        elif not game.game_started and start_remaining:
             # 아직 시작 전. 이 분기가 없으면 current_pick_deadline이 0이라 아래 마감 검사에
             # 걸려서 "시간 종료"로 잘못 그려진다
             description = start_countdown_description(start_remaining)
@@ -843,6 +885,141 @@ class ChampionButton(Button):
             await send_pick_complete()
 
 
+# === activity 모드: 현황판과 픽 화면 열기 ===
+LAUNCH_ACTIVITY = 12  # 인터랙션 응답 type: 액티비티 실행. py-cord 2.8.1에는 이 응답이 없다
+
+
+##
+# @brief 인터랙션에 LAUNCH_ACTIVITY(type 12)로 응답해 누른 사람의 디스코드에서 액티비티를 연다.
+# @details py-cord 2.8.1에 이 응답이 없어 인터랙션 콜백 API를 직접 부른다. 응답은 한 번만 할 수 있으므로
+#          py-cord가 이 인터랙션을 응답 완료로 알게 표시한다(이중 응답 방지).
+# @param interaction 버튼 인터랙션.
+# @return 없음.
+async def launch_activity(interaction):
+    route = Route(
+        "POST",
+        "/interactions/{interaction_id}/{interaction_token}/callback",
+        interaction_id=interaction.id,
+        interaction_token=interaction.token,
+    )
+    await bot.http.request(route, json={"type": LAUNCH_ACTIVITY})
+    interaction.response._responded = True
+
+
+##
+# @brief activity 모드 현황판에 다는 "픽 화면 열기" 버튼 View.
+class ActivityLaunchView(View):
+
+    ##
+    # @brief 버튼 하나짜리 View를 만든다(시간 제한 없음).
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    ##
+    # @brief 누른 사람에게 액티비티를 연다. 실패하면 이유를 본인에게만 알린다.
+    # @param button 눌린 버튼 객체.
+    # @param interaction 버튼 클릭 상호작용 객체.
+    @button(label="픽 화면 열기", style=discord.ButtonStyle.primary, emoji="🎮")
+    async def open_activity(self, button, interaction: Interaction):
+        try:
+            await launch_activity(interaction)
+        except Exception as e:
+            print(f"[ERROR] 액티비티 실행 응답 실패: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "⚠️ 픽 화면을 열지 못했습니다. 채팅 입력창의 앱 버튼으로 열어주세요.",
+                    ephemeral=True,
+                )
+
+
+##
+# @brief 현황판을 채널들에 보내고 champion_messages에 등록한다(이후 push_channel_embed가 고친다).
+# @param channels 보낼 채널 리스트.
+# @param ctx /게임시작 컨텍스트. 있으면 첫 채널(명령 채널)은 명령 응답으로 보낸다.
+# @return 없음.
+async def send_activity_board(channels, ctx=None):
+    embed = build_activity_board()
+
+    # @brief 현황판 하나를 보낸다. 실패하면 채널·판·에러 종류를 남긴다.
+    async def send_one(channel, respond):
+        view = ActivityLaunchView()
+        try:
+            if respond:
+                await ctx.respond(embed=embed, view=view)
+                message = await ctx.interaction.original_response()
+            else:
+                message = await channel.send(embed=embed, view=view)
+            champion_messages[channel.id] = message
+            champion_views[channel.id] = view
+        except Exception as e:
+            print(
+                f"[ERROR] 현황판 전송 실패 (channel={channel.id}, game={game.game_uid}): "
+                f"{type(e).__name__}: {e}"
+            )
+
+    await asyncio.gather(
+        *[send_one(ch, ctx is not None and i == 0) for i, ch in enumerate(channels)],
+        return_exceptions=True,
+    )
+    if not champion_messages:
+        print(f"[WARN] 현황판을 어느 채널에도 보내지 못했습니다 (game={game.game_uid})")
+
+
+##
+# @brief 액티비티에서 온 요청 뒤의 디스코드 작업과 길드 멤버 조회. game.effects에 넣는다.
+# @details game_core는 락 밖에서 이 메서드들을 백그라운드 작업으로 부른다(resolve_members만 락 안에서
+#          동기로 부른다). 채널 메시지 문구는 디스코드 명령 경로와 같은 함수를 쓴다.
+class ActivityEffects:
+
+    ##
+    # @brief 액티비티 start의 길드에서 새 판 후보 멤버를 구한다. DEV_MODE면 wins 파일의 가상 유저를 쓴다.
+    # @param guild_id SDK가 준 길드 ID 문자열.
+    # @return 멤버 리스트. 봇이 들어가 있지 않은 길드면 None.
+    def resolve_members(self, guild_id):
+        try:
+            guild = bot.get_guild(int(guild_id))
+        except ValueError:
+            return None
+        if guild is None:
+            return None
+        return dev_members() if DEV_MODE else online_members(guild)
+
+    ##
+    # @brief 액티비티에서 새 판이 만들어졌을 때 이전 판을 정리하고 팀짜기(config channels)에 현황판을 보낸다.
+    # @param guild_id 판을 시작한 길드 ID.
+    # @param result game.new_game()의 결과.
+    async def game_started(self, guild_id, result):
+        global current_game_channels
+        await reset_discord_game()
+        guild = bot.get_guild(int(guild_id))
+        # 명령 채널이 없으므로 config channels로만 보낸다
+        current_game_channels = get_game_channels(guild, None) if guild else []
+        if result.pool_reset:
+            print("[INFO] 챔피언 풀이 소진되어 제외 목록을 초기화했습니다.")
+        await send_activity_board(current_game_channels)
+
+    ##
+    # @brief 픽·자동 배정·픽 시작 뒤 현황판을 고친다.
+    async def board_changed(self):
+        request_embed_update()
+
+    ##
+    # @brief 액티비티에서 결과를 기록한 뒤 /승리와 같은 결과·오늘의 결과·누적 전적을 보낸다.
+    # @param outcome game.record_result_locked()의 성공 결과.
+    async def result_recorded(self, outcome):
+        await announce_result(outcome)
+
+    ##
+    # @brief 액티비티에서 번복한 뒤 /번복과 같은 정정 공지를 보낸다.
+    # @param record 번복 전 판 기록 스냅샷.
+    async def result_reversed(self, record):
+        print(f"[REVERSE] 액티비티 R{record['round']}: {record['winner']} 번복")
+        await announce_reverse(record, current_game_channels)
+
+
+game.effects = ActivityEffects()
+
+
 # === 새 판 준비 헬퍼 ===
 ##
 # @brief DEV_MODE의 가상 유저 목록을 wins 파일 항목으로 만든다.
@@ -941,9 +1118,10 @@ async def 게임시작(ctx):
             return
 
     # 게임 상태 초기화와 새 판 만들기 (game_core 공통 함수: 6명 선정, 픽 순서, 팀 분할, 후보 챔피언).
-    # 세대를 올려 이전 게임의 버튼·드롭다운·타이머를 무효화한다
+    # 세대를 올려 이전 게임의 버튼·드롭다운·타이머를 무효화한다. 픽 방식은 판을 시작할 때 고정한다
+    pick_mode = game.pick_mode()
     async with game.lock:
-        new_game = game.new_game(members, game.pick_mode())
+        new_game = game.new_game(members, pick_mode)
     await reset_discord_game()
 
     # 게임에 사용할 채널들 먼저 확보 (명령 실행 채널 + config 채널들)
@@ -952,6 +1130,19 @@ async def 게임시작(ctx):
         await ctx.channel.send(
             "⚠️ 설정된 채널을 찾을 수 없습니다. config.json을 확인해주세요!"
         )
+        return
+
+    if pick_mode == "activity":
+        # 채널에는 현황판 하나와 "픽 화면 열기" 버튼만 둔다. 자동 시작과 마감은 game_core 타이머가 맡는다
+        if not new_game.ok:
+            await ctx.respond(
+                f"⚠️ 챔피언 데이터가 부족합니다 (필요 {new_game.champ_count}명). "
+                "봇을 재시작하거나 config.json의 champion_count를 확인해주세요!"
+            )
+            return
+        if new_game.pool_reset:
+            print("[INFO] 챔피언 풀이 소진되어 제외 목록을 초기화했습니다.")
+        await send_activity_board(current_game_channels, ctx)
         return
 
     embed = Embed(title=f"🔀 ROUND {game.round_counter}: 팀 구성", color=0xFFD700)
@@ -1590,6 +1781,7 @@ async def on_ready():
     print(f"[ROUNDS] Starting from Round {game.round_counter}")
     print(
         f"[CONFIG] pick_timeout={game.config.get('pick_timeout')}s, champion_count={game.config.get('champion_count')}"
+        f", pick_mode={game.pick_mode()}"
     )
 
 
