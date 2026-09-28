@@ -1605,7 +1605,7 @@ if not token:
 
 
 ##
-# @brief 액티비티 서버를 띄운 뒤 봇을 실행하고, 종료(Ctrl+C 포함) 때 봇과 액티비티 서버를 정리한다.
+# @brief 액티비티 서버를 띄운 뒤 봇을 실행하고, 종료(Ctrl+C 포함) 때 봇·액티비티 서버·게임 타이머를 정리한다.
 # @details 액티비티 OAuth2 값(DEV_MODE 규칙은 봇 토큰과 같다)이 없거나 포트를 못 열면 경고만 출력하고
 #          봇은 그대로 실행한다. on_ready는 재연결 때 다시 불리므로 서버는 여기서 한 번만 띄운다.
 async def main():
@@ -1615,7 +1615,7 @@ async def main():
     activity = None
     if client_id and client_secret:
         activity = ActivityServer(
-            dev_mode=DEV_MODE,
+            game=game,
             client_id=client_id,
             client_secret=client_secret,
             port=int(os.getenv("ACTIVITY_PORT", DEFAULT_ACTIVITY_PORT)),
@@ -1636,6 +1636,7 @@ async def main():
     finally:
         if activity is not None:
             await activity.close()
+        await game.close()
 
 
 try:

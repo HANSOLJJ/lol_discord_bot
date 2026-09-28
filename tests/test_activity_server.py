@@ -1,8 +1,9 @@
 ##
 # @file test_activity_server.py
-# @brief activity_server의 토큰 교환·세션·WebSocket 규격(docs/ACTIVITY_PROTOCOL.md 1단계) 테스트.
-# @details 가짜 Discord API를 aiohttp 테스트 서버로 띄워 discord_api_base로 주입한다. 실제 Discord나
-#          봇(got_champe)은 쓰지 않는다. 실행: uv run python -m unittest discover -s tests -t . -v
+# @brief activity_server의 토큰 교환·세션·WebSocket 규격(docs/ACTIVITY_PROTOCOL.md, protocol_version 2) 테스트.
+# @details 가짜 Discord API를 aiohttp 테스트 서버로 띄워 discord_api_base로 주입한다. 게임은 game_core.GameCore에
+#          가짜 저장소·가짜 시계를 넣어 쓴다. 실제 Discord나 봇(got_champe)은 쓰지 않는다.
+#          실행: uv run python -m unittest discover -s tests -t . -v
 import asyncio
 import json
 import time
@@ -14,6 +15,9 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import activity_server
 from activity_server import ActivityServer, _Connection
+from game_core import GameCore
+from tests.test_activity_rules import FakeClock, FakeEffects
+from tests.test_game_core import CHAMPIONS, FakeStore, Member
 
 CLIENT_ID = "test-client-id"
 CLIENT_SECRET = "test-client-secret-value"
@@ -30,9 +34,45 @@ RECEIVE_TIMEOUT = 5  # 메시지 하나를 기다리는 최대 시간(초)
 
 
 ##
+# @brief 테스트용 GameCore를 만든다(가짜 저장소·시계, 길드 "guild-1"에 가상 6명).
+# @param clock FakeClock.
+# @param dev_mode DEV_MODE 여부.
+# @param pick_mode 이 프로세스의 픽 방식.
+# @param people 길드 온라인 멤버.
+# @return (GameCore, FakeStore).
+def make_game(clock, dev_mode, pick_mode, people):
+    store = FakeStore()
+    game = GameCore(
+        dev_mode=dev_mode,
+        save_wins=store.save_wins,
+        record_game=store.record_game,
+        find_game=store.find_game,
+        set_game_winner=store.set_game_winner,
+        get_season=store.get_season,
+        clock=clock,
+        wall_ms=clock.wall_ms,
+        sleep=clock.sleep,
+    )
+    game.config = {
+        "pick_timeout": 20,
+        "auto_start_seconds": 15,
+        "pick_grace_seconds": 2,
+        "champion_count": 8,
+        ("dev_pick_mode" if dev_mode else "pick_mode"): pick_mode,
+    }
+    game.champion_list = list(CHAMPIONS)
+    game.ddragon_version = "15.19.1"
+    game.wins_data = {"total_rounds": 86}
+    game.round_counter = 87
+    game.effects = FakeEffects({"guild-1": people})
+    return game, store
+
+
+##
 # @brief 가짜 Discord API와 액티비티 서버를 띄우는 공통 테스트 기반.
 class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
     dev_mode = True
+    pick_mode = "activity"
     session_ttl = activity_server.SESSION_TTL_SECONDS
 
     async def asyncSetUp(self):
@@ -47,12 +87,16 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
         self.fake_discord = TestServer(fake)
         await self.fake_discord.start_server()
 
+        self.clock = FakeClock()
+        self.people = [Member(900 + i, f"가상{i}") for i in range(6)]
+        self.game, self.store = make_game(self.clock, self.dev_mode, self.pick_mode, self.people)
         self.server = ActivityServer(
-            dev_mode=self.dev_mode,
+            game=self.game,
             client_id=CLIENT_ID,
             client_secret=CLIENT_SECRET,
             discord_api_base=str(self.fake_discord.make_url("")),
             session_ttl=self.session_ttl,
+            clock=self.clock,
         )
         self.client = TestClient(TestServer(self.server.app))
         await self.client.start_server()
@@ -60,6 +104,7 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.close()
         await self.fake_discord.close()
+        await self.game.close()
 
     async def _fake_token(self, request):
         form = dict(await request.post())
@@ -225,7 +270,7 @@ class WebSocketMessageTest(ActivityTestBase):
         state = await self.recv(ws)
 
         self.assertEqual(hello["t"], "hello")
-        self.assertEqual(hello["protocol_version"], 1)
+        self.assertEqual(hello["protocol_version"], 2)
         self.assertEqual(hello["server_epoch"], self.server.server_epoch)
         self.assertIsInstance(hello["server_ms"], int)
         self.assertAlmostEqual(hello["server_ms"], before, delta=5000)
@@ -233,19 +278,30 @@ class WebSocketMessageTest(ActivityTestBase):
         self.assertEqual(hello["user"]["username"], "hansol")
 
         self.assertEqual(state["t"], "state")
-        self.assertEqual(state["protocol_version"], 1)
+        self.assertEqual(state["protocol_version"], 2)
         self.assertEqual(state["server_epoch"], self.server.server_epoch)
         self.assertEqual(state["state_version"], 0)
         self.assertEqual(state["phase"], "none")
         self.assertIsInstance(state["server_ms"], int)
         for key in ("game_id", "round", "season", "start_at_ms", "deadline_ms", "grace_ms",
-                    "turn_id", "current_index"):
+                    "turn_id", "current_index", "ddragon_version", "result"):
             self.assertIn(key, state)
             self.assertIsNone(state[key], key)
         for key in ("players", "pick_order", "champions", "auto_assigned"):
             self.assertEqual(state[key], [], key)
         self.assertEqual(state["selections"], {})
-        self.assertEqual(state["me"], {"id": DISCORD_USER["id"], "role": "spectator"})
+        self.assertEqual(
+            state["me"],
+            {
+                "id": DISCORD_USER["id"],
+                "role": "spectator",
+                "team": None,
+                "can_start": True,
+                "can_pick": False,
+                "can_report": False,
+                "can_reverse": False,
+            },
+        )
 
     async def test_ping_pong(self):
         ws = await self.connect_ready()
@@ -269,6 +325,7 @@ class WebSocketMessageTest(ActivityTestBase):
         ws = await self.connect_ready()
         cases = [
             ('{"t": "dance", "id": "x-1"}', "x-1"),  # 모르는 t
+            ('{"t": "demo_countdown", "id": "d-1", "seconds": 5}', "d-1"),  # v2에서 없어진 t
             ("{broken json", None),  # 깨진 JSON
         ]
         for text, expected_id in cases:
@@ -293,9 +350,13 @@ class WebSocketMessageTest(ActivityTestBase):
             {"t": "ping", "id": "x" * 65, "c": 1},
             {"t": "ping", "id": "p", "c": "1"},
             {"t": "ping", "id": "p", "c": True},
-            {"t": "demo_countdown", "id": "d", "seconds": 0},
-            {"t": "demo_countdown", "id": "d", "seconds": 61},
-            {"t": "demo_countdown", "id": "d", "seconds": 2.5},
+            {"t": "start", "id": "g"},  # game_id·guild_id 없음
+            {"t": "start", "id": "g", "game_id": None, "guild_id": 5},
+            {"t": "pick", "id": "k", "game_id": "g-1", "turn_id": "g-1:0"},  # champion_id 없음
+            {"t": "pick", "id": "k", "game_id": "g-1", "turn_id": "g-1:0", "champion_id": ""},
+            {"t": "pick", "id": "k", "game_id": 1, "turn_id": "g-1:0", "champion_id": "Ahri"},
+            {"t": "result", "id": "r", "game_id": "g-1", "winner": 1},
+            {"t": "reverse", "id": "v", "game_id": "g-1", "expected_winner": "team3"},
         ]
         for message in cases:
             with self.subTest(message=message):
@@ -327,104 +388,226 @@ class WebSocketMessageTest(ActivityTestBase):
         self.assertEqual((await self.recv(ws))["id"], "p-alive")  # 아직 연결돼 있다
 
 
-class DemoCountdownDevTest(ActivityTestBase):
-    dev_mode = True
-
-    async def test_demo_countdown_picking_then_none(self):
-        ws = await self.connect_ready()
-        other = await self.connect_ready()  # 다른 연결도 같은 state를 받는다
-
-        await ws.send_str(json.dumps({"t": "demo_countdown", "id": "d-1", "seconds": 1}))
-        picking = await self.recv(ws)
-        reply = await self.recv(ws)
-
-        self.assertEqual(picking["t"], "state")
-        self.assertEqual(picking["phase"], "picking")
-        self.assertEqual(picking["game_id"], "demo")
-        self.assertEqual(picking["turn_id"], "demo-1")
-        self.assertEqual(picking["grace_ms"], 2000)
-        self.assertEqual(picking["deadline_ms"] - picking["server_ms"], 1000)
-        self.assertEqual(picking["state_version"], 1)
-        self.assertEqual(picking["players"], [])
-
-        self.assertEqual(reply["t"], "reply")
-        self.assertEqual(reply["id"], "d-1")
-        self.assertIs(reply["ok"], True)
-        self.assertEqual(reply["code"], "ok")
-        self.assertEqual(reply["state_version"], 1)
-
-        other_picking = await self.recv(other)
-        self.assertEqual(other_picking["turn_id"], "demo-1")
-
-        started = time.monotonic()
-        done = await self.recv(ws)  # 마감 1초 + 유예 2초 뒤
-        waited = time.monotonic() - started
-        self.assertEqual(done["t"], "state")
-        self.assertEqual(done["phase"], "none")
-        self.assertIsNone(done["game_id"])
-        self.assertIsNone(done["deadline_ms"])
-        self.assertEqual(done["state_version"], 2)
-        self.assertGreaterEqual(waited, 2.5)
-        self.assertEqual((await self.recv(other))["phase"], "none")
-
-        await ws.send_str(json.dumps({"t": "sync", "id": "s-2"}))
-        self.assertEqual((await self.recv(ws))["state_version"], 2)
-
-    async def test_sync_during_demo_keeps_same_deadline(self):
-        ws = await self.connect_ready()
-        await ws.send_str(json.dumps({"t": "demo_countdown", "id": "d-1", "seconds": 20}))
-        picking = await self.recv(ws)
-        await self.recv(ws)  # reply
-        await asyncio.sleep(0.2)
-        await ws.send_str(json.dumps({"t": "sync", "id": "s-1"}))
-        synced = await self.recv(ws)
-        self.assertEqual(synced["phase"], "picking")
-        self.assertEqual(synced["state_version"], picking["state_version"])
-        self.assertAlmostEqual(synced["deadline_ms"], picking["deadline_ms"], delta=50)
-        self.assertLess(synced["deadline_ms"] - synced["server_ms"], 20000)
-
-    async def test_new_demo_replaces_running_one(self):
-        ws = await self.connect_ready()
-        await ws.send_str(json.dumps({"t": "demo_countdown", "id": "d-1", "seconds": 1}))
-        await self.recv(ws)
-        await self.recv(ws)
-        await ws.send_str(json.dumps({"t": "demo_countdown", "id": "d-2", "seconds": 20}))
-        second = await self.recv(ws)
-        await self.recv(ws)
-        self.assertEqual(second["turn_id"], "demo-2")
-        self.assertEqual(second["state_version"], 2)
-        await asyncio.sleep(3.3)  # 첫 데모의 종료 시점이 지나도
-        await ws.send_str(json.dumps({"t": "sync", "id": "s-1"}))
-        synced = await self.recv(ws)
-        self.assertEqual((synced["phase"], synced["turn_id"]), ("picking", "demo-2"))
-
-
-class DemoCountdownProdTest(ActivityTestBase):
-    dev_mode = False
-
-    async def test_demo_countdown_not_allowed(self):
-        ws = await self.connect_ready()
-        await ws.send_str(json.dumps({"t": "demo_countdown", "id": "d-1", "seconds": 20}))
-        reply = await self.recv(ws)
-        self.assertEqual(reply["t"], "reply")
-        self.assertEqual(reply["id"], "d-1")
-        self.assertIs(reply["ok"], False)
-        self.assertEqual(reply["code"], "not_allowed")
-        self.assertEqual(reply["state_version"], 0)
-
-
 class ShutdownTest(ActivityTestBase):
 
     async def test_shutdown_closes_sockets_with_1001(self):
         ws = await self.connect_ready()
-        await ws.send_str(json.dumps({"t": "demo_countdown", "id": "d-1", "seconds": 20}))
-        await self.recv(ws)
-        await self.recv(ws)
         await self.client.server.close()
         self.assertEqual(await self.recv_close_code(ws), 1001)
         self.assertEqual(self.server._connections, set())
-        self.assertTrue(self.server._demo_task.done())
         self.assertIsNone(self.server._http)
+
+
+##
+# @brief 게임 요청(start·pick·result·reverse)을 실제 WebSocket으로 주고받는 테스트 기반.
+class GameSocketBase(ActivityTestBase):
+
+    async def send(self, ws, message):
+        await ws.send_str(json.dumps(message))
+
+    async def recv_type(self, ws, kind):
+        msg = await self.recv(ws)
+        self.assertEqual(msg["t"], kind, msg)
+        return msg
+
+
+class GameRoundTripTest(GameSocketBase):
+    """DEV_MODE activity: 연결 → hello/state → start → state 변화 → pick → reply."""
+
+    async def test_start_pick_result_round_trip(self):
+        ws = await self.connect()
+        hello = await self.recv_type(ws, "hello")
+        first = await self.recv_type(ws, "state")
+        self.assertEqual((hello["protocol_version"], first["phase"]), (2, "none"))
+        other = await self.connect_ready()  # 다른 연결도 같은 state를 받는다
+
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        starting = await self.recv_type(ws, "state")  # state가 reply보다 먼저 온다
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual(starting["phase"], "starting")
+        self.assertEqual(starting["state_version"], first["state_version"] + 1)
+        self.assertEqual(starting["start_at_ms"] - starting["server_ms"], 15000)
+        self.assertEqual(len(starting["players"]), 6)
+        self.assertEqual(starting["ddragon_version"], "15.19.1")
+        self.assertEqual(
+            reply,
+            {
+                "t": "reply",
+                "id": "g-1",
+                "ok": True,
+                "code": "ok",
+                "message": "ROUND 87 게임을 시작했습니다.",
+                "state_version": starting["state_version"],
+            },
+        )
+        self.assertEqual((await self.recv_type(other, "state"))["game_id"], starting["game_id"])
+
+        await self.clock.advance(15)  # 서버 타이머가 picking으로 바꾼다
+        picking = await self.recv_type(ws, "state")
+        self.assertEqual(picking["phase"], "picking")
+        self.assertEqual(picking["deadline_ms"] - picking["server_ms"], 20000)
+        self.assertTrue(picking["me"]["can_pick"])  # DEV_MODE: 누구나 대신 고른다
+        self.assertEqual((await self.recv_type(other, "state"))["phase"], "picking")
+
+        champ = picking["champions"][0]["id"]
+        await self.send(ws, {
+            "t": "pick", "id": "k-1", "game_id": picking["game_id"],
+            "turn_id": picking["turn_id"], "champion_id": champ,
+        })
+        picked = await self.recv_type(ws, "state")
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual(picked["selections"], {picking["pick_order"][0]: champ})
+        self.assertEqual(picked["current_index"], 1)
+        self.assertEqual((reply["id"], reply["code"], reply["ok"]), ("k-1", "ok", True))
+        self.assertEqual(reply["state_version"], picked["state_version"])
+
+        # 같은 차례 ID로 다시 고르면 stale_turn (상태가 바뀌지 않아 state 없이 reply만 온다)
+        await self.send(ws, {
+            "t": "pick", "id": "k-2", "game_id": picking["game_id"],
+            "turn_id": picking["turn_id"], "champion_id": picking["champions"][1]["id"],
+        })
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual((reply["code"], reply["ok"]), ("stale_turn", False))
+        self.assertEqual(reply["state_version"], picked["state_version"])
+
+        for _ in range(5):  # 나머지 5명은 시간 초과로 자동 배정
+            await self.clock.advance(22)
+        state = picked
+        while state["phase"] != "awaiting_result":
+            state = await self.recv_type(ws, "state")
+        self.assertEqual(len(state["auto_assigned"]), 5)
+        self.assertTrue(state["me"]["can_report"])
+
+        await self.send(ws, {"t": "result", "id": "r-1", "game_id": state["game_id"], "winner": "team2"})
+        done = await self.recv_type(ws, "state")
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual(done["phase"], "completed")
+        self.assertEqual(done["result"]["winner"], "team2")
+        self.assertEqual(reply["code"], "ok")
+
+        await self.send(ws, {
+            "t": "reverse", "id": "v-1", "game_id": done["game_id"], "expected_winner": "team2",
+        })
+        reversed_state = await self.recv_type(ws, "state")
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual(reversed_state["result"]["winner"], "team1")
+        self.assertEqual(reversed_state["result"]["corrected"]["from"], "team2")
+        self.assertEqual(reply["code"], "ok")
+
+    async def test_sync_returns_same_deadline(self):
+        ws = await self.connect_ready()
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        await self.recv_type(ws, "state")
+        await self.recv_type(ws, "reply")
+        await self.clock.advance(15)
+        picking = await self.recv_type(ws, "state")
+        await self.clock.advance(5)
+        await self.send(ws, {"t": "sync", "id": "s-1"})
+        synced = await self.recv_type(ws, "state")
+        self.assertEqual(synced["state_version"], picking["state_version"])
+        self.assertEqual(synced["deadline_ms"], picking["deadline_ms"])
+        self.assertEqual(synced["deadline_ms"] - synced["server_ms"], 15000)
+
+
+class IdempotencyTest(GameSocketBase):
+
+    async def start_picking(self, ws):
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        await self.recv_type(ws, "state")
+        await self.recv_type(ws, "reply")
+        await self.clock.advance(15)
+        return await self.recv_type(ws, "state")
+
+    async def test_resend_same_request_returns_first_reply(self):
+        ws = await self.connect_ready()
+        picking = await self.start_picking(ws)
+        pick = {
+            "t": "pick", "id": "k-1", "game_id": picking["game_id"],
+            "turn_id": picking["turn_id"], "champion_id": picking["champions"][0]["id"],
+        }
+        await self.send(ws, pick)
+        await self.recv_type(ws, "state")
+        first = await self.recv_type(ws, "reply")
+        await self.send(ws, pick)  # 응답을 못 받았다고 보고 다시 보냄
+        again = await self.recv_type(ws, "reply")  # 다시 처리하지 않아 state가 오지 않는다
+        self.assertEqual(again, first)
+        self.assertEqual(len(self.game.selected_users), 1)
+
+        changed = dict(pick, champion_id=picking["champions"][1]["id"])
+        await self.send(ws, changed)
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual((reply["id"], reply["code"]), ("k-1", "bad_request"))
+        await self.send(ws, {"t": "ping", "id": "p", "c": 1})
+        self.assertEqual((await self.recv_type(ws, "pong"))["id"], "p")
+
+    async def test_duplicates_sent_back_to_back_are_processed_once(self):
+        ws = await self.connect_ready()
+        start = {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"}
+        await self.send(ws, start)
+        await self.send(ws, start)
+        messages = [await self.recv(ws) for _ in range(3)]
+        self.assertEqual([m["t"] for m in messages], ["state", "reply", "reply"])
+        self.assertEqual(messages[1], messages[2])
+        self.assertEqual(self.game.current_game_id, 1)
+
+    async def test_start_reply_is_kept_after_its_new_game(self):
+        ws = await self.connect_ready()
+        start = {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"}
+        await self.send(ws, start)
+        await self.recv_type(ws, "state")
+        first = await self.recv_type(ws, "reply")
+        await self.send(ws, start)
+        self.assertEqual(await self.recv_type(ws, "reply"), first)  # stale_game이 아니라 처음 reply
+
+    async def test_replies_are_cleared_when_next_game_starts(self):
+        ws = await self.connect_ready()
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        await self.recv_type(ws, "state")
+        await self.recv_type(ws, "reply")
+        self.assertEqual(len(self.server._replies), 1)
+        async with self.game.lock:
+            self.game.new_game(self.people, "activity")  # /게임시작
+        await self.recv_type(ws, "state")
+        self.assertEqual(self.server._replies, {})
+
+
+class ProdPermissionTest(GameSocketBase):
+    dev_mode = False
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        # 연결한 사용자(DISCORD_USER)를 온라인 6명 중 한 명으로 둔다
+        self.people[0] = Member(int(DISCORD_USER["id"]), "정한솔")
+
+    async def test_me_is_built_per_user(self):
+        ws = await self.connect_ready()
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        state = await self.recv_type(ws, "state")
+        await self.recv_type(ws, "reply")
+        me = state["me"]
+        self.assertEqual(me["role"], "player")
+        self.assertIn(me["team"], ("team1", "team2"))
+        await self.clock.advance(15)
+        picking = await self.recv_type(ws, "state")
+        mine = picking["pick_order"][0] == DISCORD_USER["id"]
+        self.assertEqual(picking["me"]["can_pick"], mine)
+
+
+class EmbedModeSocketTest(GameSocketBase):
+    pick_mode = "embed"
+
+    async def test_start_not_allowed_and_state_none(self):
+        ws = await self.connect()
+        await self.recv_type(ws, "hello")
+        state = await self.recv_type(ws, "state")
+        self.assertFalse(state["me"]["can_start"])
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual((reply["ok"], reply["code"]), (False, "not_allowed"))
+        async with self.game.lock:
+            self.game.new_game(self.people, "embed")  # 디스코드 /게임시작(embed)
+        state = await self.recv_type(ws, "state")
+        self.assertEqual((state["phase"], state["game_id"]), ("none", None))
 
 
 ##
@@ -497,8 +680,9 @@ class RealServerLoggingTest(unittest.IsolatedAsyncioTestCase):
         await self.fake_discord.close()
 
     async def test_logs_have_no_secrets_or_query(self):
+        game, _ = make_game(FakeClock(), True, "activity", [])
         server = ActivityServer(
-            dev_mode=True,
+            game=game,
             client_id=CLIENT_ID,
             client_secret=CLIENT_SECRET,
             port=0,  # 테스트용 임시 포트
