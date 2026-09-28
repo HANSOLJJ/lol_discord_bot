@@ -1,0 +1,619 @@
+##
+# @file activity_server.py
+# @brief 디스코드 액티비티용 HTTP·WebSocket 서버 (토큰 교환, 세션, 상태 스냅샷, 개발용 데모 카운트다운).
+# @details 봇 프로세스 안에서 aiohttp.web으로 127.0.0.1에만 바인딩한다. 메시지 형식의 기준은
+#          docs/ACTIVITY_PROTOCOL.md(protocol_version 1)이다. 봇 전역 상태를 import하지 않고 설정은
+#          생성자로 주입받는다. 1단계에서는 게임 상태 대신 서버 안의 데모 카운트다운 상태만 보낸다.
+#          OAuth code, access token, client secret, 세션 토큰, WebSocket query는 로그에 남기지 않는다.
+import asyncio
+import collections
+import json
+import logging
+import math
+import secrets
+import time
+import uuid
+
+import aiohttp
+from aiohttp import web
+from aiohttp.abc import AbstractAccessLogger
+
+PROTOCOL_VERSION = 1
+DEFAULT_PORT = 8790
+BIND_HOST = "127.0.0.1"
+DISCORD_API_BASE = "https://discord.com/api"
+DISCORD_TIMEOUT_SECONDS = 10  # Discord OAuth2 호출 하나의 최대 시간(초)
+SESSION_TTL_SECONDS = 3600  # 세션 수명(초). 발급 시점부터 센다
+MAX_BODY_BYTES = 4096  # 토큰 요청 본문 최대 크기
+MAX_CODE_LENGTH = 512
+MAX_MESSAGE_BYTES = 4096  # 이보다 큰 WS 메시지는 규격 위반(reply bad_request)
+WS_HARD_LIMIT_BYTES = 64 * 1024  # 이보다 큰 WS 메시지는 aiohttp가 1009로 끊는다
+MAX_REQUEST_ID_LENGTH = 64
+MAX_VIOLATIONS = 3  # 연속 규격 위반이 이 횟수에 닿으면 4400으로 닫는다
+SEND_TIMEOUT_SECONDS = 5  # 메시지 하나를 이 시간 안에 못 보내면 느린 연결로 보고 4408로 닫는다
+TOKEN_RATE_LIMIT = 30  # 토큰 엔드포인트 허용 횟수(서버 전체). 프록시 뒤라 IP 구분이 무의미하다
+TOKEN_RATE_WINDOW_SECONDS = 60
+DEMO_GRACE_MS = 2000
+DEMO_MAX_SECONDS = 60
+
+CLOSE_NORMAL = 1000
+CLOSE_GOING_AWAY = 1001
+CLOSE_BAD_REQUEST = 4400
+CLOSE_UNAUTHORIZED = 4401
+CLOSE_SLOW = 4408
+
+log = logging.getLogger("activity")
+
+
+##
+# @brief 현재 시각을 유닉스 밀리초 정수로 반환한다.
+# @return 유닉스 밀리초.
+def _now_ms():
+    return int(time.time() * 1000)
+
+
+##
+# @brief 실패 응답(`{"error": 코드}`)을 만든다.
+# @param status HTTP 상태 코드.
+# @param code 규격의 error 코드.
+# @return web.Response.
+def _error(status, code):
+    return web.json_response({"error": code}, status=status)
+
+
+##
+# @brief Discord users/@me 응답에서 규격의 user 객체를 뽑는다.
+# @param data users/@me 응답 JSON.
+# @return {id, username, global_name, avatar} 또는 형식이 맞지 않으면 None.
+def _parse_user(data):
+    if not isinstance(data, dict):
+        return None
+    user_id, username = data.get("id"), data.get("username")
+    global_name, avatar = data.get("global_name"), data.get("avatar")
+    if not isinstance(user_id, str) or not user_id or not isinstance(username, str):
+        return None
+    if not isinstance(global_name, (str, type(None))) or not isinstance(avatar, (str, type(None))):
+        return None
+    return {"id": user_id, "username": username, "global_name": global_name, "avatar": avatar}
+
+
+##
+# @brief Discord 토큰 교환이나 신원 확인이 실패했음을 알리는 예외. 메시지에는 상태 코드만 담는다.
+class _OAuthError(Exception):
+    pass
+
+
+##
+# @brief access log에 query 없이 경로만 남기는 로거. 세션 토큰이 WS query로 오기 때문이다.
+class _PathOnlyAccessLogger(AbstractAccessLogger):
+
+    ##
+    # @brief 요청 한 건을 "원격주소 메서드 경로 상태 소요시간" 형식으로 기록한다.
+    # @param request 요청.
+    # @param response 응답.
+    # @param time 처리 시간(초).
+    def log(self, request, response, time):
+        self.logger.info(
+            '%s "%s %s" %s %.3fs', request.remote, request.method, request.path, response.status, time
+        )
+
+
+##
+# @brief 발급한 세션 하나. 서버 메모리에만 보관한다.
+class _Session:
+
+    ##
+    # @param user 규격의 user 객체.
+    # @param ttl 수명(초).
+    def __init__(self, user, ttl):
+        self.user = user
+        self.expires_mono = time.monotonic() + ttl  # 만료 판정용 단조 시계
+        self.expires_ms = _now_ms() + int(ttl * 1000)  # 클라이언트에 알려주는 유닉스 밀리초
+
+
+##
+# @brief WebSocket 연결 하나와 그 연결 전용 송신 작업.
+# @details 보낼 메시지는 순서대로 쌓아 송신 작업 하나가 보낸다. 아직 못 보낸 state가 있으면 새 state가 그
+#          자리를 덮어써서 가장 최신 것만 나간다. 메시지 하나를 제한 시간 안에 못 보내면 4408로 닫는다.
+#          닫기 요청이 오면 쌓인 메시지를 마저 보낸 뒤 그 코드로 닫는다.
+class _Connection:
+
+    ##
+    # @param ws prepare가 끝난 WebSocketResponse(또는 같은 메서드를 가진 객체).
+    # @param user_id 연결한 Discord 사용자 ID.
+    # @param send_timeout 메시지 하나의 송신 제한 시간(초).
+    def __init__(self, ws, user_id, send_timeout=SEND_TIMEOUT_SECONDS):
+        self.ws = ws
+        self.user_id = user_id
+        self.violations = 0  # 연속 규격 위반 횟수
+        self._send_timeout = send_timeout
+        self._items = collections.deque()  # 보낼 순서대로 쌓인 [메시지] 칸
+        self._state_item = None  # 아직 못 보낸 state 칸. 새 state는 이 칸을 덮어쓴다
+        self._close_code = None
+        self._wake = asyncio.Event()
+        self.task = asyncio.create_task(self._run())
+
+    ##
+    # @brief 메시지를 송신 순서 끝에 쌓는다. 닫기 요청 뒤에는 버린다.
+    # @param message 보낼 dict.
+    def send(self, message):
+        if self._close_code is None:
+            self._items.append([message])
+            self._wake.set()
+
+    ##
+    # @brief state를 쌓는다. 아직 못 보낸 state가 있으면 그 자리를 새 state로 바꾼다.
+    # @param state 보낼 state dict.
+    def send_state(self, state):
+        if self._close_code is not None:
+            return
+        if self._state_item is not None:
+            self._state_item[0] = state
+        else:
+            self._state_item = [state]
+            self._items.append(self._state_item)
+        self._wake.set()
+
+    ##
+    # @brief 쌓인 메시지를 보낸 뒤 주어진 코드로 닫도록 요청한다. 먼저 온 요청이 이긴다.
+    # @param code 종료 코드.
+    def request_close(self, code):
+        if self._close_code is None:
+            self._close_code = code
+            self._wake.set()
+
+    ##
+    # @brief 송신 작업 본체. 연결이 닫히거나 닫기 요청을 처리하면 끝난다.
+    async def _run(self):
+        while True:
+            if self._items:
+                item = self._items.popleft()
+                if item is self._state_item:
+                    self._state_item = None
+                try:
+                    await asyncio.wait_for(
+                        self.ws.send_str(json.dumps(item[0], ensure_ascii=False)), self._send_timeout
+                    )
+                except TimeoutError:
+                    log.warning("[ACTIVITY] 느린 연결을 닫습니다 (user=%s)", self.user_id)
+                    await self._close(CLOSE_SLOW)
+                    return
+                except Exception:
+                    return  # 연결이 이미 끊겼다
+            elif self._close_code is not None:
+                await self._close(self._close_code)
+                return
+            else:
+                self._wake.clear()
+                await self._wake.wait()
+
+    ##
+    # @brief 연결을 닫는다. 제한 시간을 넘기면 aiohttp가 전송 계층을 바로 끊는다.
+    # @param code 종료 코드.
+    async def _close(self, code):
+        try:
+            await asyncio.wait_for(self.ws.close(code=code), self._send_timeout)
+        except Exception:
+            pass
+
+
+##
+# @brief 액티비티 서버. 토큰 교환·세션·WebSocket 연결과 상태 전송을 맡는다.
+# @details `app`을 aiohttp 테스트 도구에 바로 넘길 수 있고, 실제 실행은 start()/close()로 한다.
+#          Discord HTTP 세션은 앱 시작 때 하나 만들어 재사용하고 정리 때 닫는다.
+class ActivityServer:
+
+    ##
+    # @param dev_mode True면 데모 카운트다운을 허용한다.
+    # @param client_id Discord 앱 client ID.
+    # @param client_secret Discord 앱 client secret. 로그에 남기지 않는다.
+    # @param port 바인딩할 포트(주소는 항상 127.0.0.1).
+    # @param discord_api_base Discord API 기본 URL. 테스트에서 가짜 서버로 바꾼다.
+    # @param session_ttl 세션 수명(초).
+    def __init__(
+        self,
+        *,
+        dev_mode,
+        client_id,
+        client_secret,
+        port=DEFAULT_PORT,
+        discord_api_base=DISCORD_API_BASE,
+        session_ttl=SESSION_TTL_SECONDS,
+    ):
+        self._dev_mode = dev_mode
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._port = port
+        self._api_base = discord_api_base.rstrip("/")
+        self._session_ttl = session_ttl
+        self.server_epoch = str(uuid.uuid4())  # 프로세스(서버 객체)마다 새로 만든다
+        self._sessions = {}  # {세션 토큰: _Session}
+        self._connections = set()  # 열린 _Connection
+        self._token_requests = collections.deque()  # 빈도 제한 창 안의 토큰 요청 시각(단조 시계)
+        self._lock = asyncio.Lock()  # 상태 변경·스냅샷 생성 직렬화
+        self._state_version = 0
+        self._demo = None  # {"turn_id", "deadline_mono"} - 진행 중인 데모 카운트다운
+        self._demo_serial = 0
+        self._demo_task = None
+        self._http = None  # Discord 호출용 ClientSession
+        self._runner = None
+        self.app = web.Application(client_max_size=MAX_BODY_BYTES)
+        self.app.router.add_post("/pick-api/token", self._handle_token)
+        self.app.router.add_get("/pick-api/ws", self._handle_ws)
+        self.app.on_startup.append(self._on_startup)
+        self.app.on_shutdown.append(self._on_shutdown)
+        self.app.on_cleanup.append(self._on_cleanup)
+
+    # === 실행과 정리 ===
+
+    ##
+    # @brief 127.0.0.1:port에 서버를 띄운다. 실패하면 만든 자원을 정리하고 예외를 그대로 던진다.
+    async def start(self):
+        runner = web.AppRunner(self.app, access_log_class=_PathOnlyAccessLogger)
+        await runner.setup()
+        try:
+            await web.TCPSite(runner, BIND_HOST, self._port).start()
+        except BaseException:
+            await runner.cleanup()
+            raise
+        self._runner = runner
+        log.info("[ACTIVITY] 액티비티 서버 시작: %s:%s", BIND_HOST, self._port)
+
+    ##
+    # @brief 서버를 멈춘다. 열린 소켓(1001)·데모 타이머·Discord HTTP 세션·runner를 모두 정리한다.
+    async def close(self):
+        runner, self._runner = self._runner, None
+        if runner is not None:
+            await runner.cleanup()
+
+    async def _on_startup(self, app):
+        self._http = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=DISCORD_TIMEOUT_SECONDS)
+        )
+
+    async def _on_shutdown(self, app):
+        if self._demo_task is not None:
+            self._demo_task.cancel()
+        connections = list(self._connections)
+        for conn in connections:
+            conn.request_close(CLOSE_GOING_AWAY)
+        await asyncio.gather(*(conn.task for conn in connections), return_exceptions=True)
+
+    async def _on_cleanup(self, app):
+        if self._demo_task is not None:
+            self._demo_task.cancel()
+            await asyncio.gather(self._demo_task, return_exceptions=True)
+        if self._http is not None:
+            await self._http.close()
+            self._http = None
+
+    # === HTTP: 토큰 교환 ===
+
+    ##
+    # @brief POST /pick-api/token. OAuth code를 access token과 세션으로 바꾼다.
+    # @param request 요청.
+    # @return 성공 200, 실패 400/401/429/500.
+    async def _handle_token(self, request):
+        if not self._take_token_slot():
+            return _error(429, "rate_limited")
+        try:
+            data = json.loads(await request.read())
+        except (web.HTTPRequestEntityTooLarge, ValueError):  # 4KB 초과, JSON·UTF-8 오류
+            return _error(400, "bad_request")
+        code = data.get("code") if isinstance(data, dict) else None
+        if not isinstance(code, str) or not 1 <= len(code) <= MAX_CODE_LENGTH:
+            return _error(400, "bad_request")
+        try:
+            access_token, user = await self._exchange_code(code)
+        except _OAuthError as e:
+            log.warning("[ACTIVITY] OAuth 실패: %s", e)
+            return _error(401, "oauth_failed")
+        except Exception as e:
+            log.error("[ACTIVITY] 토큰 교환 중 서버 오류: %s", type(e).__name__)
+            return _error(500, "server_error")
+        self._prune_sessions()
+        token = secrets.token_urlsafe(32)
+        session = _Session(user, self._session_ttl)
+        self._sessions[token] = session
+        log.info("[ACTIVITY] 세션 발급 (user=%s)", user["id"])
+        return web.json_response(
+            {
+                "access_token": access_token,
+                "session": token,
+                "session_expires_ms": session.expires_ms,
+                "user": user,
+            }
+        )
+
+    ##
+    # @brief 토큰 요청 빈도 제한 창에 자리가 있으면 차지한다(서버 전체 기준).
+    # @return 허용이면 True, 초과면 False.
+    def _take_token_slot(self):
+        now = time.monotonic()
+        requests = self._token_requests
+        while requests and now - requests[0] >= TOKEN_RATE_WINDOW_SECONDS:
+            requests.popleft()
+        if len(requests) >= TOKEN_RATE_LIMIT:
+            return False
+        requests.append(now)
+        return True
+
+    ##
+    # @brief Discord에 code를 access token으로 바꾸고 users/@me로 신원을 확인한다.
+    # @param code OAuth code.
+    # @return (access_token, user).
+    # @throws _OAuthError Discord 응답 오류, 형식 오류, 네트워크 오류·타임아웃.
+    async def _exchange_code(self, code):
+        form = {
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+            "grant_type": "authorization_code",
+            "code": code,
+        }
+        try:
+            async with self._http.post(f"{self._api_base}/oauth2/token", data=form) as resp:
+                if resp.status != 200:
+                    raise _OAuthError(f"oauth2/token {resp.status}")
+                token_data = await resp.json(content_type=None)
+            access_token = token_data.get("access_token") if isinstance(token_data, dict) else None
+            if not isinstance(access_token, str) or not access_token:
+                raise _OAuthError("oauth2/token 응답에 access_token 없음")
+            headers = {"Authorization": f"Bearer {access_token}"}
+            async with self._http.get(f"{self._api_base}/users/@me", headers=headers) as resp:
+                if resp.status != 200:
+                    raise _OAuthError(f"users/@me {resp.status}")
+                me = await resp.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError, ValueError) as e:
+            raise _OAuthError(type(e).__name__) from None
+        user = _parse_user(me)
+        if user is None:
+            raise _OAuthError("users/@me 응답 형식 오류")
+        return access_token, user
+
+    ##
+    # @brief 만료된 세션을 지운다.
+    def _prune_sessions(self):
+        now = time.monotonic()
+        for token in [t for t, s in self._sessions.items() if s.expires_mono <= now]:
+            del self._sessions[token]
+
+    ##
+    # @brief 세션 토큰으로 유효한 세션을 찾는다. 만료됐으면 지우고 None을 반환한다.
+    # @param token 세션 토큰(없으면 None).
+    # @return _Session 또는 None.
+    def _find_session(self, token):
+        session = self._sessions.get(token) if token else None
+        if session is None:
+            return None
+        if session.expires_mono <= time.monotonic():
+            del self._sessions[token]
+            return None
+        return session
+
+    # === WebSocket ===
+
+    ##
+    # @brief GET /pick-api/ws?session=... 세션이 없거나 만료됐으면 업그레이드 직후 4401로 닫는다.
+    # @param request 요청.
+    # @return WebSocketResponse.
+    async def _handle_ws(self, request):
+        ws = web.WebSocketResponse(max_msg_size=WS_HARD_LIMIT_BYTES, timeout=SEND_TIMEOUT_SECONDS)
+        await ws.prepare(request)
+        session = self._find_session(request.query.get("session"))
+        if session is None:
+            await ws.close(code=CLOSE_UNAUTHORIZED)
+            return ws
+        conn = _Connection(ws, session.user["id"])
+        async with self._lock:
+            self._connections.add(conn)
+            conn.send(self._hello(session.user))
+            conn.send_state(self._state_for(self._snapshot(), conn))
+        log.info("[ACTIVITY] WS 연결 (user=%s, 연결 %d개)", conn.user_id, len(self._connections))
+        try:
+            await self._receive_loop(conn, session)
+        finally:
+            self._connections.discard(conn)
+            conn.request_close(CLOSE_NORMAL)
+            await conn.task
+            log.info("[ACTIVITY] WS 종료 (user=%s, code=%s)", conn.user_id, ws.close_code)
+        return ws
+
+    ##
+    # @brief 클라이언트 메시지를 받아 처리한다. 세션 만료·연속 위반·연결 종료 시 끝난다.
+    # @param conn 연결.
+    # @param session 연결에 쓴 세션.
+    async def _receive_loop(self, conn, session):
+        while True:
+            remaining = session.expires_mono - time.monotonic()
+            if remaining <= 0:
+                conn.request_close(CLOSE_UNAUTHORIZED)
+                return
+            try:
+                msg = await conn.ws.receive(timeout=remaining)
+            except TimeoutError:
+                continue  # 다음 바퀴에서 만료를 판정한다
+            if msg.type == web.WSMsgType.TEXT:
+                await self._handle_message(conn, msg.data)
+            elif msg.type == web.WSMsgType.BINARY:
+                self._reject(conn, None)
+            else:
+                return  # CLOSE·CLOSING·CLOSED·ERROR
+            if conn.violations >= MAX_VIOLATIONS:
+                conn.request_close(CLOSE_BAD_REQUEST)
+                return
+
+    ##
+    # @brief 텍스트 메시지 하나를 검증하고 처리한다.
+    # @param conn 연결.
+    # @param text 받은 문자열.
+    async def _handle_message(self, conn, text):
+        if len(text.encode("utf-8")) > MAX_MESSAGE_BYTES:
+            self._reject(conn, None)
+            return
+        try:
+            data = json.loads(text)
+        except ValueError:
+            self._reject(conn, None)
+            return
+        request_id = data.get("id") if isinstance(data, dict) else None
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= MAX_REQUEST_ID_LENGTH:
+            self._reject(conn, None)
+            return
+        kind = data.get("t")
+        if kind == "ping":
+            c = data.get("c")
+            if isinstance(c, bool) or not isinstance(c, (int, float)) or not math.isfinite(c):
+                self._reject(conn, request_id)
+                return
+            conn.violations = 0
+            conn.send({"t": "pong", "id": request_id, "c": c, "s": _now_ms()})
+        elif kind == "sync":
+            conn.violations = 0
+            async with self._lock:
+                conn.send_state(self._state_for(self._snapshot(), conn))
+        elif kind == "demo_countdown":
+            seconds = data.get("seconds")
+            if (
+                isinstance(seconds, bool)
+                or not isinstance(seconds, int)
+                or not 1 <= seconds <= DEMO_MAX_SECONDS
+            ):
+                self._reject(conn, request_id)
+                return
+            conn.violations = 0
+            if not self._dev_mode:
+                message = "운영 모드에서는 데모 카운트다운을 쓸 수 없습니다."
+                conn.send(
+                    self._reply(request_id, False, "not_allowed", message, self._state_version)
+                )
+                return
+            version = await self._start_demo(seconds)
+            message = "데모 카운트다운을 시작했습니다."
+            conn.send(self._reply(request_id, True, "ok", message, version))
+        else:
+            self._reject(conn, request_id)
+
+    ##
+    # @brief 규격 위반 메시지에 reply bad_request를 보내고 연속 위반 횟수를 올린다.
+    # @param conn 연결.
+    # @param request_id 돌려줄 요청 ID(알 수 없으면 None).
+    def _reject(self, conn, request_id):
+        conn.violations += 1
+        message = "요청 형식이 올바르지 않습니다."
+        conn.send(self._reply(request_id, False, "bad_request", message, self._state_version))
+
+    # === 상태 ===
+
+    ##
+    # @brief 데모 카운트다운을 시작하고 모든 연결에 state를 보낸다. 진행 중인 데모는 새 것으로 바꾼다.
+    # @param seconds 카운트다운 길이(초).
+    # @return 변경 후 state_version.
+    async def _start_demo(self, seconds):
+        async with self._lock:
+            now_mono, now_ms = time.monotonic(), _now_ms()
+            self._demo_serial += 1
+            turn_id = f"demo-{self._demo_serial}"
+            self._demo = {"turn_id": turn_id, "deadline_mono": now_mono + seconds}
+            self._state_version += 1
+            if self._demo_task is not None:
+                self._demo_task.cancel()
+            self._demo_task = asyncio.create_task(
+                self._end_demo_after(turn_id, seconds + DEMO_GRACE_MS / 1000)
+            )
+            self._broadcast(self._snapshot(now_mono, now_ms))
+            log.info("[ACTIVITY] 데모 카운트다운 시작 (turn=%s, %d초)", turn_id, seconds)
+            return self._state_version
+
+    ##
+    # @brief 마감과 유예가 지나면 데모를 끝내고 게임 없음 state를 보낸다.
+    # @param turn_id 이 타이머가 맡은 데모 차례. 그사이 바뀌었으면 아무것도 하지 않는다.
+    # @param delay 기다릴 시간(초).
+    async def _end_demo_after(self, turn_id, delay):
+        await asyncio.sleep(delay)
+        async with self._lock:
+            if self._demo is None or self._demo["turn_id"] != turn_id:
+                return
+            self._demo = None
+            self._state_version += 1
+            self._broadcast(self._snapshot())
+
+    ##
+    # @brief 모든 연결에 state를 쌓는다. 락 안에서 호출하며 실제 전송은 각 연결의 송신 작업이 한다.
+    # @param snapshot _snapshot()의 결과.
+    def _broadcast(self, snapshot):
+        for conn in self._connections:
+            conn.send_state(self._state_for(snapshot, conn))
+
+    ##
+    # @brief 연결과 무관한 state 본문을 만든다. server_ms와 deadline_ms는 같은 순간의 시각으로 계산한다.
+    # @param now_mono 기준 단조 시각(생략하면 지금).
+    # @param now_ms now_mono와 같은 순간의 유닉스 밀리초.
+    # @return state dict(`me` 제외).
+    def _snapshot(self, now_mono=None, now_ms=None):
+        if now_mono is None:
+            now_mono, now_ms = time.monotonic(), _now_ms()
+        state = {
+            "t": "state",
+            "protocol_version": PROTOCOL_VERSION,
+            "server_epoch": self.server_epoch,
+            "game_id": None,
+            "state_version": self._state_version,
+            "phase": "none",
+            "round": None,
+            "season": None,
+            "server_ms": now_ms,
+            "start_at_ms": None,
+            "deadline_ms": None,
+            "grace_ms": None,
+            "turn_id": None,
+            "current_index": None,
+            "players": [],
+            "pick_order": [],
+            "champions": [],
+            "selections": {},
+            "auto_assigned": [],
+        }
+        if self._demo is not None:
+            remaining_ms = round((self._demo["deadline_mono"] - now_mono) * 1000)
+            state.update(
+                game_id="demo",
+                phase="picking",
+                deadline_ms=now_ms + remaining_ms,
+                grace_ms=DEMO_GRACE_MS,
+                turn_id=self._demo["turn_id"],
+            )
+        return state
+
+    ##
+    # @brief state 본문에 연결별 `me`를 붙인다. 1단계에서는 항상 관전자이다.
+    # @param snapshot _snapshot()의 결과.
+    # @param conn 받을 연결.
+    # @return 보낼 state dict.
+    def _state_for(self, snapshot, conn):
+        return {**snapshot, "me": {"id": conn.user_id, "role": "spectator"}}
+
+    ##
+    # @brief 연결 직후 보내는 hello 메시지를 만든다.
+    # @param user 세션의 user 객체.
+    # @return hello dict.
+    def _hello(self, user):
+        return {
+            "t": "hello",
+            "protocol_version": PROTOCOL_VERSION,
+            "server_epoch": self.server_epoch,
+            "server_ms": _now_ms(),
+            "user": user,
+        }
+
+    ##
+    # @brief reply 메시지를 만든다.
+    # @return reply dict.
+    def _reply(self, request_id, ok, code, message, state_version):
+        return {
+            "t": "reply",
+            "id": request_id,
+            "ok": ok,
+            "code": code,
+            "message": message,
+            "state_version": state_version,
+        }
