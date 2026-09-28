@@ -279,6 +279,7 @@ Data Dragon 이미지는 `/ddragon/...`으로 요청한다. 전적 화면의 외
 - 단일 테스트 계정으로 가상 6명을 조작하는 테스트와, 서로 다른 실제 계정의 권한·동시성 테스트를 구분한다.
 
 추가 환경변수는 `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `ACTIVITY_PORT`(기본 8790)이다. 기존 `DISCORD_TOKEN`, `DEV_MODE`, `ARENA_GH_*`도 단계에 맞춰 유지한다.
+봇 토큰은 모드별로 분리했다(2026-09-28 구현). `DEV_MODE=true`면 `DISCORD_TOKEN_DEV`, 아니면 `DISCORD_TOKEN`을 사용하고 dev 토큰이 없으면 운영 토큰으로 대체하지 않고 종료한다. client ID·secret도 앱별로 다르므로 activity_server 구현 시 같은 규칙(`_DEV` 접미 키)을 따른다.
 프론트에는 공개 `VITE_DISCORD_CLIENT_ID`만 넣고 secret을 넣지 않는다. `.env.example`에는 값 없이 필요한 키를 기록한다.
 
 ## 12. 맥미니 운영과 전환

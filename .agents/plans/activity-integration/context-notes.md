@@ -108,6 +108,13 @@
 - Discord 공식 문서(building-an-activity.mdx)에서 확인한 절차: OAuth2 Redirects에 `https://127.0.0.1`, 활동 > URL 매핑의 `/`, 활동 > 설정의 Enable Activities, 활성화 시 기본 Entry Point 명령 Launch 자동 생성, Installation Contexts의 User Install·Guild Install 모두 선택.
 - 같은 문서의 "Launching a non-distributed Activity is limited to you or members of the developer team" 문장에 따라, 팀 외부 계정의 실행 조건을 운영 전환 전 결정으로 15절에 추가했다. local-development·overview 문서에는 배포 요건이 명시돼 있지 않아 dev 앱에서 실험으로 확정한다.
 
+## 2026-09-28 봇 토큰 모드별 분리 구현
+
+- 사용자 요청으로 DEV_MODE에 따라 봇 토큰을 나눴다. true면 DISCORD_TOKEN_DEV(dev 앱), false면 DISCORD_TOKEN(운영 앱)을 쓴다. 기존에는 DEV_MODE가 데이터 파일과 가상 유저만 바꾸고 로그인은 항상 운영 봇 계정이었다.
+- dev 토큰이 없을 때 운영 토큰으로 대체하지 않고 종료하게 했다. 개발 중 운영 봇이 뜨는 사고를 막는 것이 분리의 목적이기 때문이다.
+- parse_all_history.py(운영 채널 풀스캔 복구)와 watch_bus.py는 운영 토큰 사용이 맞으므로 변경하지 않았다.
+- 두 모드에서 토큰을 빈 값으로 덮어 실행해 각각 DISCORD_TOKEN_DEV, DISCORD_TOKEN 누락 메시지로 종료되는 것을 확인했다. 맥미니 운영 .env는 DEV_MODE=false라 동작 변화가 없다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.

@@ -61,7 +61,8 @@ lol_discord_bot/
 
 ### 1. `.env`
 ```env
-DISCORD_TOKEN=your_discord_bot_token_here
+DISCORD_TOKEN=your_discord_bot_token_here          # 운영 앱(롤랜덤챔프봇)
+DISCORD_TOKEN_DEV=your_dev_bot_token_here          # 개발 앱(롤랜덤챔프봇-dev)
 DEV_MODE=true    # 개발 모드: true, 실제 모드: false
 ```
 
@@ -69,6 +70,7 @@ DEV_MODE=true    # 개발 모드: true, 실제 모드: false
 
 | 항목 | DEV_MODE=true | DEV_MODE=false |
 |------|---------------|----------------|
+| 봇 토큰 | `DISCORD_TOKEN_DEV` (없으면 종료) | `DISCORD_TOKEN` |
 | 사용 파일 | `wins_dev.json` | `wins.json` |
 | 유저 생성 | MockUser (가상) | 실제 Discord 유저 |
 | 턴제 검증 | ❌ 없음 (누구나 선택 가능) | ✅ 있음 (자기 차례만) |

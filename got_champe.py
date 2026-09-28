@@ -1788,9 +1788,11 @@ async def on_ready():
 # === 봇 실행 ===
 logging.basicConfig(level=logging.INFO)
 
-token = os.getenv("DISCORD_TOKEN")
+# 개발 모드가 운영 봇 계정으로 로그인하지 않도록 운영 토큰으로 대체하지 않는다.
+token_key = "DISCORD_TOKEN_DEV" if DEV_MODE else "DISCORD_TOKEN"
+token = os.getenv(token_key)
 if not token:
-    print("❌ DISCORD_TOKEN이 .env 파일에 없습니다!")
+    print(f"❌ {token_key}이 .env 파일에 없습니다!")
     exit(1)
 
 bot.run(token)
