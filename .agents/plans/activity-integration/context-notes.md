@@ -115,6 +115,13 @@
 - parse_all_history.py(운영 채널 풀스캔 복구)와 watch_bus.py는 운영 토큰 사용이 맞으므로 변경하지 않았다.
 - 두 모드에서 토큰을 빈 값으로 덮어 실행해 각각 DISCORD_TOKEN_DEV, DISCORD_TOKEN 누락 메시지로 종료되는 것을 확인했다. 맥미니 운영 .env는 DEV_MODE=false라 동작 변화가 없다.
 
+## 2026-09-28 dev 앱 포털 설정 점검
+
+- 사용자가 롤랜덤챔프봇-dev 앱을 만들고 포털 설정을 마쳤다. .env에 dev 토큰 키가 DISCORD_DEV_TOKEN으로 들어가 있어 코드 규칙에 맞게 DISCORD_TOKEN_DEV로 키 이름만 바꿨다(값은 읽지 않음).
+- Discord API(applications/@me, users/@me/guilds, applications/{id}/commands)로 점검했다. dev 토큰은 운영 토큰과 다르고 앱 이름·client ID가 일치했다. Presence·Server Members 인텐트가 켜져 있고(비인증 앱의 LIMITED 플래그), 설치 컨텍스트는 길드·사용자 모두, 기본 설치 범위는 bot·applications.commands, 권한 정수 84992(채널 보기·메시지 보내기·링크 임베드·메시지 기록 보기)였다. 참가 서버는 TEST2 하나다.
+- 남은 문제 두 가지. 리디렉션 값이 앞에 공백이 붙은 " https://127.0.0.1"로 저장돼 있어 포털에서 고쳐야 한다. 전역 명령이 비어 있고 EMBEDDED 플래그도 없어 액티비티 활성화(Launch 명령 자동 생성)가 아직 적용되지 않았다. URL 매핑에 넣을 터널 주소가 먼저 필요하므로 cloudflared 설치가 다음 선행 작업이다.
+- 전역 명령이 비어 있는 지금 봇을 먼저 실행하면 슬래시 명령만 등록된다. 이후 액티비티를 켜고 봇을 재시작하면 Entry Point와 sync_commands 공존(checklist 1절)을 깨끗한 상태에서 검증할 수 있다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
