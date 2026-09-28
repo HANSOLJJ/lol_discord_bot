@@ -248,6 +248,7 @@ name = "lol-discord-bot"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "py-cord" },
     { name = "python-dotenv" },
     { name = "requests" },
@@ -255,6 +256,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = "==3.14.3" },
     { name = "py-cord", specifier = "==2.8.1" },
     { name = "python-dotenv", specifier = "==1.1.0" },
     { name = "requests", specifier = "==2.32.3" },
