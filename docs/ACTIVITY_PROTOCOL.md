@@ -61,8 +61,8 @@ Discord Embedded App SDK의 `commands.authorize`로 받은 code를 access token�
 | 상태 | `error` | 의미 |
 |---|---|---|
 | 400 | `bad_request` | 본문이 JSON이 아니거나 크기·형식 규칙 위반 |
-| 401 | `oauth_failed` | Discord 토큰 교환 또는 신원 확인 실패 |
-| 429 | `rate_limited` | 요청 빈도 초과 |
+| 401 | `oauth_failed` | Discord 토큰 교환 또는 신원 확인 실패. Discord의 오류 응답, Discord로 가는 네트워크 오류와 타임아웃을 모두 포함한다 |
+| 429 | `rate_limited` | 요청 빈도 초과. 모든 요청이 Discord 프록시를 거쳐 IP 구분이 의미 없으므로 서버 전체 기준 60초당 30회로 제한한다 |
 | 500 | `server_error` | 그 밖의 서버 오류 |
 
 ## 4. WebSocket: `GET /pick-api/ws?session=<세션 토큰>`
@@ -93,9 +93,9 @@ Discord Embedded App SDK의 `commands.authorize`로 받은 code를 access token�
 | `demo_countdown` | `{ "t": "demo_countdown", "id": "d-1", "seconds": 20 }` | 아래 데모 규칙 |
 
 - `ping`의 `c`는 클라이언트의 `performance.now()` 값이다. 서버는 해석하지 않고 그대로 돌려준다.
-- 메시지는 4KB 이하이다. JSON 오류, 알 수 없는 `t`, 필드 형식 위반에는 `reply`(`ok: false`, `code: "bad_request"`)로 응답한다.
+- 메시지는 4KB 이하이다. 4KB 초과, JSON 오류, 알 수 없는 `t`, 필드 형식 위반에는 연결을 끊지 않고 `reply`(`ok: false`, `code: "bad_request"`)로 응답하며 위반 1회로 센다. 64KB를 넘는 메시지만 WebSocket 계층에서 1009로 종료된다.
 
-**데모 카운트다운 (개발 전용).** `DEV_MODE=true`일 때만 허용한다. `seconds`는 1~60 정수이다. 서버는 `phase: "picking"`, `turn_id: "demo-<일련번호>"`, `deadline_ms = server_ms + seconds × 1000`, `grace_ms: 2000`인 `state`를 연결된 모든 클라이언트에 보낸다. 마감과 유예가 지나면 서버가 `phase: "none"`인 `state`를 다시 보낸다. 운영 모드에서는 `reply`(`ok: false`, `code: "not_allowed"`)로 거절한다. 이 메시지는 1단계 측정용이며 4단계에서 실제 게임 상태로 대체한다.
+**데모 카운트다운 (개발 전용).** `DEV_MODE=true`일 때만 허용한다. `seconds`는 1~60 정수이다. 서버는 `phase: "picking"`, `turn_id: "demo-<일련번호>"`, `deadline_ms = server_ms + seconds × 1000`, `grace_ms: 2000`인 `state`를 연결된 모든 클라이언트에 보내고, 그 뒤 요청한 클라이언트에게 `reply`(`ok: true`, `code: "ok"`)를 보낸다. 마감과 유예가 지나면 서버가 `phase: "none"`인 `state`를 다시 보낸다. 운영 모드에서는 `reply`(`ok: false`, `code: "not_allowed"`)로 거절한다. 이 메시지는 1단계 측정용이며 4단계에서 실제 게임 상태로 대체한다.
 
 ### 서버 → 클라이언트
 
