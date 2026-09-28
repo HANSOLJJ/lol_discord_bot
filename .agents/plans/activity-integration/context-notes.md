@@ -93,6 +93,13 @@
 - plan.md의 2절 표, 8절, 9-2, 10절 4·5항, 12-1, 12-2를 수정하고 15절 표에서 확정된 결정 두 건을 제거했다. checklist 2절도 갱신했다.
 - 추가 확인: 봇 저장소 .gitignore가 wins·history 전적 파일을 모두 제외하고 있어 git에는 전적 데이터가 없다. 현재 유일한 외부 사본은 GitHub 업로드(lol_arena)이므로, 업로드를 폐기하면 맥미니 단일 디스크만 남는다. 대체 백업 결정을 15절 표에 추가했다.
 
+## 2026-09-28 백업·운영 소개선 확정
+
+- 전적 데이터 오프사이트 백업은 git 방식으로 확정했다. 기존 GitHub Contents API 업로드 코드를 그대로 백업 용도로 유지하고, 공개 조회만 정적 서버 기반으로 바뀐다. 코드 변경이 없고 판마다 전체 파일이 올라가 유실 범위가 최소라는 점이 근거다. 백업 대상 저장소는 저장소 통합 시 기준 원격과 함께 결정한다.
+- 코드 저장소에서 data/history_data.json을 직접 추적하는 방식은 선택하지 않았다. 봇이 코드 저장소에 자동 커밋과 push를 하게 되어 코드 이력이 데이터 커밋으로 덮이고, push 자격증명과 충돌 관리 부담이 늘기 때문이다.
+- 운영 소개선 3건을 확정했다. 배포 스크립트(git pull → 빌드 → pm2 restart), 상태 확인 실패 시 Discord webhook 알림, history_data.json의 Cache-Control: no-cache 지정이다. plan 9-2·12-1과 checklist 2·6·7절에 반영했다.
+- 액티비티 안에서 전적 JSON을 읽을 때 모든 요청이 `/` 매핑(arena.hansoljj.com/pick)을 거친다는 경로 주의점을 9-3절에 추가했다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
