@@ -22,10 +22,10 @@
 - [ ] dev 앱·TEST2·intents·OAuth·실제 테스트 계정 접근·채널 권한을 준비한다.
 - [x] dev 토큰과 전적 파일을 운영과 분리하고 설치 필요 패키지 승인을 확인한다.
 - [x] aiohttp 직접 의존성을 명시하고 activity_server token/ws/ping과 main 실행·종료 구조를 구현한다.
-- [ ] Vite·React·TypeScript·Discord SDK 골격과 CSS Modules를 준비한다.
+- [x] Vite·React·TypeScript·Discord SDK 골격과 CSS Modules를 준비한다.
 - [x] 윈도우 고정 터널 lol-dev.hansoljj.com을 서비스로 등록하고 dev 앱 URL 매핑과 액티비티 활성화를 마친다.
-- [ ] 개발 프록시·터널·URL Mapping을 연결하고 타입 검사·빌드를 통과한다.
-- [ ] performance.now 기준점과 최초 상태 동기화 표시를 구현한다.
+- [x] 개발 프록시·터널·URL Mapping을 연결하고 타입 검사·빌드를 통과한다.
+- [x] performance.now 기준점과 최초 상태 동기화 표시를 구현한다.
 - [ ] 맥미니 경로에서 PC·모바일 RTT 각 100회, p50/p95/최대와 상태 반영 지연을 기록한다. p95 < 1초 게이트를 확인한다.
 - [x] Entry Point 명령과 봇 명령 동기화의 공존을 검증한다. (py-cord 자동 동기화를 끄고 Entry Point를 포함해 직접 동기화)
 - [ ] LAUNCH_ACTIVITY 채널별 동작을 검증한다.
@@ -62,8 +62,8 @@
 
 - [ ] React 컴포넌트와 CSS Modules로 모바일 화면·챔프 그리드·팀별 상태·자동 배정·서버 응답을 구현한다.
 - [ ] 서버 상태와 탭·필터·토스트 상태를 나누고 React 기본 기능으로 관리한다.
-- [ ] 시각 계산·통신 모듈을 화면에서 분리하고 메시지 타입과 수신 JSON 검증을 구현한다.
-- [ ] 보정 후 performance.now로 계산하고 30초 재측정과 마감 확인 표시를 구현한다.
+- [x] 시각 계산·통신 모듈을 화면에서 분리하고 메시지 타입과 수신 JSON 검증을 구현한다.
+- [x] 보정 후 performance.now로 계산하고 30초 재측정과 마감 확인 표시를 구현한다.
 - [ ] 표시할 초가 바뀔 때만 카운트다운 상태를 갱신하고, 주입한 시계로 경계 상황을 검증한다.
 - [ ] 개발 모드·재진입에서 소켓·구독·재접속 타이머·rAF의 중복과 정리 누락을 검증한다.
 - [ ] 최초 연결 중·전송 중·끊김·재인증·중단된 게임 안내를 구현한다.

@@ -174,6 +174,10 @@
 - 워커의 추가 해석 두 가지(3회째 위반에도 reply를 보낸 뒤 4400으로 닫음, 1단계에는 주입할 콜백이 없어 생성자에 설정·discord_api_base·session_ttl만 둠)는 규격과 충돌하지 않아 그대로 받았다.
 - 코디네이터가 테스트 28개를 재실행한 뒤 워커를 해제했다. 워커 터미널은 사용자 조작 이력(user_takeover)으로 Orca가 닫지 않고 남겼다. HANSOLJJ/activity-server를 main에 --no-ff로 병합했고, tests/__init__.py는 자동 병합됐다. 병합 후 main에서 테스트 44개(서버 28, 픽 판정 16)가 통과했다.
 - 실제 dev 봇으로 통합 확인을 했다. 액티비티 서버가 127.0.0.1:8790에서 먼저 뜬 뒤 봇이 로그인했고, 전역 명령은 launch와 슬래시 명령 5개가 유지됐다. 가짜 code 토큰 요청은 실제 Discord 거절로 401 oauth_failed, JSON이 아닌 본문은 400 bad_request, 잘못된 세션의 WebSocket은 4401로 닫혔다.
+- 2번(claude) 완료 보고를 검토해 승인했다. 변경은 lol_arena의 activity/ 안에만 있다. discord.ts는 frame_id로 화면만 나누고 prompt none 인증 실패 시 버튼으로 동의 창을 허용하며, 진행 중인 인증을 공유해 React 개발 모드의 이중 마운트에서도 authorize가 한 번만 나간다. connection.ts는 소켓 동일성으로 이전 소켓 이벤트를 버리고, epoch 변경 시 상태를 폐기하며, 4401은 재인증 이벤트, 4400은 재접속 없이 업데이트 필요로 처리한다. 카운트다운 훅은 rAF로 계산하되 표시할 초가 바뀔 때만 상태를 갱신하고 0에서 멈춘다.
+- 워커의 규격 해석(reply의 id·message·state_version null 허용, round·season 정수 또는 null, 다른 epoch의 state 무시, hello 직후·sync 뒤 첫 state는 같은 버전도 적용, 버튼 재시도는 prompt none 없이, 4400은 새로고침 안내)은 서버 구현·규격과 맞는다. 특히 서버는 JSON 오류 reply에 id null을 보내므로 null 허용이 필요했다.
+- 코디네이터가 build(tsc -b 포함), lint(경고 0), test(34개)를 직접 재실행해 통과를 확인했고, HANSOLJJ/activity-frontend를 arena main에 --no-ff로 병합했다. 병합 후 arena main에서도 build와 test가 통과했다. 워커 터미널은 user_takeover로 남았다.
+- 세 워커의 디스패치가 모두 정리됐고 회수할 터미널은 없다. 실제 Discord 클라이언트 안의 인증·연결·카운트다운 확인과 맥미니 경로 RTT 측정이 단계 1의 남은 일이다. Discord 프록시가 상대 경로 /pick-api를 URL 매핑 없이 `/` 매핑으로 넘기는지는 실제 실행으로 확인한다.
 - 통합 확인 중 사용자가 오후 3:31에 직접 실행한 봇 프로세스(`uv run python -u got_champe.py`)가 떠 있음을 발견했다. 코디네이터가 띄운 것이 아니므로 건드리지 않았다. 같은 dev 토큰이면 확인하는 동안 봇 세션이 둘이었을 수 있다.
 
 ## 2026-09-28 프론트 구성 변경 확정
