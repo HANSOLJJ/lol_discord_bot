@@ -267,14 +267,15 @@ Data Dragon 이미지는 `/ddragon/...`으로 요청한다. 전적 화면의 외
 |---|---|---|
 | `/pick-api` | `pick.hansoljj.com/pick-api` | 별도 매핑 없이 아래 Vite 프록시 이용 |
 | `/ddragon` | `ddragon.leagueoflegends.com` | 동일 |
-| `/` | `arena.hansoljj.com/pick` | quick tunnel 호스트명 |
+| `/` | `arena.hansoljj.com/pick` | `lol-dev.hansoljj.com` (윈도우 고정 터널) |
 
 ### 11-3. 개발 세션
 
 - 봇은 `uv run python -u got_champe.py`, Vite는 해당 웹 소스 폴더에서 `npm run dev`로 실행한다.
 - Vite의 `/pick-api`를 `http://127.0.0.1:8790`으로 프록시하고 `ws: true`를 설정한다.
-- `cloudflared tunnel --url http://localhost:5173`으로 받은 호스트를 dev 앱 `/` 매핑에 넣는다. 종료 후 임시 호스트 매핑을 정리한다.
-- Vite allowedHosts에는 실제 터널 호스트를 허용한다. 기존안 `.trycloudflare.com` 전체 허용보다 실제 주소를 우선한다. HMR `clientPort: 443`을 출발점으로 프록시 경로를 검증한다.
+- 개발 터널은 주소가 매번 바뀌는 quick tunnel 대신 대시보드 관리형 고정 터널 `lol-dev`를 쓴다(2026-09-28 사용자 결정). 윈도우 서비스로 설치해 부팅 시 자동 연결되며, `lol-dev.hansoljj.com` → `http://127.0.0.1:5173`으로 연결하고 dev 앱 `/` 매핑은 한 번만 설정한다. 맥미니의 finance 터널과는 별개라 finance에 영향이 없다.
+- Vite는 `127.0.0.1:5173`에 바인딩하고 allowedHosts에는 `lol-dev.hansoljj.com`만 허용한다. HMR `clientPort: 443`을 출발점으로 프록시 경로를 검증한다. Discord 프록시가 접근해야 하므로 이 주소에는 Cloudflare Access를 붙이지 않는다.
+- 개발 반복은 윈도우에서 하고, 단계 1의 지연시간 측정과 운영 전 최종 확인은 운영과 같은 경로인 맥미니에서 한다.
 - React·TypeScript를 포함한 9-4절 패키지와 윈도우 cloudflared는 설치 필요 여부를 먼저 확인하고, 새 패키지 설치는 사용자 규칙에 따라 승인 후 실행한다. 이번 승인은 플랜 수정이며 설치 실행은 포함하지 않는다.
 - 단일 테스트 계정으로 가상 6명을 조작하는 테스트와, 서로 다른 실제 계정의 권한·동시성 테스트를 구분한다.
 
@@ -333,7 +334,7 @@ DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한�
 | 단계 | 작업 | 완료 조건 |
 |---|---|---|
 | 0 | 현황 확인·pm2 자동 기동 | 운영 프로세스 중복 없음, restart·재부팅 후 복귀 |
-| 1 | dev 앱·token/ws/ping·React/TypeScript 카운트다운 골격 | 타입 검사·빌드 통과, PC·모바일 각 100회 RTT 기록, p95 < 1초. 넘으면 서버 경로·유예 재검토 |
+| 1 | dev 앱·token/ws/ping·React/TypeScript 카운트다운 골격 | 타입 검사·빌드 통과, 맥미니 경로에서 PC·모바일 각 100회 RTT 기록, p95 < 1초. 넘으면 서버 경로·유예 재검토 |
 | 2 | 저장소·웹 배포 구조 확정 및 통합 | 사용자 작업·Git 이력 보존, 맥미니 서버가 웹 출력만 서빙(Pages 미사용), 기존 전적과 봇 경로 정상 |
 | 3 | 공통 픽 처리 추출 | 기존 embed 모드 한 판과 저장소 내 회귀 테스트 통과 |
 | 4 | 서버 시간·상태·권한·WS 프로토콜 구현 | 이전 게임/턴·중복·후보 밖 입력 거절, 마감 경합에서 1회 확정 |

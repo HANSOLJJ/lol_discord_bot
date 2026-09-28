@@ -23,9 +23,10 @@
 - [ ] dev 토큰과 전적 파일을 운영과 분리하고 설치 필요 패키지 승인을 확인한다.
 - [ ] aiohttp 직접 의존성을 명시하고 activity_server token/ws/ping과 main 실행·종료 구조를 구현한다.
 - [ ] Vite·React·TypeScript·Discord SDK 골격과 CSS Modules를 준비한다.
+- [ ] 윈도우 고정 터널 lol-dev.hansoljj.com을 서비스로 등록하고 dev 앱 URL 매핑과 액티비티 활성화를 마친다.
 - [ ] 개발 프록시·터널·URL Mapping을 연결하고 타입 검사·빌드를 통과한다.
 - [ ] performance.now 기준점과 최초 상태 동기화 표시를 구현한다.
-- [ ] PC·모바일 RTT 각 100회, p50/p95/최대와 상태 반영 지연을 기록한다. p95 < 1초 게이트를 확인한다.
+- [ ] 맥미니 경로에서 PC·모바일 RTT 각 100회, p50/p95/최대와 상태 반영 지연을 기록한다. p95 < 1초 게이트를 확인한다.
 - [ ] LAUNCH_ACTIVITY 채널별 동작과 Entry Point/sync_commands 공존을 검증한다.
 
 ## 2. 저장소·배포 통합
