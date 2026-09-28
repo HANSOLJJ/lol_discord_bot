@@ -161,6 +161,16 @@
 - 1번과 2번이 병합 때 맞도록 메시지 형식을 docs/ACTIVITY_PROTOCOL.md(protocol_version 1)로 먼저 고정했다. 1단계 측정을 위해 게임 상태 연결 전에도 카운트다운을 볼 수 있는 개발 전용 demo_countdown 메시지를 넣었다.
 - 테스트는 새 패키지 없이 한다. 파이썬은 unittest와 aiohttp.test_utils, 프론트는 Node 25 내장 테스트 러너(node --test)를 쓴다. 프론트 설정의 erasableSyntaxOnly와 .ts 확장자 import 허용으로 TypeScript를 그대로 실행할 수 있다.
 
+## 2026-09-28 워커 실행 기록
+
+- Orca 1.4.210의 worker-start는 `--worktree new-top-level`을 선택자로 인식하지 못했다. worktree를 `orca worktree create --no-parent`로 먼저 만들고 정확한 id로 배정했다.
+- Orca가 worktree를 로컬 main이 아닌 origin/main에서 분기해, 작업 전에 세 브랜치를 로컬 main으로 fast-forward했다. 저장소 기준 ref 변경은 사용자 결정 대기다.
+- 첫 claude 워커가 새 폴더의 신뢰 확인 창에서 기본값 "No, exit"로 종료됐다. worker-stop 후 claude용 두 worktree 폴더만 신뢰 처리하고 --retry-of로 재시도했다. agy의 Orca 에이전트 id는 `antigravity`다.
+- 1번 워커의 규격 해석 질문 세 가지(데모 성공 reply, 4KB 초과 처리, 토큰 빈도 제한 기준)를 기본안대로 승인하고 규격 문서에 반영했다(66d11d7). 2번 워커에 프론트 영향분을 알렸다.
+- 3번(agy) 완료 보고를 검토해 승인했다. 검사 순서 9단계, 응답 문구, 원본 객체 직접 변경, 거절·취소 시 인덱스 유지가 원본과 같다. 타이머 취소가 상태 변경 뒤로 옮겨졌지만 await 없는 동기 구간이라 동작 차이가 없고, 모든 클릭에서 미리 호출하게 된 get_member_team은 부수 효과가 없는 조회다. callback이 "차례 아님" 문구를 한 번 더 만드는 중복이 있으나 결과가 같아 그대로 두었다.
+- 코디네이터가 테스트 16개와 py_compile을 직접 재실행해 통과를 확인하고, 워커를 해제한 뒤 HANSOLJJ/pick-logic을 main에 --no-ff로 병합했다. 병합 후 main에서도 테스트가 통과했다.
+- 워커가 보고한 의심 동작(정상 흐름에서 취소 분기와 "이미 선택함" 분기에 도달하기 어려움)은 기존 검토 결과와 같으며 plan 15절 "실제 픽 취소 지원" 미결 항목으로 둔다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
