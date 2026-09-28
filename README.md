@@ -1,5 +1,7 @@
 # 🎮 League of Legends 챔피언 픽 Discord Bot
 
+액티비티 카운트다운 개선과 봇·전적 기능 통합은 [통합 실행 계획](.agents/plans/activity-integration/plan.md)을 기준으로 진행합니다. [체크리스트](.agents/plans/activity-integration/checklist.md)와 [결정 기록](.agents/plans/activity-integration/context-notes.md)을 함께 관리합니다.
+
 ## 📋 프로젝트 개요
 
 6명의 플레이어가 리그 오브 레전드 챔피언을 순서대로 선택하는 Discord 봇입니다.

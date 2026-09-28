@@ -1,0 +1,75 @@
+# 롤 액티비티·기능 통합 결정 기록
+
+기준은 [plan.md](plan.md), 진행은 [checklist.md](checklist.md)이다. 결정과 근거를 날짜순으로 추가한다.
+
+## 2026-09-28 문서 통합 범위
+
+- 사용자는 docs와 ACTIVITY_DESIGN.md 개선 검토를 요청했고, 최종 목표를 두 Git의 기능 통합으로 밝혔다.
+- 이후 특정 채널에서 카운트다운 자체가 보이지 않았던 경험을 강조했다. 따라서 plan의 첫 완료 기준을 카운트다운·연결 상태·복귀 동기화로 정했다.
+- 사용자는 performance.now와 모바일 재동기화의 근거 기록 여부를 확인한 뒤, 설계까지 총정리한 플랜을 만들고 기존 handover/design 문서를 삭제해도 된다고 했다.
+- 현재 실행 기준은 이 폴더의 3개 파일이다. docs의 액티비티 설계·인수인계와 기존 activity-pick/activity-integration-review의 내용을 이관한다. 삭제 전 출처는 Git 이력에 남는다.
+- COUNTDOWN_ANALYSIS와 PARSE_REPORT는 원인·데이터 복구 근거이므로 보존한다. 루트 handover.md는 별개의 과거 Workers 이식 검토이며 이번 실행 기준이 아니다.
+- 이번 작업은 문서 통합이다. 소스 구현·라이브러리 설치·원격 push·배포·실제 Git 병합은 수행하지 않는다.
+- 통합 후 내부 문서 링크 9개, 코드 블록 짝, 핵심 주제 12개를 검사했다. 삭제한 문서를 가리키는 Markdown 링크는 없다. 코드 변경이 없어 실행 테스트 대신 문서 검증을 수행했다.
+
+## 기존에 확정된 방향과 이유
+
+- 액티비티를 택한 이유는 매 숫자가 Discord 메시지 편집을 거치는 지연과 채팅에 픽 화면이 밀려나는 문제이다. 마감 시각을 전달하고 화면에서 계산한다.
+- 기존 봇 + aiohttp + 맥미니 + 터널을 선택했다. 게임 상태·pick_lock·타이머·기록을 한 프로세스에 유지해 별도 게임 서버와의 동기화를 줄인다.
+- Worker+Durable Object 분업은 시작·embed·기록이 맥미니에 남고 상태가 분리된다. 전면 Workers 이식은 Python 로직과 presence 기반 참가자 선정까지 재설계해야 한다. VPS는 향후 대안이나 현재 운영 부담이 늘어난다.
+- Cloudflare로 옮기면 항상 빨라진다고 단정할 근거는 없다. SDK의 참가자 정보만으로 게임 상태 동기화를 대신하지 않고 자체 서버를 사용한다.
+- Vite + Embedded App SDK, 바닐라 JS, 개발 앱 분리, 채널 현황판과 전환 스위치는 기존 결정이다. 비상 개인 버튼은 필요가 확인되면 별도 검토한다.
+- 개발 앱은 URL Mapping과 봇 토큰을 운영에서 분리한다. 운영 주소를 개발 터널로 바꾸거나 같은 토큰의 봇 두 개를 실행하는 문제를 피한다.
+- pm2 자동 기동은 사용자 요구이다. 이전 조사에서 맥미니 재부팅 뒤 tmux 봇이 꺼진 채 발견됐다. 새 프로세스 등록 전 현재 실행 상태를 확인한다.
+
+## 과거 관측과 현재 확인을 구분하기
+
+- 9/15~16 측정 기록에는 맥미니→Discord API 왕복 약 0.3초, Discord 편집 지연 0.85~1.2초, 게이트웨이 RESUME·1006 끊김이 있었다. 이 수치로 이후 특정 사건의 원인을 확정하지 않는다.
+- 이전 PC/KT 측정은 arena·fin이 SJC 엣지 약 150ms, discordsays.com이 ICN 약 8ms, 맥미니 터널이 icn01/icn06이었다. Discord 프록시를 통과한 실제 앱 왕복은 별도로 측정해야 한다.
+- macOS 시계 오차 +0.08초는 당시 HTTP Date 대조 결과이다. 시계가 앞으로도 바뀌지 않는다는 보장이 아니다.
+- 기존 조사 버전은 py-cord 2.8.1, aiohttp 3.14.3, 맥미니 node v25.8.1, cloudflared 2026.8.2, uv /opt/homebrew/bin/uv였다. Windows cloudflared는 당시 미설치였다. 설치·운영 전 재확인한다.
+- 기존 기록상 arena.hansoljj.com은 Cloudflare Pages로 이관됐고 finance는 맥미니·pm2·Tunnel을 사용한다. README와 프로젝트 지침에는 더 오래된 GitHub Pages·arena.dcom.co.kr 설명이 남아 있다. 이번에는 실제 운영 설정에 접속하지 않았다.
+- 이전 인수인계의 'tmux 운영 중'과 이후 조사에서 '재부팅 후 봇 꺼짐'은 관측 시점이 다르다. 플랜에서 현재 운영 사실로 확정하지 않는다.
+- 검토 시작 시 bot의 game_recorder.py·parse_all_history.py·docs/PARSE_REPORT.md, arena의 index.html에 미커밋 변경이 있었다. AGENTS.md와 COUNTDOWN_ANALYSIS.md도 미추적 파일이었다. 이 작업으로 변경하거나 함께 커밋하지 않는다.
+- 초기 로컬 추적 참조에서 bot은 3커밋 앞서고 arena는 45커밋 뒤였다. 이후 검토 메모 커밋 b1d5171이 추가됐다. fetch하지 않았으므로 실제 원격 최신 상태를 뜻하지 않는다.
+
+## 코드 검토에서 보완한 내용
+
+- 초기 챔피언 메시지 전송 실패 채널은 champion_messages에 등록되지 않아 후속 갱신도 받지 않는다. 일부 채널 성공만으로 게임이 계속된다.
+- push_channel_embed가 편집 예외를 삼킨다. 채널별 장애 로그가 없으며 중간 상태 병합으로 숫자가 생략될 수도 있다. 사용자의 전체 미표시 사건과 연결 가능한 경로이지만 원인 확정은 아니다.
+- 액티비티는 처음 상태를 받은 전경 화면에서 숫자별 네트워크 의존을 제거한다. 최초 연결 실패·앱 정지·픽 전송 실패까지 없애지는 않는다. 연결 상태를 표시하고 복귀 시 재동기화한다.
+- ChampionButton.callback은 선택 즉시 current_pick_index를 증가시킨다. 정상 흐름에서 이전 선택을 재클릭해 취소할 수 없다. 따라서 '기존 취소 유지'를 지우고 즉시 확정을 기본안으로 명시했다. 별도 취소 기능은 미결이다.
+- 기존 버튼 객체가 제한하던 후보 목록을 WS에서는 서버가 직접 확인해야 한다. 요청 ID와 턴 ID로 중복·이전 턴 조작을 막고, 상태 버전으로 역순 스냅샷을 구분한다.
+- 락 밖 통신 원칙은 유지한다. gather는 전송을 병렬화하지만 느린 연결의 완료 대기·버퍼 누적을 해결하지 않는다. 소켓별 최신 상태와 전송 제한이 필요하다.
+- 현재 승리 처리는 save_wins 성공 후 별도 record_game 실패가 가능하다. 결과 화면 통합 전 기준 기록과 부분 실패 복구를 정한다. SQLite 도입을 확정한 것은 아니다.
+- 현재 대시보드는 GitHub에 배포된 history JSON을 최초 fetch 한 번으로 읽는다. 같은 Git에 넣는 것만으로 실시간 전적 갱신이 되지 않는다.
+- 서버 재시작 시 세션과 게임 전역 상태가 함께 사라진다. 재인증과 진행 중 판 복구를 분리하고 초기에는 중단 안내·새 게임을 기준으로 한다.
+
+## 카운트다운 시계 설계 근거
+
+- Date.now는 시스템 시계와 사용자의 시각 변경에 영향을 받는다. 최초 5회 ping으로 서버 시각을 추정한 뒤 performance.now의 경과 시간으로 진행하도록 plan 5절에 계산식을 넣었다.
+- 최소 RTT 샘플의 수신 시각에서 서버 시각을 s + RTT/2로 추정한다. 네트워크 비대칭·스케줄링 지연이 있어 오차 수치를 보장하지 않는다. RTT 게이트와 실제 상태 반영 지연을 함께 측정한다.
+- performance.now의 절전 중 진행에는 플랫폼 차이가 있다. 전경 복귀·재접속마다 전체 상태와 시간을 다시 받고 입력을 재개한다. 30초 주기 측정만으로 모바일 복귀를 처리하지 않는다.
+- 서버도 단조 시계로 내부 타이머·접수 판정을 유지하고 스냅샷의 서버 시각과 남은 시간을 함께 직렬화한다. 클라이언트와 서버의 벽시계 변경 영향을 각각 다룬다.
+- 이전 표시 20초가 약 24초 이상이었던 것과 새 실제 20초의 차이를 전환 검증에 포함했다. 유예는 기존 2초에서 시작하며 추정 지연만으로 줄이지 않는다.
+
+## 통합 목표와 남은 결정
+
+- 사용자는 두 Git의 기능 통합을 목표로 했다. 픽·결과 입력·통계를 같은 액티비티에서 잇는 흐름은 구체화한 목표안이다. 세부 UI와 권한까지 이미 승인됐다고 해석하지 않는다.
+- 봇 경로를 유지하고 web/을 추가하는 것이 최소 이동안이다. 기준 원격·공개 범위·이력 보존은 실제 통합 시 결정한다.
+- 기존 '루트 전체 서빙·빌드 결과 커밋'은 현재 분리 저장소의 전환기 방식으로 한정한다. 최종 Pages 배포는 웹 출력 디렉터리만 대상으로 한다.
+- GitHub JSON 업로드 제거는 봇 중단 시 공개 전적 조회의 가용성도 바꾼다. 읽기용 스냅샷 유지 여부와 캐시 갱신 시각 표시를 함께 결정한다.
+- 테스트는 저장소 tests/에 보존한다. 과거 e:\tmp\countdown_probe.py, countdown_e2e.py, test_countdown_counter.py와 맥미니 /tmp의 측정 스크립트는 참고용이다. 존재와 재사용 가능성은 실행 전에 확인한다.
+- 패키지 설치 승인과 finance 공유 터널 재시작 시각은 실제 작업 직전에 확인한다. 문서 작성 승인을 운영 변경 승인으로 확대하지 않는다.
+
+## 공식 자료
+
+이번 검토에서 확인한 자료이다. 구현 시 설치 버전과 실제 Discord 클라이언트에서 동작을 검증한다.
+
+- [MDN performance.now](https://developer.mozilla.org/en-US/docs/Web/API/Performance/now). 단조 시계·Date.now 차이·절전 중 플랫폼 차이의 근거이다.
+- [Discord Multiplayer Experience](https://github.com/discord/discord-api-docs/blob/main/developers/activities/development-guides/multiplayer-experience.mdx). instanceId 수명과 서버의 Activity Instance API 검증 근거이다.
+- [Discord Networking](https://github.com/discord/discord-api-docs/blob/main/developers/activities/development-guides/networking.mdx). 클라이언트 데이터 신뢰 제한과 프록시·외부 자산 경로의 근거이다.
+- [Discord Local Development](https://github.com/discord/discord-api-docs/blob/main/developers/activities/development-guides/local-development.mdx). 개발 앱·터널·URL Mapping과 테스트 계정 접근 검증의 근거이다.
+- [Discord How Activities Work](https://github.com/discord/discord-api-docs/blob/main/developers/activities/how-activities-work.mdx). LAUNCH_ACTIVITY와 Entry Point 흐름의 근거이다.
+- [Python asyncio.gather](https://docs.python.org/3/library/asyncio-task.html#asyncio.gather). 모든 작업 완료를 기다리는 동작의 근거이다.
+- [Cloudflare Pages Build Configuration](https://developers.cloudflare.com/pages/configuration/build-configuration/). 빌드 루트와 공개 출력 디렉터리 분리의 근거이다.
