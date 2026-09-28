@@ -122,6 +122,7 @@ const remaining = Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000
 
 ## 6. WebSocket 계약과 동시성
 
+서버와 프론트가 맞춰야 하는 메시지 형식의 단일 기준은 [ACTIVITY_PROTOCOL.md](../../../docs/ACTIVITY_PROTOCOL.md)이다. 이 절은 설계 의도를 설명하고, 형식이 바뀌면 그 문서를 먼저 고친다.
 JSON 텍스트를 사용한다. 서버 시각은 유닉스 밀리초, Discord ID는 문자열이다. 6명·8후보 규모이므로 상태 변경마다 전체 스냅샷을 보낸다.
 
 | 메시지 | 필수 정보 |

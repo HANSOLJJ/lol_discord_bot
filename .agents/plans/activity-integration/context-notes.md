@@ -152,6 +152,15 @@
 - 동작 차이로, 예전 py-cord는 변경이 없으면 덮어쓰기를 건너뛰었지만 지금은 on_ready마다 조회 1회와 덮어쓰기 1회를 한다. 기존 명령 덮어쓰기는 명령 생성 한도에 포함되지 않으므로 문제로 보지 않았다. 모르는 명령이 들어올 때의 py-cord 자동 재동기화도 함께 꺼진다.
 - 슬래시 명령이 실제 Discord에서 실행되는지는 사용자가 TEST2에서 확인할 항목으로 남겼다.
 
+## 2026-09-28 워커 병렬 진행 방식
+
+- 사용자가 Orca supervised 방식으로 여러 워커에게 일감을 맡기기로 했다. 에이전트가 코디네이터로 worktree 생성, 워커 실행, 완료 보고 검토, main 병합을 맡는다. push는 하지 않는다.
+- 일감은 서로 독립적인 세 개다. 1번 액티비티 서버(activity_server.py, 봇 실행부 asyncio 전환)와 2번 프론트 골격(SDK 인증, WebSocket, 시계 보정·카운트다운 모듈)은 claude, 3번 픽 판정 로직 분리와 회귀 테스트는 agy가 맡는다. 사용자가 agy 성능이 가장 낮다는 점을 들어, 새로 설계할 일은 claude에, 기존 코드를 동작 변화 없이 옮기는 일은 agy에 배정했다.
+- 3번은 운영 픽 판정을 옮기므로 "현재 동작을 고정하는 테스트를 먼저 쓰고 옮긴다"는 순서를 지시서에 넣고, 코디네이터가 diff를 중점 검토한다.
+- 워커마다 새 worktree를 준다. main에는 사용자의 미커밋 변경이 있고, 1번과 3번이 같은 got_champe.py를 고치며, dev 봇 토큰과 8790·5173 포트는 동시에 하나만 쓸 수 있기 때문이다. 워커는 단위 테스트와 빌드로만 검증하고, 실제 dev 봇·Discord 실행은 병합 후 코디네이터가 한다.
+- 1번과 2번이 병합 때 맞도록 메시지 형식을 docs/ACTIVITY_PROTOCOL.md(protocol_version 1)로 먼저 고정했다. 1단계 측정을 위해 게임 상태 연결 전에도 카운트다운을 볼 수 있는 개발 전용 demo_countdown 메시지를 넣었다.
+- 테스트는 새 패키지 없이 한다. 파이썬은 unittest와 aiohttp.test_utils, 프론트는 Node 25 내장 테스트 러너(node --test)를 쓴다. 프론트 설정의 erasableSyntaxOnly와 .ts 확장자 import 허용으로 TypeScript를 그대로 실행할 수 있다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
