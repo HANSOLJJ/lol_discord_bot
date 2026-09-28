@@ -1,0 +1,66 @@
+.turnBox {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #171a21;
+  border: 1px solid #262b36;
+  flex-shrink: 0;
+}
+
+.turnBox[data-my-turn='true'] {
+  border-color: #facc15;
+}
+
+.countCol {
+  width: 88px;
+  text-align: center;
+  font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  font-size: 84px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.closing {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ff3b3b;
+  line-height: 1.2;
+}
+
+.rightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.turnTitle {
+  font-size: 19px;
+  line-height: 1.3;
+  color: #facc15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turnHint {
+  font-size: 13px;
+  color: #8b93a7;
+}
+
+.progressBarBg {
+  height: 4px;
+  border-radius: 2px;
+  background: #262b36;
+  overflow: hidden;
+}
+
+.progressBarFill {
+  height: 4px;
+  transition: width 0.2s linear;
+}

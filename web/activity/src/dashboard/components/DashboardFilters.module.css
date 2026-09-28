@@ -1,0 +1,256 @@
+/* 대시보드 필터 바 스타일 */
+
+.filterContainer {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* PC에서는 headerRow와 drawer가 flex 컨테이너 내에서 자연스럽게 배치됨 */
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.searchGroup {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 44px;
+  height: 44px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.searchInput:hover,
+.searchInput:focus {
+  border-color: var(--accent);
+}
+
+.filterToggleButton {
+  display: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease-in-out;
+}
+
+.filterToggleButton:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.filterBadge {
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.selectsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.selectGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selectLabel {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.select {
+  min-height: 44px;
+  height: 44px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.select:hover,
+.select:focus {
+  border-color: var(--accent);
+}
+
+.chipsWrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chipLabel {
+  font-size: 13px;
+  color: var(--muted);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.chipButton {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease-in-out;
+}
+
+.chipButton:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.chipButton.active {
+  background: var(--team1-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chipButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.resultSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.resultCount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.resultCount b {
+  color: var(--accent);
+}
+
+.resetButton {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.resetButton:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* 휴대폰 화면 (480px 이하) */
+@media (max-width: 480px) {
+  .filterContainer {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .headerRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .filterToggleButton {
+    display: inline-flex;
+  }
+
+  .drawer {
+    display: none;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .drawer.drawerOpen {
+    display: flex;
+  }
+
+  .selectsRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .selectGroup {
+    justify-content: space-between;
+  }
+
+  .select {
+    flex: 1;
+    max-width: 220px;
+  }
+
+  .chipButton {
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}

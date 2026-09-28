@@ -1,0 +1,45 @@
+/* 챔피언 원형 초상화 및 폴백 아바타 스타일 */
+
+.portraitWrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  position: relative;
+}
+
+.portraitImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.fallbackCircle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel2);
+}
+
+@media (max-width: 480px) {
+  .portraitWrapper {
+    width: 28px;
+    height: 28px;
+  }
+
+  .fallbackCircle {
+    font-size: 12px;
+  }
+}

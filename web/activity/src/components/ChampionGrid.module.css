@@ -1,0 +1,169 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.title {
+  font-size: 12px;
+  color: #8b93a7;
+  padding: 0 10px;
+}
+
+.gridMobile {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gridPc {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cardMobile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 116px;
+  box-sizing: border-box;
+  padding: 7px 4px 5px;
+  border-radius: 12px;
+  color: #e6e9ef;
+  font: inherit;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.cardPc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 152px;
+  box-sizing: border-box;
+  padding: 12px 6px 10px;
+  border-radius: 14px;
+  color: #e6e9ef;
+  font: inherit;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.cardClickable:hover {
+  transform: translateY(-2px);
+  border-color: #facc15 !important;
+}
+
+.imgWrapMobile {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  flex-shrink: 0;
+}
+
+.imgWrapPc {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+}
+
+.imgMobile {
+  display: block;
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.imgPc {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.fallbackCircleMobile {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  background: #1d212b;
+  color: #e6e9ef;
+  font-size: 20px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fallbackCirclePc {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  background: #1d212b;
+  color: #e6e9ef;
+  font-size: 24px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lockOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(10, 12, 16, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nameMobile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  font-size: 12px;
+  line-height: 1.15;
+  text-align: center;
+  overflow: hidden;
+}
+
+.namePc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  font-size: 14px;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+}
+
+.pickerLabelMobile {
+  height: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 76px;
+}
+
+.pickerLabelPc {
+  height: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}

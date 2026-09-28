@@ -1,0 +1,295 @@
+/* 판 카드 스타일 */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.roundTitle {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.gameTime {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.correctedGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.correctedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.correctedDetail {
+  font-size: 11px;
+  color: var(--warning);
+}
+
+.winBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.winBadge.team1 {
+  background: var(--team1-tint);
+  color: var(--team1);
+  border: 1px solid var(--team1-border);
+}
+
+.winBadge.team2 {
+  background: var(--team2-tint);
+  color: var(--team2);
+  border: 1px solid var(--team2-border);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.teamBox {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.15s ease-in-out;
+}
+
+.teamBox.winner.team1 {
+  border-color: var(--team1);
+  box-shadow: inset 0 0 0 1px var(--team1);
+  background: var(--team1-tint);
+}
+
+.teamBox.winner.team2 {
+  border-color: var(--team2);
+  box-shadow: inset 0 0 0 1px var(--team2);
+  background: var(--team2-tint);
+}
+
+.teamBox.loser .playerName {
+  color: color-mix(in srgb, var(--text) 60%, var(--panel2));
+}
+
+.teamBox.loser img {
+  filter: brightness(0.5);
+}
+
+.resultLabel {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.teamBox.winner.team1 .resultLabel {
+  background: var(--team1);
+  color: var(--bg);
+}
+
+.teamBox.winner.team2 .resultLabel {
+  background: var(--team2);
+  color: var(--bg);
+}
+
+.teamBox.loser .resultLabel {
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.teamTitle {
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.teamTitle.team1 {
+  color: var(--team1);
+}
+
+.teamTitle.team2 {
+  color: var(--team2);
+}
+
+.playerList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background-color 0.15s;
+}
+
+.playerRow.highlighted {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.playerRow.highlighted .champName {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* 진 팀 칸 안에서도 강조가 눈에 띄도록 처리 */
+.teamBox.loser .playerRow.highlighted .champName {
+  color: var(--text);
+}
+
+.teamBox.loser .playerRow.highlighted .playerName {
+  color: var(--text);
+}
+
+.teamBox.loser .playerRow.highlighted img {
+  filter: brightness(0.85);
+}
+
+.playerInfo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.playerName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.champName {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 10px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .headerRight {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* 휴대폰 화면에서도 좌우 2열 배치 유지 */
+  .body {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .teamBox {
+    padding: 8px 6px;
+    gap: 6px;
+  }
+
+  .playerRow {
+    padding: 3px 4px;
+    gap: 6px;
+  }
+
+  /* 플레이어 이름과 챔피언 이름을 2줄로 세로 배치 */
+  .playerInfo {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .playerName {
+    font-size: 12px;
+    line-height: 1.25;
+    max-width: 100%;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .champName {
+    font-size: 11px;
+    line-height: 1.25;
+    max-width: 100%;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

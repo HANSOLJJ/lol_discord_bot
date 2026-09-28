@@ -1,0 +1,86 @@
+.rosterMobile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #171a21;
+  border: 1px solid #262b36;
+  flex-shrink: 0;
+}
+
+.rosterPc {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.teamRowMobile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.teamCardPc {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #171a21;
+  border: 1px solid #262b36;
+}
+
+.labelTeam1 {
+  flex-shrink: 0;
+  width: 50px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5b8cff;
+}
+
+.labelTeam2 {
+  flex-shrink: 0;
+  width: 50px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ff6b5e;
+}
+
+.namesWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  min-width: 0;
+}
+
+.playerName {
+  max-width: 128px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e6e9ef;
+  border-bottom: 2px solid transparent;
+}
+
+.playerNamePc {
+  max-width: 130px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e6e9ef;
+  border-bottom: 2px solid transparent;
+}
+
+.playerName[data-active='true'],
+.playerNamePc[data-active='true'] {
+  color: #facc15;
+  border-bottom: 2px solid #facc15;
+}

@@ -1,0 +1,464 @@
+/* 통계 테이블(개인, 시너지, 챔피언, 매치업), 모바일 카드 뷰, 드릴다운, 툴팁 스타일 */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.tablewrap {
+  overflow-x: auto;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.th {
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.th.num,
+.td.num {
+  text-align: right;
+}
+
+.th.sortable {
+  cursor: pointer;
+}
+
+.th.sortable:hover {
+  color: var(--text);
+}
+
+.arrow {
+  color: var(--accent);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.td {
+  padding: 9px 12px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.tr:last-child .td {
+  border-bottom: none;
+}
+
+.tr:hover {
+  background: var(--panel2);
+}
+
+.tr.clickable {
+  cursor: pointer;
+}
+
+.combo {
+  font-weight: 600;
+}
+
+.drill {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tr.clickable:hover .drill {
+  color: var(--accent);
+}
+
+.playerLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.playerLink:hover {
+  color: var(--accent);
+}
+
+.backbar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 10px 16px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.backbar:hover {
+  background: var(--panel2);
+}
+
+.drillhead {
+  padding: 10px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drillhead b {
+  color: var(--text);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.track {
+  flex: 1;
+  height: 8px;
+  background: #2a2f3a;
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 70px;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.wrnum {
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.wl {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.w {
+  color: var(--win, #3fb950);
+}
+
+.l {
+  color: var(--loss, #f85149);
+}
+
+.earnings {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.earningsPositive {
+  color: var(--win, #3fb950);
+}
+
+.earningsNegative {
+  color: var(--loss, #f85149);
+}
+
+.earningsNeutral {
+  color: var(--muted);
+}
+
+.portrait {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  margin-right: 3px;
+  background: var(--panel2);
+  object-fit: cover;
+  display: inline-block;
+}
+
+.portraitSm {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  margin-right: 6px;
+  background: var(--panel2);
+  object-fit: cover;
+  display: inline-block;
+}
+
+.champStrip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.champTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  width: 30px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+  position: relative;
+}
+
+.champTrigger .portrait {
+  margin: 0;
+  display: block;
+}
+
+.champTrigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.champFallback {
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.mrec {
+  font-weight: 400;
+  font-size: 12px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 10px 2px 0;
+  line-height: 1.6;
+}
+
+.note b {
+  color: var(--text);
+}
+
+.champInfo {
+  position: fixed;
+  z-index: 1000;
+  width: 220px;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+  pointer-events: auto;
+}
+
+.champInfo strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* 모바일 전용 플레이어 리스트 */
+.playerMobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .playerTable {
+    display: none;
+  }
+
+  .playerMobile {
+    display: block;
+  }
+
+  .playerHeading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(72px, max-content) minmax(52px, max-content);
+    align-items: center;
+    gap: 10px;
+    padding: 2px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .playerHeading > :not(:first-child) {
+    text-align: right;
+  }
+
+  .playerHeading button {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .playerList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .playerItem {
+    padding: 10px 12px 12px;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .playerItem:last-child {
+    border-bottom: 0;
+  }
+
+  .playerPrimary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(72px, max-content) minmax(52px, max-content);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .playerPrimary .playerLink {
+    min-width: 0;
+  }
+
+  .playerRate,
+  .playerMoney {
+    display: flex;
+    flex-direction: column;
+    text-align: right;
+  }
+
+  .playerRate strong {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .playerRate .wl,
+  .playerMoney .earnings {
+    font-size: 13px;
+  }
+
+  .playerSecondary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .playerChamps {
+    min-width: 0;
+  }
+
+  .playerChamps .caption {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+
+  .playerMeta {
+    flex-shrink: 0;
+    color: var(--muted);
+    text-align: right;
+    font-size: 13px;
+  }
+
+  .playerMeta span {
+    display: block;
+  }
+
+  .playerMeta b {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .champTrigger {
+    flex-basis: 28px;
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+
+  .champTrigger .portrait {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  .th,
+  .td {
+    padding: 7px 6px;
+  }
+
+  .bar {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .track {
+    min-width: 30px;
+  }
+
+  .wrnum {
+    min-width: 28px;
+    font-size: 12px;
+  }
+
+  .wl {
+    font-size: 12px;
+  }
+}

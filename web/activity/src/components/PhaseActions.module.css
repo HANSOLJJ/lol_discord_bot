@@ -1,0 +1,210 @@
+.noneBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 16px;
+  border-radius: 14px;
+  background: #171a21;
+  border: 1px solid #262b36;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.noneTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e6e9ef;
+}
+
+.noneDesc {
+  font-size: 13px;
+  color: #8b93a7;
+}
+
+.btnPrimary {
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 10px;
+  border: none;
+  background: #5b8cff;
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* awaiting_result */
+.awaitingBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #171a21;
+  border: 1px solid #3fb950;
+  flex-shrink: 0;
+}
+
+.awaitingHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awaitingTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e6e9ef;
+}
+
+.awaitingDesc {
+  font-size: 12px;
+  color: #8b93a7;
+}
+
+.winnerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.btnWinnerTeam1 {
+  height: 48px;
+  border-radius: 10px;
+  border: 2px solid #5b8cff;
+  background: rgba(91, 140, 255, 0.16);
+  color: #5b8cff;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnWinnerTeam2 {
+  height: 48px;
+  border-radius: 10px;
+  border: 2px solid #ff6b5e;
+  background: rgba(255, 107, 94, 0.16);
+  color: #ff6b5e;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnWinnerTeam1:disabled,
+.btnWinnerTeam2:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.abandonRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+.btnAbandon {
+  background: transparent;
+  border: none;
+  color: #8b93a7;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.btnAbandon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* completed */
+.completedBox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #171a21;
+  border: 2px solid #5b8cff;
+  flex-shrink: 0;
+}
+
+.completedMainRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.completedLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.completedTitle {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.completedDesc {
+  font-size: 12px;
+  color: #8b93a7;
+}
+
+.btnReverse {
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid #3a4150;
+  background: #1d212b;
+  color: #e6e9ef;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnReverse:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nextGameRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btnNextGame {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 8px;
+  border: 1px solid #5b8cff;
+  background: rgba(91, 140, 255, 0.16);
+  color: #5b8cff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btnNextGame:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

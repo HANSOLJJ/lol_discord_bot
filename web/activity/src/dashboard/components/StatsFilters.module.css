@@ -1,0 +1,146 @@
+/* 통계 탭(개인, 시너지, 챔피언, 매치업) 필터 컨트롤 스타일 */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.summary {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.summary b {
+  color: var(--text);
+}
+
+.periodGroup,
+.minGamesGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.select {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  min-height: 36px;
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.chipsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chipsList {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 20px;
+  padding: 5px 13px;
+  font-size: 13px;
+  user-select: none;
+  white-space: nowrap;
+  min-height: 32px;
+  transition: all 0.15s ease-in-out;
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.chip:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.clearBtn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  min-height: 32px;
+}
+
+.clearBtn:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.rangeInput {
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.minGamesVal {
+  color: var(--accent);
+  font-weight: 600;
+  min-width: 14px;
+  display: inline-block;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .controls {
+    gap: 12px;
+    padding: 10px 12px;
+  }
+
+  .select {
+    font-size: 16px;
+    min-height: 44px;
+    flex: 1;
+  }
+
+  .chip,
+  .clearBtn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+  }
+
+  .periodGroup {
+    width: 100%;
+  }
+}

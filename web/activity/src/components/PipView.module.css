@@ -1,0 +1,126 @@
+.pipBox {
+  width: 100%;
+  height: 100%;
+  max-width: 320px;
+  max-height: 180px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: #0f1115;
+  color: #e6e9ef;
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: auto;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.countNum {
+  width: 64px;
+  text-align: center;
+  font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  font-size: 68px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.countClosing {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ff3b3b;
+  line-height: 1.2;
+}
+
+.titleHintCol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 17px;
+  line-height: 1.25;
+  color: #facc15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  font-size: 12px;
+  color: #8b93a7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottomCol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slotsRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.slot {
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #171a21;
+}
+
+.slotImg {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.slotFallback {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #1d212b;
+  color: #e6e9ef;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slotNum {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.progressBarBg {
+  height: 4px;
+  border-radius: 2px;
+  background: #262b36;
+  overflow: hidden;
+}
+
+.progressBarFill {
+  height: 4px;
+  transition: width 0.2s linear;
+}

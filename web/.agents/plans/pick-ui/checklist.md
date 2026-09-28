@@ -1,0 +1,34 @@
+# 작업 체크리스트
+
+- [x] 1. 규격 v2 타입과 검증 구현
+  - [x] `protocol.ts`에 PROTOCOL_VERSION = 2 적용 및 v2 StateMessage / ClientMessage 타입 정의
+  - [x] 필수 필드 및 타입 런타임 검증자 구현 (demo_countdown 제거)
+  - [x] `protocol.test.ts` 갱신 및 통과 확인
+- [x] 2. 요청 전송 및 통신 계층 갱신
+  - [x] `connection.ts`에 start, pick, result, reverse 메서드 구현 및 demo_countdown 제거
+  - [x] `connection.test.ts` 갱신 및 통과 확인
+- [x] 3. 뷰 계산 순수 함수 및 픽스처 작성
+  - [x] `fixtures.ts`에 phase별(none, starting, picking, awaiting_result, completed 등) v2 픽스처 작성
+  - [x] `view-logic.ts`에 순수 판정 함수 분리 (picker, champion lock, 5초 경고, 버튼 활성화)
+  - [x] `view-logic.test.ts` 작성 및 통과 확인
+- [x] 4. React 훅 및 개발 전용 미리보기 구현
+  - [x] `useActivity.ts`에서 v2 액션 바인딩 및 토스트/펜딩 상태 처리
+  - [x] `import.meta.env.DEV` 전용 미리보기 라우팅 및 상태 주입 구현
+- [x] 5. 화면 UI 및 반응형 레이아웃 구현
+  - [x] 반응형 뷰 지원 (모바일 세로, PC 2단, 작은 창 요약)
+  - [x] 헤더, 팀 구성, 현재 차례/카운트다운(렌더링 격리), 픽 순서 목록, 챔피언 카드 그리드(4x2)
+  - [x] phase별 뷰 (none, starting, picking, awaiting_result, completed)
+  - [x] 초상화 로딩 실패 시 첫 글자 원형 대체
+  - [x] 토스트 알림 표시
+- [x] 6. 전체 검증 및 커밋
+  - [x] `npm test` 통과
+  - [x] `npm run lint` 통과 (경고 0)
+  - [x] `npm run build` 통과
+  - [x] 완료 보고서 작성 및 코디네이터 통보
+- [x] 7. 픽 화면 검토 반영 및 약관/개인정보 처리방침
+  - [x] 7-1. `fixtures.ts`의 `me.id` 수정 (`SAMPLE_PLAYERS[0].id`로 수정) 및 검증
+  - [x] 7-2. `vite.config.ts`에 `/ddragon` 프록시 추가 (`changeOrigin: true`, prefix 제거)
+  - [x] 7-3. 외부 글꼴 제거 및 Barlow Condensed (600, 700) 로컬 woff2/OFL.txt 추가, 시스템 글꼴 폴백 적용
+  - [x] 7-4. `terms.html`, `privacy.html` 정적 페이지 작성 (어두운 테마, 한글+영문, 상호 링크, 대시보드 링크)
+  - [x] 7-5. 전체 검증 (`npm run build`, `npm run lint`, `npm test`) 및 논리 단위 커밋, 완료 보고
+

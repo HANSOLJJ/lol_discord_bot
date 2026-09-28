@@ -1,0 +1,264 @@
+<!-- 롤 투기장 디스코드 봇 및 액티비티 개인정보 처리방침 페이지 -->
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏟️</text></svg>" />
+  <title>개인정보 처리방침 | 롤 투기장 (LoL Arena)</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel2: #1d212b;
+      --border: #262b36;
+      --text: #e6e9ef;
+      --muted: #8b93a7;
+      --accent: #5b8cff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }
+    header {
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    .nav-links a {
+      padding: 4px 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .nav-links a.active {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    h1 {
+      font-size: 24px;
+      margin: 0 0 8px;
+      color: #ffffff;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .lang-jump {
+      display: inline-flex;
+      gap: 8px;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .section-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    h2 {
+      font-size: 17px;
+      margin: 0 0 14px;
+      color: #ffffff;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    h3 {
+      font-size: 15px;
+      margin: 18px 0 8px;
+      color: var(--text);
+    }
+    p { margin: 0 0 12px; }
+    p:last-child { margin-bottom: 0; }
+    ul, ol {
+      margin: 0 0 12px;
+      padding-left: 20px;
+    }
+    li { margin-bottom: 6px; }
+    li:last-child { margin-bottom: 0; }
+    .badge {
+      display: inline-block;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .divider {
+      margin: 40px 0;
+      border: 0;
+      border-top: 1px dashed var(--border);
+    }
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <nav class="nav-links" aria-label="메인 내비게이션">
+        <a href="https://arena.hansoljj.com/">대시보드</a>
+        <a href="terms.html">이용약관</a>
+        <a href="privacy.html" class="active">개인정보 처리방침</a>
+      </nav>
+      <h1>개인정보 처리방침 (Privacy Policy)</h1>
+      <div class="meta">시행일: 2026년 9월 28일 · 최종 수정일: 2026년 9월 28일</div>
+      <div class="lang-jump">
+        <a href="#ko-privacy">한국어 본문</a> · <a href="#en-privacy">English Version</a>
+      </div>
+    </header>
+
+    <main id="ko-privacy">
+      <div class="section-card">
+        <h2>1. 개요</h2>
+        <p>'롤 투기장(LoL Arena)' 디스코드 봇 및 액티비티(이하 '서비스')는 친구 6명 간의 League of Legends 3:3 사설 친선 대전을 지원하기 위한 비상업적 소규모 서비스입니다.</p>
+        <p>본 방침은 서비스 이용 과정에서 수집되는 정보의 항목, 이용 목적, 보관 기간 및 이용자의 권리에 대해 설명합니다.</p>
+      </div>
+
+      <div class="section-card">
+        <h2>2. 수집하는 정보</h2>
+        <p>서비스는 목적 달성에 필요한 최소한의 정보만을 처리합니다.</p>
+        <ul>
+          <li><strong>디스코드 OAuth 계정 정보 (`identify` 범위):</strong> Discord 사용자 고유 ID, 사용자명(Username), 전역 표시 이름(Global Name), 아바타 해시(Avatar Hash).</li>
+          <li><strong>디스코드 서버(길드) 정보:</strong> 서버 내 별명(Guild Nickname)과 온라인 상태(새 판을 시작할 때 온라인인 사람 가운데 6명을 뽑기 위한 목적).</li>
+          <li><strong>게임 진행 및 전적 정보:</strong> 게임 판 번호, 시즌 번호, 경기 진행 시각, 팀 구성(1팀/2팀 배치), 선택한 챔피언 목록, 경기 승패 결과, 판정 번복 이력.</li>
+        </ul>
+      </div>
+
+      <div class="section-card">
+        <h2>3. 정보의 이용 목적</h2>
+        <ul>
+          <li><strong>팀 편성 및 게임 진행:</strong> 6인의 참가자를 3:3 두 팀으로 배정하고 실시간 챔피언 픽 차례를 제어하기 위해 사용합니다.</li>
+          <li><strong>전적 기록 및 통계 제공:</strong> 승패 결과와 팀 조합 통계를 계산하여 참여자 간 대전 기록을 유지합니다.</li>
+          <li><strong>전적 및 표시 이름 공개:</strong> 게임 기록(판 번호, 참여자 표시 이름, 픽한 챔피언, 승패 결과)은 공개 웹페이지인 <a href="https://arena.hansoljj.com/">arena.hansoljj.com</a> 대시보드에 게시됩니다.</li>
+          <li><strong>OAuth 토큰 및 실시간 세션:</strong> 인증에 사용된 Discord OAuth 토큰과 웹소켓 연결 세션은 서버 메모리에만 1시간 이내로 임시 유지되며, 디스크나 데이터베이스에 영구 저장하지 않습니다.</li>
+        </ul>
+      </div>
+
+      <div class="section-card">
+        <h2>4. 정보의 보관 및 제3자 제공</h2>
+        <ul>
+          <li><strong>보관 장소 및 기간:</strong> 경기 전적 기록 데이터는 서비스 운영자의 개인 서버에 보관되며, 백업을 위해 누구나 볼 수 있는 공개 GitHub 저장소(github.com/HANSOLJJ/lol_arena)에도 올라갑니다. 서비스를 운영하는 동안 보관합니다.</li>
+          <li><strong>상업적 활용 금지:</strong> 수집된 정보를 판매하거나 광고 마케팅, 프로파일링 등 상업적 목적으로 일절 사용하지 않습니다.</li>
+          <li><strong>제3자 제공:</strong> 운영자는 원칙적으로 이용자의 정보를 외부에 제공하거나 위탁하지 않습니다. 단, 서비스 구동을 위한 기술적 인프라로 다음 서비스와 연동됩니다.
+            <ul>
+              <li><strong>Discord:</strong> 사용자 신원 확인 및 액티비티 샌드박스 실행.</li>
+              <li><strong>Riot Games Data Dragon:</strong> 리그 오브 레전드 공식 챔피언 초상화 이미지 로드.</li>
+              <li><strong>Cloudflare:</strong> 도메인 DNS 라우팅 및 웹 보안 프록시.</li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+
+      <div class="section-card">
+        <h2>5. 이용자의 권리 및 삭제 요청</h2>
+        <p>이용자는 언제든지 자신의 개인정보 처리 상태를 확인하고, 대시보드에 게시된 본인의 전적 표시 이름 삭제 또는 익명화를 요청할 수 있습니다.</p>
+        <p>삭제 또는 익명화 요청은 아래 문의처로 접수할 수 있으며, 확인 후 대시보드와 저장소의 현재 기록에서 표시 이름을 제거하거나 임의의 식별자(예: 익명 플레이어)로 대체합니다. 다만 공개 GitHub 저장소의 과거 변경 이력에는 이전 기록이 남아 있을 수 있습니다.</p>
+      </div>
+
+      <div class="section-card">
+        <h2>6. 문의처 및 시행일</h2>
+        <p>개인정보 처리 및 삭제 요청에 관한 문의처는 다음과 같습니다.</p>
+        <ul>
+          <li>문의처: <span class="badge">CONTACT_PLACEHOLDER</span></li>
+          <li>시행일: 2026-09-28</li>
+        </ul>
+      </div>
+    </main>
+
+    <hr class="divider" />
+
+    <section id="en-privacy" lang="en">
+      <div class="section-card">
+        <h2>1. Overview</h2>
+        <p>The "LoL Arena" Discord bot and Discord Embedded Activity ("Service") is a non-commercial, small-scale utility designed exclusively for running 3v3 League of Legends custom matches among a private group of friends (typically 6 players).</p>
+        <p>This Privacy Policy outlines the types of data collected, how it is used, where it is stored, and how users can request data deletion.</p>
+      </div>
+
+      <div class="section-card">
+        <h2>2. Information We Collect</h2>
+        <p>The Service processes only the minimum data required to organize custom matches.</p>
+        <ul>
+          <li><strong>Discord OAuth Identity Data (`identify` scope):</strong> Discord User ID, username, global display name, and avatar hash.</li>
+          <li><strong>Discord Guild Data:</strong> Server nickname and online status (used only to pick 6 online members when a new match starts).</li>
+          <li><strong>Match & Gameplay Data:</strong> Match/round number, season identifier, game timestamp, team rosters (Team 1 / Team 2), chosen champion IDs, win/loss outcome, and correction/reverse logs.</li>
+        </ul>
+      </div>
+
+      <div class="section-card">
+        <h2>3. How We Use Information</h2>
+        <ul>
+          <li><strong>Match Orchestration:</strong> Dividing players into two teams of 3 and orchestrating the live sequential champion pick phase.</li>
+          <li><strong>Leaderboards & Analytics:</strong> Aggregating match statistics, player win-rates, and team synergies.</li>
+          <li><strong>Public Match History:</strong> Match records and player display names are publicly viewable on the match history dashboard at <a href="https://arena.hansoljj.com/">arena.hansoljj.com</a>.</li>
+          <li><strong>Ephemeral Tokens & Sessions:</strong> OAuth access tokens and active WebSocket session state exist exclusively in volatile server memory for less than 1 hour and are never persisted to disk or databases.</li>
+        </ul>
+      </div>
+
+      <div class="section-card">
+        <h2>4. Data Storage and Third Parties</h2>
+        <ul>
+          <li><strong>Storage & Retention:</strong> Historical match records are stored on the operator's personal server and are also backed up to a public GitHub repository (github.com/HANSOLJJ/lol_arena) that anyone can view. Records are kept for as long as the Service is operated.</li>
+          <li><strong>No Commercial Exploitation:</strong> User data is never sold, leased, or utilized for advertising, monetization, or profiling.</li>
+          <li><strong>Third-Party Infrastructure:</strong> No data is shared with third parties for commercial gain. Technical dependencies include:
+            <ul>
+              <li><strong>Discord:</strong> User authentication and Activity SDK handshake.</li>
+              <li><strong>Riot Games Data Dragon:</strong> Champion square portrait retrieval.</li>
+              <li><strong>Cloudflare:</strong> DNS routing and reverse-proxy protection.</li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+
+      <div class="section-card">
+        <h2>5. User Rights and Deletion Requests</h2>
+        <p>Users have the right to request access to, correction of, or deletion/anonymization of their match history and associated display names.</p>
+        <p>Upon request sent to the contact address below, the operator will remove the requested display name from the dashboard and the current files of the repository, or replace it with an anonymous identifier (e.g., "Player X"). Earlier versions may remain in the public GitHub repository's commit history.</p>
+      </div>
+
+      <div class="section-card">
+        <h2>6. Contact and Effective Date</h2>
+        <p>For questions regarding privacy, data handling, or deletion requests, please contact:</p>
+        <ul>
+          <li>Contact: <span class="badge">CONTACT_PLACEHOLDER</span></li>
+          <li>Effective Date: September 28, 2026</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>
+      <div>롤 투기장 (LoL Arena) · <a href="https://arena.hansoljj.com/">arena.hansoljj.com</a></div>
+      <div style="margin-top: 4px;">League of Legends and Riot Games are trademarks or registered trademarks of Riot Games, Inc.</div>
+    </footer>
+  </div>
+</body>
+</html>

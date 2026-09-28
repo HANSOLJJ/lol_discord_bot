@@ -1,0 +1,53 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #262b36;
+  flex-shrink: 0;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.dot[data-tone='ok'] {
+  background: #3fb950;
+}
+
+.dot[data-tone='wait'] {
+  background: #d29922;
+}
+
+.dot[data-tone='bad'] {
+  background: #f85149;
+}
+
+.statusText {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.roundInfo {
+  font-size: 13px;
+  color: #8b93a7;
+}
+
+.roundInfoPc {
+  font-size: 13px;
+  color: #8b93a7;
+  margin-left: 12px;
+}
+
+.userName {
+  font-size: 13px;
+  color: #8b93a7;
+}

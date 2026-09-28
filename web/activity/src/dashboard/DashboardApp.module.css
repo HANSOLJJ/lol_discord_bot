@@ -1,0 +1,45 @@
+/* 대시보드 메인 레이아웃 및 로딩/에러 스타일 */
+
+.wrap {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
+  min-height: 100vh;
+}
+
+.loadingContainer,
+.errorContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.errorTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ff6b5e;
+}
+
+.retryButton {
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.retryButton:hover {
+  opacity: 0.9;
+}

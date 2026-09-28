@@ -1,0 +1,56 @@
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-600.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-700.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --bg: #f7f7f8;
+  --text: #16181d;
+  --muted: #555a65;
+  --line: #d9dbe0;
+  --accent: #0b6e69;
+  --on-accent: #ffffff;
+  --ok: #1d7a3a;
+  --warn: #8f5400;
+  --danger: #b3261e;
+
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171c;
+    --text: #eceef2;
+    --muted: #a3a8b3;
+    --line: #2e323b;
+    --accent: #4fc3b9;
+    --on-accent: #0d1f1d;
+    --ok: #6fcf8b;
+    --warn: #e0b25c;
+    --danger: #f08a80;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
