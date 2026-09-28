@@ -42,7 +42,7 @@
 
 ---
 
-## Phase 3: 안전한 과거 전적 재파싱 (`parse_history_v2.py`)
+## Phase 3: 안전한 과거 전적 재파싱 (`parse_history_v2.py`) — 취소 (2026-09-28 사용자 결정: 디스코드 채널 재파싱 불필요)
 - [ ] 안전 재파싱 스크립트(`parse_history_v2.py`) 작성하기.
   - [ ] 대상 출력 파일을 `data/history_data_reparsed.json`으로 격리.
   - [ ] `season` 태깅 로직 (2026-06-26 기준 시즌 1/시즌 2 분기).
@@ -61,7 +61,7 @@
 
 ---
 
-## Phase 4: 마스터 데이터 교체 및 배포
+## Phase 4: 마스터 데이터 교체 및 배포 — 취소 (재파싱을 하지 않으므로 교체할 재파싱본이 없다)
 - [ ] 사용자와 재파싱 차이 리포트 검토 및 데이터 교체 승인받기.
 - [ ] 마스터 `history_data.json`을 검증된 재파싱본으로 교체하기.
 - [ ] GitHub Pages(현재 경로) 배포 및 `arena.hansoljj.com` 확인하기.
