@@ -122,6 +122,14 @@
 - 남은 문제 두 가지. 리디렉션 값이 앞에 공백이 붙은 " https://127.0.0.1"로 저장돼 있어 포털에서 고쳐야 한다. 전역 명령이 비어 있고 EMBEDDED 플래그도 없어 액티비티 활성화(Launch 명령 자동 생성)가 아직 적용되지 않았다. URL 매핑에 넣을 터널 주소가 먼저 필요하므로 cloudflared 설치가 다음 선행 작업이다.
 - 전역 명령이 비어 있는 지금 봇을 먼저 실행하면 슬래시 명령만 등록된다. 이후 액티비티를 켜고 봇을 재시작하면 Entry Point와 sync_commands 공존(checklist 1절)을 깨끗한 상태에서 검증할 수 있다.
 
+## 2026-09-28 맥미니 현황 확인 (SSH)
+
+- 이 세션의 ssh-mcp에 `macmini`(Tailscale 100.104.120.76, 실제 로그인 사용자 hansol)가 등록돼 있어 읽기 전용 명령으로 확인했다.
+- 운영 롤 봇은 맥미니에서 실행 중이 아니다. got_champe 프로세스가 없고 pm2에는 finance만 있으며 tmux 세션도 없다. 단계 0(pm2 자동 기동)의 필요성이 실제로 확인됐다.
+- 맥미니 봇 저장소는 ~/projects/lol_discord_bot, HEAD d68de61(= 당시 origin/main)이다. 윈도우 로컬에는 push하지 않은 커밋이 여러 개 있다.
+- 도구 버전은 node v25.8.1, uv 0.12.13, cloudflared 2026.8.2이고 ~/.cloudflared에 finance 터널의 config.yml과 자격증명이 있다.
+- 사용자가 개발용 윈도우 터널의 필요성을 질문했다. 편집이 윈도우에서 일어나므로 빠른 반복을 위한 것이며, 맥미니만으로 개발하는 대안과의 비교를 안내했다. 결정 전이다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
