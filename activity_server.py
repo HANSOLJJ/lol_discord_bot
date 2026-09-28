@@ -1,9 +1,10 @@
 ##
 # @file activity_server.py
-# @brief 디스코드 액티비티용 HTTP·WebSocket 서버 (토큰 교환, 세션, 상태 스냅샷, 개발용 데모 카운트다운).
+# @brief 디스코드 액티비티용 HTTP·WebSocket 서버 (토큰 교환, 세션, 상태 스냅샷, 게임 요청).
 # @details 봇 프로세스 안에서 aiohttp.web으로 127.0.0.1에만 바인딩한다. 메시지 형식의 기준은
-#          docs/ACTIVITY_PROTOCOL.md(protocol_version 1)이다. 봇 전역 상태를 import하지 않고 설정은
-#          생성자로 주입받는다. 1단계에서는 게임 상태 대신 서버 안의 데모 카운트다운 상태만 보낸다.
+#          docs/ACTIVITY_PROTOCOL.md(protocol_version 2)이다. 봇 전역 상태를 import하지 않고 게임 객체
+#          (game_core.GameCore와 같은 메서드를 가진 객체)와 설정을 생성자로 주입받는다. 이 모듈은 세션·연결·
+#          형식 검증·요청 멱등성·state 방송을 맡고, 게임 판정은 게임 객체가 한다.
 #          OAuth code, access token, client secret, 세션 토큰, WebSocket query는 로그에 남기지 않는다.
 import asyncio
 import collections
@@ -18,7 +19,7 @@ import aiohttp
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 DEFAULT_PORT = 8790
 BIND_HOST = "127.0.0.1"
 DISCORD_API_BASE = "https://discord.com/api"
@@ -33,8 +34,8 @@ MAX_VIOLATIONS = 3  # 연속 규격 위반이 이 횟수에 닿으면 4400으로
 SEND_TIMEOUT_SECONDS = 5  # 메시지 하나를 이 시간 안에 못 보내면 느린 연결로 보고 4408로 닫는다
 TOKEN_RATE_LIMIT = 30  # 토큰 엔드포인트 허용 횟수(서버 전체). 프록시 뒤라 IP 구분이 무의미하다
 TOKEN_RATE_WINDOW_SECONDS = 60
-DEMO_GRACE_MS = 2000
-DEMO_MAX_SECONDS = 60
+MAX_FIELD_LENGTH = 128  # game_id·turn_id·champion_id 등 문자열 필드의 최대 길이
+TEAM_KEYS = ("team1", "team2")
 
 CLOSE_NORMAL = 1000
 CLOSE_GOING_AWAY = 1001
@@ -75,6 +76,50 @@ def _parse_user(data):
     if not isinstance(global_name, (str, type(None))) or not isinstance(avatar, (str, type(None))):
         return None
     return {"id": user_id, "username": username, "global_name": global_name, "avatar": avatar}
+
+
+##
+# @brief 문자열 필드 형식 검사.
+# @param value 값.
+# @param nullable True면 None도 허용한다.
+# @return 형식이 맞으면 True.
+def _is_field(value, nullable=False):
+    if value is None:
+        return nullable
+    return isinstance(value, str) and 1 <= len(value) <= MAX_FIELD_LENGTH
+
+
+# 게임 요청별 필드 형식 규칙: {t: {필드: 검사 함수}}
+_REQUEST_FIELDS = {
+    "start": {
+        "game_id": lambda v: _is_field(v, nullable=True),
+        "guild_id": lambda v: _is_field(v, nullable=True),
+    },
+    "pick": {
+        "game_id": lambda v: _is_field(v, nullable=True),
+        "turn_id": lambda v: _is_field(v, nullable=True),
+        "champion_id": _is_field,
+    },
+    "result": {
+        "game_id": lambda v: _is_field(v, nullable=True),
+        "winner": _is_field,  # team1·team2 여부는 판정 순서 5번에서 확인한다(규격 9절)
+    },
+    "reverse": {
+        "game_id": lambda v: _is_field(v, nullable=True),
+        "expected_winner": lambda v: v in TEAM_KEYS,
+    },
+}
+
+
+##
+# @brief 게임 요청의 필수 필드가 모두 있고 형식이 맞는지 확인한다. 모르는 필드는 무시한다.
+# @param kind 요청 종류.
+# @param data 요청 dict.
+# @return 형식이 맞으면 True.
+def _valid_request(kind, data):
+    return all(
+        name in data and check(data[name]) for name, check in _REQUEST_FIELDS[kind].items()
+    )
 
 
 ##
@@ -126,6 +171,7 @@ class _Connection:
         self.ws = ws
         self.user_id = user_id
         self.violations = 0  # 연속 규격 위반 횟수
+        self.requests = set()  # 처리 중인 게임 요청 태스크
         self._send_timeout = send_timeout
         self._items = collections.deque()  # 보낼 순서대로 쌓인 [메시지] 칸
         self._state_item = None  # 아직 못 보낸 state 칸. 새 state는 이 칸을 덮어쓴다
@@ -204,23 +250,26 @@ class _Connection:
 class ActivityServer:
 
     ##
-    # @param dev_mode True면 데모 카운트다운을 허용한다.
+    # @param game 게임 객체. snapshot(), me(), add_listener(), activity_start/pick/result/reverse()를 쓴다.
     # @param client_id Discord 앱 client ID.
     # @param client_secret Discord 앱 client secret. 로그에 남기지 않는다.
     # @param port 바인딩할 포트(주소는 항상 127.0.0.1).
     # @param discord_api_base Discord API 기본 URL. 테스트에서 가짜 서버로 바꾼다.
     # @param session_ttl 세션 수명(초).
+    # @param clock 요청 접수 시각을 잡는 단조 시계. 게임 객체의 마감 판정과 같은 시계여야 한다.
     def __init__(
         self,
         *,
-        dev_mode,
+        game,
         client_id,
         client_secret,
         port=DEFAULT_PORT,
         discord_api_base=DISCORD_API_BASE,
         session_ttl=SESSION_TTL_SECONDS,
+        clock=time.monotonic,
     ):
-        self._dev_mode = dev_mode
+        self._game = game
+        self._clock = clock
         self._client_id = client_id
         self._client_secret = client_secret
         self._port = port
@@ -230,11 +279,11 @@ class ActivityServer:
         self._sessions = {}  # {세션 토큰: _Session}
         self._connections = set()  # 열린 _Connection
         self._token_requests = collections.deque()  # 빈도 제한 창 안의 토큰 요청 시각(단조 시계)
-        self._lock = asyncio.Lock()  # 상태 변경·스냅샷 생성 직렬화
         self._state_version = 0
-        self._demo = None  # {"turn_id", "deadline_mono"} - 진행 중인 데모 카운트다운
-        self._demo_serial = 0
-        self._demo_task = None
+        # {(사용자, game_id, 요청 id): (요청 내용, reply Future)} - 같은 요청 재전송에 같은 reply를 돌려준다.
+        # 다음 판이 시작되면 비운다
+        self._replies = {}
+        self._last_game_id = None  # 마지막으로 보낸 state의 game_id (판이 바뀌었는지 판단용)
         self._http = None  # Discord 호출용 ClientSession
         self._runner = None
         self.app = web.Application(client_max_size=MAX_BODY_BYTES)
@@ -243,6 +292,7 @@ class ActivityServer:
         self.app.on_startup.append(self._on_startup)
         self.app.on_shutdown.append(self._on_shutdown)
         self.app.on_cleanup.append(self._on_cleanup)
+        game.add_listener(self._on_game_change)
 
     # === 실행과 정리 ===
 
@@ -260,7 +310,7 @@ class ActivityServer:
         log.info("[ACTIVITY] 액티비티 서버 시작: %s:%s", BIND_HOST, self._port)
 
     ##
-    # @brief 서버를 멈춘다. 열린 소켓(1001)·데모 타이머·Discord HTTP 세션·runner를 모두 정리한다.
+    # @brief 서버를 멈춘다. 열린 소켓(1001)·Discord HTTP 세션·runner를 모두 정리한다.
     async def close(self):
         runner, self._runner = self._runner, None
         if runner is not None:
@@ -272,17 +322,12 @@ class ActivityServer:
         )
 
     async def _on_shutdown(self, app):
-        if self._demo_task is not None:
-            self._demo_task.cancel()
         connections = list(self._connections)
         for conn in connections:
             conn.request_close(CLOSE_GOING_AWAY)
         await asyncio.gather(*(conn.task for conn in connections), return_exceptions=True)
 
     async def _on_cleanup(self, app):
-        if self._demo_task is not None:
-            self._demo_task.cancel()
-            await asyncio.gather(self._demo_task, return_exceptions=True)
         if self._http is not None:
             await self._http.close()
             self._http = None
@@ -404,15 +449,16 @@ class ActivityServer:
             await ws.close(code=CLOSE_UNAUTHORIZED)
             return ws
         conn = _Connection(ws, session.user["id"])
-        async with self._lock:
-            self._connections.add(conn)
-            conn.send(self._hello(session.user))
-            conn.send_state(self._state_for(self._snapshot(), conn))
+        # 아래 세 줄 사이에 await가 없어 다른 상태 변경이 끼어들지 않는다
+        self._connections.add(conn)
+        conn.send(self._hello(session.user))
+        conn.send_state(self._state_for(self._snapshot(), conn))
         log.info("[ACTIVITY] WS 연결 (user=%s, 연결 %d개)", conn.user_id, len(self._connections))
         try:
             await self._receive_loop(conn, session)
         finally:
             self._connections.discard(conn)
+            await asyncio.gather(*conn.requests, return_exceptions=True)
             conn.request_close(CLOSE_NORMAL)
             await conn.task
             log.info("[ACTIVITY] WS 종료 (user=%s, code=%s)", conn.user_id, ws.close_code)
@@ -432,8 +478,9 @@ class ActivityServer:
                 msg = await conn.ws.receive(timeout=remaining)
             except TimeoutError:
                 continue  # 다음 바퀴에서 만료를 판정한다
+            received_at = self._clock()  # 접수 시각. 락이나 다른 작업을 기다리기 전에 잡는다
             if msg.type == web.WSMsgType.TEXT:
-                await self._handle_message(conn, msg.data)
+                self._handle_message(conn, msg.data, received_at)
             elif msg.type == web.WSMsgType.BINARY:
                 self._reject(conn, None)
             else:
@@ -443,10 +490,11 @@ class ActivityServer:
                 return
 
     ##
-    # @brief 텍스트 메시지 하나를 검증하고 처리한다.
+    # @brief 텍스트 메시지 하나를 검증하고 처리한다. 게임 요청은 태스크로 넘겨 다음 메시지 수신을 막지 않는다.
     # @param conn 연결.
     # @param text 받은 문자열.
-    async def _handle_message(self, conn, text):
+    # @param received_at 접수 단조 시각.
+    def _handle_message(self, conn, text, received_at):
         if len(text.encode("utf-8")) > MAX_MESSAGE_BYTES:
             self._reject(conn, None)
             return
@@ -469,29 +517,65 @@ class ActivityServer:
             conn.send({"t": "pong", "id": request_id, "c": c, "s": _now_ms()})
         elif kind == "sync":
             conn.violations = 0
-            async with self._lock:
-                conn.send_state(self._state_for(self._snapshot(), conn))
-        elif kind == "demo_countdown":
-            seconds = data.get("seconds")
-            if (
-                isinstance(seconds, bool)
-                or not isinstance(seconds, int)
-                or not 1 <= seconds <= DEMO_MAX_SECONDS
-            ):
+            conn.send_state(self._state_for(self._snapshot(), conn))
+        elif kind in _REQUEST_FIELDS:
+            if not _valid_request(kind, data):
                 self._reject(conn, request_id)
                 return
             conn.violations = 0
-            if not self._dev_mode:
-                message = "운영 모드에서는 데모 카운트다운을 쓸 수 없습니다."
-                conn.send(
-                    self._reply(request_id, False, "not_allowed", message, self._state_version)
-                )
-                return
-            version = await self._start_demo(seconds)
-            message = "데모 카운트다운을 시작했습니다."
-            conn.send(self._reply(request_id, True, "ok", message, version))
+            task = asyncio.create_task(self._process_request(conn, kind, data, received_at))
+            conn.requests.add(task)
+            task.add_done_callback(conn.requests.discard)
         else:
             self._reject(conn, request_id)
+
+    ##
+    # @brief 게임 요청 하나를 처리하고 reply를 보낸다. 같은 사용자·판·요청 ID의 재전송에는 처음 reply를 돌려준다.
+    # @details 상태가 바뀌면 게임 객체의 변경 알림으로 모든 소켓에 state가 먼저 쌓이고, reply는 그 뒤에 쌓인다.
+    # @param conn 연결.
+    # @param kind "start" | "pick" | "result" | "reverse".
+    # @param data 형식 검증을 통과한 요청.
+    # @param received_at 접수 단조 시각.
+    async def _process_request(self, conn, kind, data, received_at):
+        request_id = data["id"]
+        key = (conn.user_id, data["game_id"], request_id)
+        content = json.dumps(data, sort_keys=True, ensure_ascii=False)
+        cached = self._replies.get(key)
+        if cached is not None:
+            if cached[0] != content:
+                message = "같은 요청 ID로 다른 내용을 보냈습니다."
+                conn.send(self._reply(request_id, False, "bad_request", message, self._state_version))
+                return
+            conn.send(await asyncio.shield(cached[1]))
+            return
+        future = asyncio.get_running_loop().create_future()
+        self._replies[key] = (content, future)
+        try:
+            code, message = await self._dispatch(conn.user_id, kind, data, received_at)
+        except Exception:
+            log.exception("[ACTIVITY] %s 요청 처리 실패 (user=%s)", kind, conn.user_id)
+            code, message = "server_error", "서버 오류로 요청을 처리하지 못했습니다."
+        reply = self._reply(request_id, code == "ok", code, message, self._state_version)
+        future.set_result(reply)
+        # 새 판이 시작되면 보관한 reply를 비우는데, 그 판을 시작한 이 요청의 reply는 남긴다
+        self._replies.setdefault(key, (content, future))
+        log.info("[ACTIVITY] %s → %s (user=%s, id=%s)", kind, code, conn.user_id, request_id)
+        conn.send(reply)
+
+    ##
+    # @brief 요청 종류에 맞는 게임 객체 메서드를 부른다.
+    # @return (code, message).
+    async def _dispatch(self, user_id, kind, data, received_at):
+        game = self._game
+        if kind == "start":
+            return await game.activity_start(user_id, data["game_id"], data["guild_id"])
+        if kind == "pick":
+            return await game.activity_pick(
+                user_id, data["game_id"], data["turn_id"], data["champion_id"], received_at
+            )
+        if kind == "result":
+            return await game.activity_result(user_id, data["game_id"], data["winner"])
+        return await game.activity_reverse(user_id, data["game_id"], data["expected_winner"])
 
     ##
     # @brief 규격 위반 메시지에 reply bad_request를 보내고 연속 위반 횟수를 올린다.
@@ -505,92 +589,42 @@ class ActivityServer:
     # === 상태 ===
 
     ##
-    # @brief 데모 카운트다운을 시작하고 모든 연결에 state를 보낸다. 진행 중인 데모는 새 것으로 바꾼다.
-    # @param seconds 카운트다운 길이(초).
-    # @return 변경 후 state_version.
-    async def _start_demo(self, seconds):
-        async with self._lock:
-            now_mono, now_ms = time.monotonic(), _now_ms()
-            self._demo_serial += 1
-            turn_id = f"demo-{self._demo_serial}"
-            self._demo = {"turn_id": turn_id, "deadline_mono": now_mono + seconds}
-            self._state_version += 1
-            if self._demo_task is not None:
-                self._demo_task.cancel()
-            self._demo_task = asyncio.create_task(
-                self._end_demo_after(turn_id, seconds + DEMO_GRACE_MS / 1000)
-            )
-            self._broadcast(self._snapshot(now_mono, now_ms))
-            log.info("[ACTIVITY] 데모 카운트다운 시작 (turn=%s, %d초)", turn_id, seconds)
-            return self._state_version
+    # @brief 게임 상태가 바뀌었을 때 게임 객체가 부른다(게임 락 안). 버전을 올리고 모든 연결에 state를 쌓는다.
+    # @details 판이 바뀌었으면 이전 판의 요청 기록(reply 보관)을 비운다.
+    def _on_game_change(self):
+        self._state_version += 1
+        snapshot = self._snapshot()
+        if snapshot["game_id"] != self._last_game_id:
+            self._last_game_id = snapshot["game_id"]
+            self._replies.clear()
+        self._broadcast(snapshot)
 
     ##
-    # @brief 마감과 유예가 지나면 데모를 끝내고 게임 없음 state를 보낸다.
-    # @param turn_id 이 타이머가 맡은 데모 차례. 그사이 바뀌었으면 아무것도 하지 않는다.
-    # @param delay 기다릴 시간(초).
-    async def _end_demo_after(self, turn_id, delay):
-        await asyncio.sleep(delay)
-        async with self._lock:
-            if self._demo is None or self._demo["turn_id"] != turn_id:
-                return
-            self._demo = None
-            self._state_version += 1
-            self._broadcast(self._snapshot())
-
-    ##
-    # @brief 모든 연결에 state를 쌓는다. 락 안에서 호출하며 실제 전송은 각 연결의 송신 작업이 한다.
+    # @brief 모든 연결에 state를 쌓는다. 실제 전송은 각 연결의 송신 작업이 한다.
     # @param snapshot _snapshot()의 결과.
     def _broadcast(self, snapshot):
         for conn in self._connections:
             conn.send_state(self._state_for(snapshot, conn))
 
     ##
-    # @brief 연결과 무관한 state 본문을 만든다. server_ms와 deadline_ms는 같은 순간의 시각으로 계산한다.
-    # @param now_mono 기준 단조 시각(생략하면 지금).
-    # @param now_ms now_mono와 같은 순간의 유닉스 밀리초.
+    # @brief 연결과 무관한 state 본문을 만든다(규격 8절, `me` 제외).
     # @return state dict(`me` 제외).
-    def _snapshot(self, now_mono=None, now_ms=None):
-        if now_mono is None:
-            now_mono, now_ms = time.monotonic(), _now_ms()
-        state = {
+    def _snapshot(self):
+        return {
             "t": "state",
             "protocol_version": PROTOCOL_VERSION,
             "server_epoch": self.server_epoch,
-            "game_id": None,
             "state_version": self._state_version,
-            "phase": "none",
-            "round": None,
-            "season": None,
-            "server_ms": now_ms,
-            "start_at_ms": None,
-            "deadline_ms": None,
-            "grace_ms": None,
-            "turn_id": None,
-            "current_index": None,
-            "players": [],
-            "pick_order": [],
-            "champions": [],
-            "selections": {},
-            "auto_assigned": [],
+            **self._game.snapshot(),
         }
-        if self._demo is not None:
-            remaining_ms = round((self._demo["deadline_mono"] - now_mono) * 1000)
-            state.update(
-                game_id="demo",
-                phase="picking",
-                deadline_ms=now_ms + remaining_ms,
-                grace_ms=DEMO_GRACE_MS,
-                turn_id=self._demo["turn_id"],
-            )
-        return state
 
     ##
-    # @brief state 본문에 연결별 `me`를 붙인다. 1단계에서는 항상 관전자이다.
+    # @brief state 본문에 받는 사람의 `me`를 붙인다.
     # @param snapshot _snapshot()의 결과.
     # @param conn 받을 연결.
     # @return 보낼 state dict.
     def _state_for(self, snapshot, conn):
-        return {**snapshot, "me": {"id": conn.user_id, "role": "spectator"}}
+        return {**snapshot, "me": self._game.me(snapshot, conn.user_id)}
 
     ##
     # @brief 연결 직후 보내는 hello 메시지를 만든다.
