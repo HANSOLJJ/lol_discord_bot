@@ -32,7 +32,7 @@
 | 개발 | `롤랜덤챔프봇-dev` 앱과 TEST2를 사용하고 운영 토큰·전적과 분리한다. |
 | 자동 기동 | pm2에 봇을 등록하고 launchd를 통한 복귀를 검증한다. |
 | 시계 | 보정된 서버 시각을 기준으로 `performance.now()` 경과 시간을 더해 그린다. 모바일 복귀 시 재동기화한다. |
-| 저장소·배포 | 하나의 저장소를 목표로 하되, Pages에는 웹 빌드 결과만 배포한다. 기존 저장소 루트 전체 서빙은 통합 후 사용하지 않는다. |
+| 저장소·배포 | 하나의 저장소를 목표로 한다. 웹은 Git 연동 Cloudflare Pages 대신 맥미니 서버가 finance처럼 직접 서빙한다(2026-09-28 사용자 결정). 서빙 대상은 빌드 출력 디렉터리만이며, 기존 저장소 루트 전체 서빙은 통합 후 사용하지 않는다. |
 
 기존 설계의 `Date.now() + offset` 반복 계산, 재클릭 취소 보장, `gather`만으로 느린 소켓 해결, 재인증만으로 게임 복구된다는 가정은 아래 내용으로 대체한다.
 
@@ -180,8 +180,8 @@ Cloudflare Access 로그인은 붙이지 않는다. 토큰 교환 경로는 공�
 
 - 측정용 골격부터 Vite의 React·TypeScript 구성으로 시작한다. 현재 두 저장소에서 시작할 수 있으며 임시 소스 위치는 `lol_arena/activity/`, 이전 설계의 빌드 출력은 `lol_arena/pick/`이다.
 - dev 통신 검증 후 본격 UI 구현 전에 통합 위치를 확정한다. 통합 후 빌드 산출물은 예를 들어 `web/dist/`로 모으고 루트 전적 화면과 `/pick/` 경로를 함께 내보낸다.
-- 기존 산출물 커밋 방식은 전환기 선택지이다. 최종 방식은 웹 소스·잠금 파일을 커밋하고 Pages 빌드의 출력 디렉터리만 게시하는 것을 기본안으로 한다.
-- Pages의 저장소 연결·빌드 루트·명령·출력 경로를 함께 변경한다. 봇 실행 cwd·pm2·`paths.py` 상대경로·환경 파일 위치가 유지되는지 검증한다.
+- 기존 산출물 커밋 방식은 전환기 선택지이다. 최종 방식은 웹 소스·잠금 파일을 커밋하고, 맥미니에서 빌드한 출력 디렉터리(예: `web/dist/`)를 서버가 직접 서빙하는 것이다(2026-09-28 사용자 결정, finance 방식). Git 연동 Cloudflare Pages 배포는 사용하지 않는다.
+- 정적 서빙은 별도 프로세스를 늘리지 않고 봇의 aiohttp 서버가 맡는 것을 기본안으로 한다. 배포는 finance와 동일하게 맥미니에서 git pull → 필요 시 빌드 → pm2 restart로 수행하며 자동 배포는 없다. 봇 실행 cwd·pm2·`paths.py` 상대경로·환경 파일 위치가 유지되는지 검증한다.
 - 봇과 웹 배포는 각각 수행할 수 있다. `protocol_version` 불일치는 새로고침·업데이트 안내로 처리하고 오래 열린 웹앱과 새 서버의 조합을 검증한다.
 
 ### 9-3. 화면과 자산
@@ -315,9 +315,11 @@ module.exports = {
 ```yaml
 - hostname: pick.hansoljj.com
   service: http://127.0.0.1:8790
+- hostname: arena.hansoljj.com
+  service: http://127.0.0.1:8790
 ```
 
-DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한다. 기존 운영 절차의 `launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared`는 맥미니에서 실행하는 명령이다.
+DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한다. arena.hansoljj.com은 현재 Cloudflare Pages에 연결돼 있으므로, 터널로 옮길 때 Pages의 커스텀 도메인 연결을 해제하고 DNS를 터널 레코드로 바꾼다. 전환 중 공백이 생기므로 작업 시각을 사용자와 맞춘다. pick.hansoljj.com을 별도 호스트로 유지할지 arena 단일 호스트로 합칠지는 15절의 남은 결정이다. 기존 운영 절차의 `launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared`는 맥미니에서 실행하는 명령이다.
 터널 재시작은 finance도 잠시 끊으므로 작업 시각을 사용자와 맞춘다. 이 작업에서 cloudflared 업그레이드까지 묶지 않는다.
 운영 앱 Activities·플랫폼·URL Mapping·OAuth를 확인하고 `.env`를 설정한 뒤 유휴 상태에서 `pick_ui: activity`로 전환한다.
 실전 한 판의 카운트다운·픽·자동 배정·기존 승리 처리·대시보드 반영을 확인한다. 실패하면 판을 정리한 후 embed 모드와 이전 웹 빌드로 되돌린다.
@@ -330,7 +332,7 @@ DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한�
 |---|---|---|
 | 0 | 현황 확인·pm2 자동 기동 | 운영 프로세스 중복 없음, restart·재부팅 후 복귀 |
 | 1 | dev 앱·token/ws/ping·React/TypeScript 카운트다운 골격 | 타입 검사·빌드 통과, PC·모바일 각 100회 RTT 기록, p95 < 1초. 넘으면 서버 경로·유예 재검토 |
-| 2 | 저장소·웹 배포 구조 확정 및 통합 | 사용자 작업·Git 이력 보존, 웹 출력만 배포, 기존 전적과 봇 경로 정상 |
+| 2 | 저장소·웹 배포 구조 확정 및 통합 | 사용자 작업·Git 이력 보존, 맥미니 서버가 웹 출력만 서빙(Pages 미사용), 기존 전적과 봇 경로 정상 |
 | 3 | 공통 픽 처리 추출 | 기존 embed 모드 한 판과 저장소 내 회귀 테스트 통과 |
 | 4 | 서버 시간·상태·권한·WS 프로토콜 구현 | 이전 게임/턴·중복·후보 밖 입력 거절, 마감 경합에서 1회 확정 |
 | 5 | React 액티비티 UI·연결 복구 | 타입 검사·빌드 통과, 구독 정리 검증, 양쪽 팀 실제 계정에서 같은 판 확인, 14절 카운트다운 기준 통과 |
@@ -370,7 +372,8 @@ DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한�
 | 관전·결과 입력 권한 | 각 API 공개 전 | 참가자와 관전자를 분리하고 결과 권한은 별도로 정한다. |
 | 기준 원격·공개 범위·이력 보존 | 저장소 통합 전 | 봇 경로 유지 + web 추가가 최소 변경안이다. |
 | 결과 저장 기준 | 결과 UI 구현 전 | history 중심 재계산 또는 SQLite 트랜잭션 비교 |
-| 공개 전적의 장애 시 조회 | GitHub JSON 배포 제거 전 | 읽기용 스냅샷 유지 여부 |
+| 공개 전적의 장애 시 조회 | GitHub JSON 배포 제거 전 | 읽기용 스냅샷 유지 여부. Pages가 사라지면 봇 중단 시 대시보드도 함께 내려가므로 중요도가 높아졌다. |
+| pick.hansoljj.com 분리 유지 | 터널 ingress 추가 전 | 유지가 기본안이다. arena 단일 호스트로 합치면 URL Mapping target도 함께 바꾼다. |
 | 패키지 설치·운영 작업 시각 | 실제 설치·터널 변경 전 | 사용자 규칙과 공유 finance 서비스 영향에 따른 확인 |
 
 공식 자료와 기존 판단의 상세 근거는 [context-notes.md](context-notes.md)에 있다. 환경·버전·호스팅에 관한 과거 관측은 실행 직전에 재확인한다.

@@ -74,6 +74,15 @@
 - [Python asyncio.gather](https://docs.python.org/3/library/asyncio-task.html#asyncio.gather). 모든 작업 완료를 기다리는 동작의 근거이다.
 - [Cloudflare Pages Build Configuration](https://developers.cloudflare.com/pages/configuration/build-configuration/). 빌드 루트와 공개 출력 디렉터리 분리의 근거이다.
 
+## 2026-09-28 웹 서빙 방식 변경 확정
+
+- 사용자가 Git 연동 Cloudflare Pages 배포를 더 이상 쓰지 않겠다고 결정했다. finance(fin.hansoljj.com)처럼 맥미니 자립 서버가 웹까지 직접 서빙하고 Cloudflare는 DNS와 Tunnel만 담당한다.
+- 웹 정적 서빙은 봇의 aiohttp 서버(127.0.0.1:8790)가 맡는 것을 기본안으로 한다. 별도 Node 서버를 추가하지 않는다는 8절 결정과 일치한다.
+- 배포 절차는 finance와 동일하게 맥미니에서 git pull → 필요 시 빌드 → pm2 restart이며 자동 배포는 없다.
+- 공개 호스트 arena.hansoljj.com은 터널 ingress로 연결하고 Pages의 커스텀 도메인 연결을 해제한다. pick.hansoljj.com을 별도 호스트로 유지할지 arena 단일 호스트로 합칠지는 남은 결정으로 추가했다.
+- Pages가 사라지면 봇 프로세스 중단 시 대시보드도 함께 내려간다. 15절의 '공개 전적의 장애 시 조회' 결정의 중요도가 높아졌고 pm2 자동 재시작이 1차 완화책이다.
+- 이 결정에 맞춰 plan.md의 2절 표, 9-2, 12-2, 13 단계 2, 15절 표와 checklist 2절을 수정했다. 저장소 통합 목표 자체는 변경이 없다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
