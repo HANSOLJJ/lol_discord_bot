@@ -24,7 +24,7 @@
 | 픽 화면 | Discord Activity, Embedded App SDK를 사용한다. |
 | 게임 서버 | 기존 Python 봇 프로세스에 aiohttp HTTP·WebSocket 서버를 추가한다. 상태와 `pick_lock`은 한 프로세스가 소유한다. |
 | 실행 위치 | 맥미니, `127.0.0.1:8790` 바인딩, 기존 `finance` Cloudflare Tunnel을 활용한다. |
-| 공개 주소 | 웹은 `arena.hansoljj.com`, API는 `pick.hansoljj.com`을 사용한다. |
+| 공개 주소 | 웹은 `arena.hansoljj.com`(정적 웹 서버), API는 `pick.hansoljj.com`(봇)을 사용한다. 호스트 분리는 프로세스 분리에 맞춰 유지로 확정한다(2026-09-28). |
 | 프론트 | Vite + React + TypeScript + `@discord/embedded-app-sdk`를 사용한다. |
 | 화면 상태·스타일 | React 기본 상태 관리와 CSS Modules를 사용하고 기존 CSS를 재사용한다. |
 | 채널 메시지 | 팀 구성·픽 현황판과 액티비티 실행 버튼을 유지한다. 액티비티 모드에서는 매초 메시지를 편집하지 않는다. |
@@ -32,7 +32,7 @@
 | 개발 | `롤랜덤챔프봇-dev` 앱과 TEST2를 사용하고 운영 토큰·전적과 분리한다. |
 | 자동 기동 | pm2에 봇을 등록하고 launchd를 통한 복귀를 검증한다. |
 | 시계 | 보정된 서버 시각을 기준으로 `performance.now()` 경과 시간을 더해 그린다. 모바일 복귀 시 재동기화한다. |
-| 저장소·배포 | 하나의 저장소를 목표로 한다. 웹은 Git 연동 Cloudflare Pages 대신 맥미니 서버가 finance처럼 직접 서빙한다(2026-09-28 사용자 결정). 서빙 대상은 빌드 출력 디렉터리만이며, 기존 저장소 루트 전체 서빙은 통합 후 사용하지 않는다. |
+| 저장소·배포 | 하나의 저장소를 목표로 한다. 웹은 Git 연동 Cloudflare Pages 대신 맥미니에서 봇과 분리된 정적 웹 서버 프로세스가 직접 서빙한다(2026-09-28 사용자 결정). 봇이 중단돼도 전적 조회는 유지되고, 게임 시작·픽·기록만 봇에 의존한다. 서빙 대상은 빌드 출력 디렉터리와 history_data.json이며, 기존 저장소 루트 전체 서빙은 통합 후 사용하지 않는다. |
 
 기존 설계의 `Date.now() + offset` 반복 계산, 재클릭 취소 보장, `gather`만으로 느린 소켓 해결, 재인증만으로 게임 복구된다는 가정은 아래 내용으로 대체한다.
 
@@ -160,7 +160,7 @@ Cloudflare Access 로그인은 붙이지 않는다. 토큰 교환 경로는 공�
 ## 8. 봇 변경 경계
 
 - 새 `activity_server.py`는 HTTP·세션·WS 연결을 맡고 `get_snapshot`, `on_pick` 등의 콜백을 주입받는다. 봇 전역 상태를 직접 import하지 않는다.
-- HTTP와 WebSocket 서버는 aiohttp.web으로 구현한다. aiohttp를 프로젝트의 직접 의존성으로 명시한다. 프론트 변경을 위해 FastAPI나 별도 Node 서버를 추가하지 않는다.
+- 게임 API와 WebSocket 서버는 봇 프로세스 안의 aiohttp.web으로 구현한다. aiohttp를 프로젝트의 직접 의존성으로 명시한다. 게임 상태를 나누는 FastAPI나 별도 게임 서버는 추가하지 않는다. 게임 상태가 없는 정적 웹 서버를 분리하는 것(9-2절)은 이 결정과 충돌하지 않는다.
 - `asyncio.run(main())`에서 웹 서버를 시작하고 `await bot.start(token)`을 실행한다. 재호출되는 `on_ready`에서 서버를 띄우지 않는다. 종료 시 소켓·HTTP 세션·runner와 타이머를 정리한다.
 - `ChampionButton.callback`의 판단·변경을 공통 픽 함수로 추출한다. Discord 응답·버튼 색 갱신과 게임 규칙을 분리하고 구 모드 회귀 테스트부터 통과한다.
 - activity 모드에서는 시작·턴 변경·픽·자동 배정·완료 때만 현황판을 갱신한다. `픽 화면 열기` 버튼 1개를 남기고 카운트다운 숫자는 넣지 않는다.
@@ -181,7 +181,7 @@ Cloudflare Access 로그인은 붙이지 않는다. 토큰 교환 경로는 공�
 - 측정용 골격부터 Vite의 React·TypeScript 구성으로 시작한다. 현재 두 저장소에서 시작할 수 있으며 임시 소스 위치는 `lol_arena/activity/`, 이전 설계의 빌드 출력은 `lol_arena/pick/`이다.
 - dev 통신 검증 후 본격 UI 구현 전에 통합 위치를 확정한다. 통합 후 빌드 산출물은 예를 들어 `web/dist/`로 모으고 루트 전적 화면과 `/pick/` 경로를 함께 내보낸다.
 - 기존 산출물 커밋 방식은 전환기 선택지이다. 최종 방식은 웹 소스·잠금 파일을 커밋하고, 맥미니에서 빌드한 출력 디렉터리(예: `web/dist/`)를 서버가 직접 서빙하는 것이다(2026-09-28 사용자 결정, finance 방식). Git 연동 Cloudflare Pages 배포는 사용하지 않는다.
-- 정적 서빙은 별도 프로세스를 늘리지 않고 봇의 aiohttp 서버가 맡는 것을 기본안으로 한다. 배포는 finance와 동일하게 맥미니에서 git pull → 필요 시 빌드 → pm2 restart로 수행하며 자동 배포는 없다. 봇 실행 cwd·pm2·`paths.py` 상대경로·환경 파일 위치가 유지되는지 검증한다.
+- 정적 서빙은 봇과 분리된 초소형 정적 웹 서버 프로세스가 맡는다(127.0.0.1:8791 기본안, pm2 별도 앱). 웹 빌드 출력과 봇이 로컬에 쓰는 history_data.json만 그대로 서빙하고 게임 상태는 갖지 않는다. 배포는 finance와 동일하게 맥미니에서 git pull → 필요 시 빌드 → pm2 restart로 수행하며 자동 배포는 없다. 봇 실행 cwd·pm2·`paths.py` 상대경로·환경 파일 위치가 유지되는지 검증한다.
 - 봇과 웹 배포는 각각 수행할 수 있다. `protocol_version` 불일치는 새로고침·업데이트 안내로 처리하고 오래 열린 웹앱과 새 서버의 조합을 검증한다.
 
 ### 9-3. 화면과 자산
@@ -233,8 +233,8 @@ Data Dragon 이미지는 `/ddragon/...`으로 요청한다. 전적 화면의 외
 1. 결과 입력 전에 저장 기준을 선택한다. `history_data`를 기준으로 승수를 계산·복구하거나 SQLite 트랜잭션으로 함께 저장하는 방식을 비교한다. DB 도입은 아직 확정하지 않았다.
 2. Discord와 액티비티가 같은 `record_result` 계열 함수를 호출하도록 한다. 중복 결과 요청은 한 번만 기록하며, 중간 실패·재시작 후 재시도도 검증한다.
 3. 기록의 식별자와 기존 `season`, `round`, `round_orig`, `current_season`, `corrected`, `sources`를 보존한다. 과거 라운드 번호를 새 게임 ID로 대체해 유실시키지 않는다.
-4. 전적 조회 API를 제공하고 결과 확정·번복·시즌 변경 시 열린 화면이 다시 읽도록 알린다. 일반 웹과 액티비티의 주소·인증·CORS 동작을 각각 검증한다.
-5. GitHub JSON 배포를 제거하기 전에 봇 중단 시 공개 전적을 읽을 방법을 결정한다. 읽기용 스냅샷을 남긴다면 갱신 시각을 표시하고 서버 원본과 구분한다.
+4. 공개 전적 조회는 정적 웹 서버가 서빙하는 로컬 history_data.json 파일 기반으로 유지한다(2026-09-28 확정). 결과 확정·번복·시즌 변경 시 열린 액티비티 화면은 봇의 WS 알림으로 다시 읽게 하고, 일반 웹과 액티비티의 주소·인증·CORS 동작을 각각 검증한다.
+5. 봇이 중단돼도 정적 웹 서버가 마지막 기록까지 서빙하므로 별도 읽기용 스냅샷은 두지 않는다. 저장은 `_save_history`가 임시 파일 작성 후 os.replace 교체로 이미 원자적이라 서빙 중 부분 파일이 노출되지 않는다(2026-09-28 코드 확인). 정적 서버 서빙 검증 후 GitHub JSON 배포를 제거한다.
 6. 기존 원본과 신규 저장소의 판수·시즌별 판수·개인 승수·번복 결과를 대조한 뒤 전환한다. 백업과 복구 절차도 함께 검증한다.
 
 과거 데이터 복구 배경은 [PARSE_REPORT.md](../../../docs/PARSE_REPORT.md)에 있다. 실데이터 마이그레이션과 신규 UI를 한 번에 전환하지 않는다.
@@ -307,6 +307,7 @@ module.exports = {
 `ecosystem.config.cjs`로 저장한다. PATH에 uv가 없으면 확인된 절대경로를 사용한다. `.env`는 봇 cwd에서 읽고 pm2 설정에 secret을 복사하지 않는다.
 중복 봇 프로세스가 없는지 확인한 뒤 `pm2 start ecosystem.config.cjs`, `pm2 save`를 각각 실행한다.
 `pm2 restart lol`, 종료 정리, 재부팅 후 lol·finance 복귀를 검증한다. 로그는 `pm2 logs lol`과 기존 `logs/`를 사용한다.
+정적 웹 서버는 같은 ecosystem 파일에 별도 앱(예: `lol-web`, 127.0.0.1:8791)으로 등록한다. finance와 같은 초소형 Node 서버 또는 동등한 정적 파일 서버를 사용하며, 저장소 통합 단계(9-2절)에서 추가하고 재시작·재부팅 복귀 검증에 포함한다.
 
 ### 12-2. 터널과 운영 공개
 
@@ -316,10 +317,10 @@ module.exports = {
 - hostname: pick.hansoljj.com
   service: http://127.0.0.1:8790
 - hostname: arena.hansoljj.com
-  service: http://127.0.0.1:8790
+  service: http://127.0.0.1:8791
 ```
 
-DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한다. arena.hansoljj.com은 현재 Cloudflare Pages에 연결돼 있으므로, 터널로 옮길 때 Pages의 커스텀 도메인 연결을 해제하고 DNS를 터널 레코드로 바꾼다. 전환 중 공백이 생기므로 작업 시각을 사용자와 맞춘다. pick.hansoljj.com을 별도 호스트로 유지할지 arena 단일 호스트로 합칠지는 15절의 남은 결정이다. 기존 운영 절차의 `launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared`는 맥미니에서 실행하는 명령이다.
+DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한다. arena.hansoljj.com은 현재 Cloudflare Pages에 연결돼 있으므로, 터널로 옮길 때 Pages의 커스텀 도메인 연결을 해제하고 DNS를 터널 레코드로 바꾼다. 전환 중 공백이 생기므로 작업 시각을 사용자와 맞춘다. 호스트는 프로세스별로 나눠 유지한다. arena는 정적 웹 서버(8791), pick은 봇 API(8790)로 향한다(2026-09-28 확정). 기존 운영 절차의 `launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared`는 맥미니에서 실행하는 명령이다.
 터널 재시작은 finance도 잠시 끊으므로 작업 시각을 사용자와 맞춘다. 이 작업에서 cloudflared 업그레이드까지 묶지 않는다.
 운영 앱 Activities·플랫폼·URL Mapping·OAuth를 확인하고 `.env`를 설정한 뒤 유휴 상태에서 `pick_ui: activity`로 전환한다.
 실전 한 판의 카운트다운·픽·자동 배정·기존 승리 처리·대시보드 반영을 확인한다. 실패하면 판을 정리한 후 embed 모드와 이전 웹 빌드로 되돌린다.
@@ -372,8 +373,6 @@ DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한�
 | 관전·결과 입력 권한 | 각 API 공개 전 | 참가자와 관전자를 분리하고 결과 권한은 별도로 정한다. |
 | 기준 원격·공개 범위·이력 보존 | 저장소 통합 전 | 봇 경로 유지 + web 추가가 최소 변경안이다. |
 | 결과 저장 기준 | 결과 UI 구현 전 | history 중심 재계산 또는 SQLite 트랜잭션 비교 |
-| 공개 전적의 장애 시 조회 | GitHub JSON 배포 제거 전 | 읽기용 스냅샷 유지 여부. Pages가 사라지면 봇 중단 시 대시보드도 함께 내려가므로 중요도가 높아졌다. |
-| pick.hansoljj.com 분리 유지 | 터널 ingress 추가 전 | 유지가 기본안이다. arena 단일 호스트로 합치면 URL Mapping target도 함께 바꾼다. |
 | 패키지 설치·운영 작업 시각 | 실제 설치·터널 변경 전 | 사용자 규칙과 공유 finance 서비스 영향에 따른 확인 |
 
 공식 자료와 기존 판단의 상세 근거는 [context-notes.md](context-notes.md)에 있다. 환경·버전·호스팅에 관한 과거 관측은 실행 직전에 재확인한다.
