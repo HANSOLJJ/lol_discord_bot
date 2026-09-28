@@ -21,7 +21,7 @@
 
 - [ ] dev 앱·TEST2·intents·OAuth·실제 테스트 계정 접근·채널 권한을 준비한다.
 - [x] dev 토큰과 전적 파일을 운영과 분리하고 설치 필요 패키지 승인을 확인한다.
-- [ ] aiohttp 직접 의존성을 명시하고 activity_server token/ws/ping과 main 실행·종료 구조를 구현한다.
+- [x] aiohttp 직접 의존성을 명시하고 activity_server token/ws/ping과 main 실행·종료 구조를 구현한다.
 - [ ] Vite·React·TypeScript·Discord SDK 골격과 CSS Modules를 준비한다.
 - [x] 윈도우 고정 터널 lol-dev.hansoljj.com을 서비스로 등록하고 dev 앱 URL 매핑과 액티비티 활성화를 마친다.
 - [ ] 개발 프록시·터널·URL Mapping을 연결하고 타입 검사·빌드를 통과한다.
@@ -55,7 +55,7 @@
 - [ ] TEAM1/TEAM2를 같은 게임에 연결하고 서버에서 신원·채널·참가 권한을 검증한다.
 - [ ] DEV_MODE 우회를 허용된 테스트 사용자로 제한한다.
 - [ ] 중복·이전 턴·후보 밖 챔피언·마감 경합을 검증한다.
-- [ ] 소켓별 송신 순서·최신 상태 병합·전송 제한 시간과 세션 만료를 구현한다.
+- [x] 소켓별 송신 순서·최신 상태 병합·전송 제한 시간과 세션 만료를 구현한다. (1단계 activity_server에서 구현)
 - [ ] 현황판·실행 버튼·채널 오류 로그·env.example을 반영한다.
 
 ## 5. 액티비티 UI와 카운트다운
