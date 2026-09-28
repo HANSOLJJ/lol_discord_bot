@@ -133,6 +133,16 @@
 - 연결 대상을 localhost 대신 127.0.0.1로 정했다. 윈도우의 Node가 localhost를 IPv6(::1)로만 바인딩하면 터널이 IPv4로 접속해 502가 날 수 있으므로, Vite 바인딩 주소와 터널 대상을 같은 IPv4 주소로 고정한다.
 - 지연시간 측정은 운영과 같은 경로여야 의미가 있으므로 단계 1 측정은 맥미니에서 한다. SSH로 맥미니 작업이 가능하다.
 
+## 2026-09-28 개발 환경 구축 완료
+
+- 사용자가 cloudflared 설치, 대시보드 관리형 터널 lol-dev 생성과 윈도우 서비스 등록, 포털 URL 매핑·액티비티 활성화·리디렉션 수정을 직접 했다. 이후 설치 작업은 사용자 승인으로 에이전트가 진행했다.
+- 봇에 aiohttp==3.14.3을 직접 의존성으로 추가했다(bot 8f3f68f). py-cord 전이 의존성으로 이미 설치돼 있어 새 다운로드는 없었다.
+- lol_arena/activity/에 create-vite 9.2.1의 react-ts 템플릿으로 골격을 만들고 @discord/embedded-app-sdk를 추가했다(arena 9251c2a). 설치 버전은 react 19.3.0, vite 8.3.1, typescript 6.0.3, @vitejs/plugin-react 6.1.1, embedded-app-sdk 2.5.0이다. 템플릿 기본값인 oxlint와 @types/node는 그대로 두었다.
+- vite.config.ts에 server.host 127.0.0.1, port 5173(strictPort), allowedHosts lol-dev.hansoljj.com, hmr.clientPort 443을 설정했다. /pick-api 프록시와 build base는 봇 서버·배포 작업 때 추가한다.
+- 검증 결과, 템플릿 상태에서 tsc -b와 vite build가 통과했다. cloudflared 서비스는 Running·Automatic이고, Vite를 끈 상태에서 lol-dev는 502, 켠 상태에서 로컬 200과 터널 경유 Vite 페이지 응답을 확인했다. API 점검에서 EMBEDDED 플래그, Entry Point 명령 launch(타입 4), 공백이 제거된 리디렉션을 확인했다.
+- 윈도우에서 백그라운드 npm run dev를 작업 중지로 멈추면 자식 node(vite) 프로세스가 남아 5173을 계속 점유했다. 명령줄로 해당 vite 프로세스임을 확인한 뒤 종료했다. 이후 검증 때도 포트 해제를 확인한다.
+- 남은 1단계 준비 항목은 실제 테스트 계정 접근 확인, CSS Modules 적용, activity_server 구현, LAUNCH_ACTIVITY와 sync_commands 공존 검증이다. 전역 명령에 launch만 있는 지금 봇을 실행하면 공존 검증을 바로 할 수 있다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
