@@ -16,6 +16,7 @@ from typing import Optional
 
 import game_recorder
 from game_recorder import SeasonMismatchError
+from pick_logic import process_pick
 
 log = logging.getLogger("game")
 
@@ -32,6 +33,7 @@ DEFAULT_AUTO_START_SECONDS = (
 # 다른 선수에게 손해가 되지 않는다. 1초로는 빠듯했다(2026-09-09 실측).
 DEFAULT_PICK_GRACE_SECONDS = 2.0  # config.json에 pick_grace_seconds가 없을 때 쓰는 폴백(초)
 TEAM_KEYS = ("team1", "team2")
+START_PHASES = ("none", "awaiting_result", "completed")  # 액티비티 start를 받는 phase
 
 
 ##
@@ -146,6 +148,11 @@ class GameCore:
         self.deadline = None  # activity 모드 현재 차례 마감(단조 시계)
         self._last_uid_ms = 0
         self._listeners = []
+        self._timer = None  # activity 모드 자동 시작·차례 마감 타이머
+        self._effect_tasks = set()  # 실행 중인 디스코드 후속 작업
+        # 액티비티에서 온 요청 뒤의 디스코드 작업(현황판·공지)과 길드 멤버 조회를 맡는 객체.
+        # got_champe가 넣고, 테스트는 가짜를 넣거나 비워 둔다
+        self.effects = None
 
     # === 설정 ===
 
@@ -292,14 +299,29 @@ class GameCore:
         return f"g-{ms}"
 
     ##
-    # @brief new_game()이 판을 만든 직후 부르는 자리. activity 모드의 자동 시작은 여기서 건다.
+    # @brief new_game()이 판을 만든 직후 부른다. activity 모드면 자동 시작 시각을 정하고 서버 타이머를 건다.
+    # @details embed 모드의 자동 시작 카운트다운은 got_champe가 채널 메시지로 센다.
     def _on_new_game(self):
-        pass
+        if self.mode != "activity":
+            return
+        self.start_at = self.clock() + self.config.get(
+            "auto_start_seconds", DEFAULT_AUTO_START_SECONDS
+        )
+        self._set_timer(self._auto_start(self.current_game_id, self.start_at))
 
     ##
-    # @brief 판 타이머를 멈춘다. activity 모드 타이머가 없으면 아무것도 하지 않는다.
+    # @brief activity 모드 판 타이머(자동 시작 또는 현재 차례 마감)를 새로 건다. 이전 타이머는 멈춘다.
+    # @param coro 타이머 코루틴.
+    def _set_timer(self, coro):
+        self._cancel_timer()
+        self._timer = asyncio.create_task(coro)
+
+    ##
+    # @brief activity 모드 판 타이머를 멈춘다. 타이머 자신이 부른 경우(자동 배정 뒤 다음 차례)는 멈추지 않는다.
     def _cancel_timer(self):
-        pass
+        timer, self._timer = self._timer, None
+        if timer is not None and not timer.done() and timer is not asyncio.current_task():
+            timer.cancel()
 
     # === 픽 ===
 
@@ -503,3 +525,384 @@ class GameCore:
             }
         self._emit()
         return round_num, old_winner, new_winner
+
+    # === activity 모드: 시계와 타이머 ===
+
+    ##
+    # @brief 마감 뒤 늦게 도착한 픽을 더 받아 주는 유예(초).
+    def _grace(self):
+        return self.config.get("pick_grace_seconds", DEFAULT_PICK_GRACE_SECONDS)
+
+    ##
+    # @brief 목표 단조 시각까지 기다린다. sleep이 조금 일찍 깨어나도 목표 전이면 다시 기다린다.
+    # @param target 목표 단조 시각.
+    async def _sleep_until(self, target):
+        while (remaining := target - self.clock()) > 0:
+            await self.sleep(remaining)
+
+    ##
+    # @brief 자동 시작 시각이 되면 픽을 시작한다. 락 안에서 세대와 시작 여부를 다시 확인한다.
+    # @param game_id 타이머를 건 판의 세대 번호.
+    # @param start_at 자동 시작 단조 시각.
+    async def _auto_start(self, game_id, start_at):
+        await self._sleep_until(start_at)
+        async with self.lock:
+            if game_id != self.current_game_id or self.game_started:
+                return
+            self.game_started = True
+            self.start_at = None
+            self._start_turn(0)
+            self._emit()
+        self._run_effect("board_changed")
+
+    ##
+    # @brief 차례를 시작한다. 마감을 지금 pick_timeout으로 정하고, 마감+유예에 자동 배정 타이머를 건다.
+    #        락 안에서 부른다.
+    # @param index 시작할 차례(pick_order 인덱스).
+    def _start_turn(self, index):
+        self.deadline = self.clock() + self.config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
+        self._set_timer(self._expire_turn(self.current_game_id, index, self.deadline))
+
+    ##
+    # @brief 마감+유예가 지나면 락 안에서 같은 차례가 아직 비어 있는지 다시 확인하고 자동 배정한다.
+    # @details 그 사이 픽이 확정됐거나 새 판이 시작됐으면 아무것도 하지 않는다. 이미 자동 배정으로 끝난
+    #          차례는 늦게 온 픽이 stale_turn으로 거절되므로 한 차례는 한 번만 확정된다.
+    # @param game_id 타이머를 건 판의 세대 번호.
+    # @param index 타이머를 건 차례.
+    # @param deadline 그 차례의 마감(단조 시각).
+    async def _expire_turn(self, game_id, index, deadline):
+        await self._sleep_until(deadline + self._grace())
+        async with self.lock:
+            if (
+                game_id != self.current_game_id
+                or index != self.current_pick_index
+                or self.deadline != deadline
+            ):
+                return
+            champ_name = self.auto_assign(index)
+            if champ_name is None:
+                return
+            log.info("[GAME] 자동 배정 (game=%s, turn=%d, champ=%s)", self.game_uid, index, champ_name)
+            self._after_turn()
+            self._emit()
+        self._run_effect("board_changed")
+
+    ##
+    # @brief 차례가 끝난 뒤(픽 확정·자동 배정) 다음 차례를 시작하거나, 6명이 다 골랐으면 타이머를 멈춘다.
+    #        락 안에서 부른다.
+    def _after_turn(self):
+        if self.current_pick_index < len(self.pick_order):
+            self._start_turn(self.current_pick_index)
+        else:
+            self.deadline = None
+            self._cancel_timer()
+
+    ##
+    # @brief effects의 후속 작업을 백그라운드로 실행한다. 락 밖에서 부른다.
+    # @param name effects 메서드 이름.
+    # @param args 인자.
+    def _run_effect(self, name, *args):
+        method = getattr(self.effects, name, None)
+        if method is None:
+            return
+
+        async def run():
+            try:
+                await method(*args)
+            except Exception:
+                log.exception("[GAME] 디스코드 후속 작업 실패 (%s)", name)
+
+        task = asyncio.create_task(run())
+        self._effect_tasks.add(task)
+        task.add_done_callback(self._effect_tasks.discard)
+
+    ##
+    # @brief 타이머와 후속 작업을 멈춘다(봇 종료 때).
+    async def close(self):
+        self._cancel_timer()
+        tasks = list(self._effect_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    # === activity 모드: 화면에 보이는 상태 ===
+
+    ##
+    # @brief 액티비티가 볼 수 있는 판인가. embed 모드 판은 액티비티에 보이지 않는다(phase none).
+    def _visible(self):
+        return self.game_uid is not None and self.mode == "activity"
+
+    ##
+    # @brief 액티비티에 보이는 판 ID. 보이는 판이 없으면 None.
+    def visible_game_id(self):
+        return self.game_uid if self._visible() else None
+
+    ##
+    # @brief 액티비티에 보이는 phase.
+    # @return "none" | "starting" | "picking" | "awaiting_result" | "completed".
+    def visible_phase(self):
+        if not self._visible():
+            return "none"
+        if self.victory_processed:
+            return "completed"
+        if not self.game_started:
+            return "starting"
+        if self.current_pick_index < len(self.pick_order):
+            return "picking"
+        return "awaiting_result"
+
+    ##
+    # @brief 현재 차례 ID. 차례마다 새로 만든다.
+    def turn_id(self):
+        return f"{self.game_uid}:{self.current_pick_index}"
+
+    ##
+    # @brief 연결과 무관한 state 본문을 만든다(규격 8절, `me` 제외). await가 없어 한 순간의 상태다.
+    # @details server_ms와 start_at_ms·deadline_ms는 같은 순간에 잡은 단조 시각과 유닉스 밀리초로 계산한다.
+    # @param now_mono 기준 단조 시각(생략하면 지금).
+    # @param now_ms now_mono와 같은 순간의 유닉스 밀리초.
+    # @return state dict에서 t·protocol_version·server_epoch·state_version·me를 뺀 부분.
+    def snapshot(self, now_mono=None, now_ms=None):
+        if now_mono is None:
+            now_mono, now_ms = self.clock(), self.wall_ms()
+        phase = self.visible_phase()
+        state = {
+            "game_id": None,
+            "phase": phase,
+            "round": None,
+            "season": None,
+            "server_ms": now_ms,
+            "start_at_ms": None,
+            "deadline_ms": None,
+            "grace_ms": None,
+            "turn_id": None,
+            "current_index": None,
+            "ddragon_version": None,
+            "players": [],
+            "pick_order": [],
+            "champions": [],
+            "selections": {},
+            "auto_assigned": [],
+            "result": None,
+        }
+        if phase == "none":
+            return state
+
+        def at_ms(mono):
+            return now_ms + round((mono - now_mono) * 1000)
+
+        champ_ids = {c["name"]: c["id"] for c in self.current_game_champions}
+        state.update(
+            game_id=self.game_uid,
+            round=self.game_round,
+            season=self.game_season,
+            ddragon_version=self.ddragon_version,
+            players=[
+                {
+                    "id": str(m.id),
+                    "name": m.display_name,
+                    "team": key,
+                    "wins": self.wins_of(m.id),
+                }
+                for key in TEAM_KEYS
+                for m in self.teams.get(key, [])
+            ],
+            pick_order=[str(m.id) for m in self.pick_order],
+            champions=[{"id": c["id"], "name": c["name"]} for c in self.current_game_champions],
+            selections={
+                str(uid): champ_ids.get(name, name) for uid, name in self.selected_users.items()
+            },
+            auto_assigned=[
+                str(m.id) for m in self.pick_order if m.id in self.auto_assigned_users
+            ],
+        )
+        if phase == "starting":
+            state["start_at_ms"] = at_ms(self.start_at)
+        elif phase == "picking":
+            state.update(
+                deadline_ms=at_ms(self.deadline),
+                grace_ms=round(self._grace() * 1000),
+                turn_id=self.turn_id(),
+                current_index=self.current_pick_index,
+            )
+        elif phase == "completed":
+            state["result"] = {
+                "winner": self.result["winner"],
+                "recorded_ms": self.result["recorded_ms"],
+                "corrected": self.result["corrected"],
+            }
+        return state
+
+    ##
+    # @brief state를 받는 사람의 권한(규격 8절 me)을 만든다. DEV_MODE면 누구나 대신 누를 수 있다(11절).
+    # @param snapshot snapshot()의 결과.
+    # @param user_id 받는 사람의 Discord ID(문자열).
+    # @return me dict.
+    def me(self, snapshot, user_id):
+        phase = snapshot["phase"]
+        player = next((p for p in snapshot["players"] if p["id"] == user_id), None)
+        can_act = player is not None or self.dev_mode
+        current = (
+            snapshot["pick_order"][snapshot["current_index"]] if phase == "picking" else None
+        )
+        return {
+            "id": user_id,
+            "role": "player" if player is not None else "spectator",
+            "team": player["team"] if player is not None else None,
+            "can_start": self.pick_mode() == "activity" and phase in START_PHASES,
+            "can_pick": phase == "picking" and (self.dev_mode or current == user_id),
+            "can_report": phase == "awaiting_result" and can_act,
+            "can_reverse": phase == "completed" and can_act,
+        }
+
+    ##
+    # @brief 보낸 사람이 이 판의 6명인가.
+    # @param user_id Discord ID(문자열).
+    def _is_player(self, user_id):
+        return any(str(m.id) == user_id for m in self.pick_order)
+
+    # === activity 모드: 요청 처리 (규격 9절) ===
+
+    ##
+    # @brief start 요청. 규격 9절 판정 순서대로 확인하고 /게임시작과 같은 new_game()으로 판을 만든다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 화면에 떠 있던 판 ID(없으면 None).
+    # @param guild_id SDK의 guildId(없으면 None).
+    # @return (code, message).
+    async def activity_start(self, user_id, game_id, guild_id):
+        if self.pick_mode() != "activity":
+            return "not_allowed", "지금은 채널 버튼 방식이라 액티비티에서 시작할 수 없습니다."
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "다른 사람이 먼저 새 판을 시작했습니다."
+            if self.visible_phase() not in START_PHASES:
+                return "wrong_phase", "챔피언 선택 중에는 새 판을 시작할 수 없습니다."
+            resolve = getattr(self.effects, "resolve_members", None)
+            members = resolve(guild_id) if guild_id is not None and resolve else None
+            if members is None:
+                return "not_allowed", "봇이 들어가 있는 디스코드 서버에서만 시작할 수 있습니다."
+            if len(members) < MAX_PLAYERS:
+                return (
+                    "not_enough_players",
+                    f"온라인인 사람이 {MAX_PLAYERS}명 필요합니다. (현재 {len(members)}명)",
+                )
+            result = self.new_game(members, "activity")
+            if not result.ok:
+                return "server_error", "챔피언 데이터가 부족해 판을 만들지 못했습니다."
+            log.info("[GAME] 액티비티에서 새 판 (game=%s, by=%s)", self.game_uid, user_id)
+            message = f"ROUND {self.game_round} 게임을 시작했습니다."
+        self._run_effect("game_started", guild_id, result)
+        return "ok", message
+
+    ##
+    # @brief pick 요청. 규격 9절 판정 순서대로 확인하고 확정하면 바로 다음 차례로 넘긴다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @param turn_id 요청의 차례 ID.
+    # @param champion_id 고른 챔피언의 Data Dragon 영문 ID.
+    # @param received_at 서버가 메시지를 받은 단조 시각(락을 기다리기 전에 잡은 값).
+    # @return (code, message).
+    async def activity_pick(self, user_id, game_id, turn_id, champion_id, received_at):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            if self.visible_phase() != "picking":
+                return "wrong_phase", "지금은 챔피언을 고를 수 없습니다."
+            if turn_id != self.turn_id():
+                return "stale_turn", "이미 지나간 차례입니다."
+            picker = self.pick_order[self.current_pick_index]
+            if not self.dev_mode and str(picker.id) != user_id:
+                return "not_your_turn", f"지금은 {picker.display_name} 님의 차례입니다."
+            if received_at > self.deadline + self._grace():
+                return "timeout", "선택 시간이 지났습니다."
+            champ = next(
+                (c for c in self.current_game_champions if c["id"] == champion_id), None
+            )
+            if champ is None:
+                return "not_candidate", "이번 판 후보가 아닌 챔피언입니다."
+            # 중복 확인과 기록은 embed 모드 버튼과 같은 공통 판정(process_pick)을 쓴다
+            res = process_pick(
+                game_started=self.game_started,
+                pick_order=self.pick_order,
+                current_pick_index=self.current_pick_index,
+                selected_users=self.selected_users,
+                excluded=self.excluded,
+                auto_assigned_users=self.auto_assigned_users,
+                user_id=picker.id,
+                champ_name=champ["name"],
+                clicked_at=received_at,
+                current_pick_deadline=self.deadline,
+                pick_grace_seconds=self._grace(),
+                dev_mode=self.dev_mode,
+                max_players=MAX_PLAYERS,
+            )
+            if res.kind != "pick":
+                if res.reason == "already_picked_champ":
+                    return "champion_taken", "이미 선택된 챔피언입니다."
+                log.error("[GAME] 예상하지 못한 픽 판정: %s", res.reason)
+                return "server_error", "선택을 처리하지 못했습니다."
+            self.current_pick_index = res.current_pick_index
+            log.info("[GAME] 픽 (game=%s, by=%s, champ=%s)", self.game_uid, user_id, champ["name"])
+            self._after_turn()
+            self._emit()
+        self._run_effect("board_changed")
+        return "ok", f"{champ['name']} 선택 완료!"
+
+    ##
+    # @brief result 요청. 규격 9절 판정 순서대로 확인하고 /승리와 같은 record_result_locked()로 기록한다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @param winner 승리 팀 문자열.
+    # @return (code, message).
+    async def activity_result(self, user_id, game_id, winner):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            phase = self.visible_phase()
+            if phase == "completed":
+                return "already_recorded", "이미 결과가 기록된 판입니다."
+            if phase != "awaiting_result":
+                return "wrong_phase", "아직 결과를 입력할 수 없습니다."
+            if not self.dev_mode and not self._is_player(user_id):
+                return "not_allowed", "이 판의 참가자만 결과를 입력할 수 있습니다."
+            if winner not in TEAM_KEYS:
+                return "bad_request", "승리 팀이 올바르지 않습니다."
+            outcome = self.record_result_locked(winner)
+            if outcome.code == "record_failed":
+                return "record_failed", "전적 저장에 실패했습니다. 다시 시도해 주세요."
+            if outcome.code != "ok":
+                log.error("[GAME] 예상하지 못한 기록 결과: %s", outcome.code)
+                return "server_error", "결과를 기록하지 못했습니다."
+        self._run_effect("result_recorded", outcome)
+        return "ok", f"TEAM {winner[-1]} 승리를 기록했습니다."
+
+    ##
+    # @brief reverse 요청. 규격 9절 판정 순서대로 확인하고 /번복과 같은 reverse_locked()로 화면의 판을 뒤집는다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @param expected_winner 보낸 사람이 본 현재 승리 팀.
+    # @return (code, message).
+    async def activity_reverse(self, user_id, game_id, expected_winner):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            if self.visible_phase() != "completed":
+                return "wrong_phase", "아직 결과가 기록되지 않았습니다."
+            if not self.dev_mode and not self._is_player(user_id):
+                return "not_allowed", "이 판의 참가자만 결과를 바꿀 수 있습니다."
+            if self.result["winner"] != expected_winner:
+                return "conflict", "그사이 다른 사람이 결과를 바꿨습니다."
+            record = (
+                self.find_game(self.game_round, self.dev_mode)
+                if self.result["history_recorded"]
+                else None
+            )
+            if record is None or record.get("season") != self.game_season:
+                return "record_failed", "판 기록을 찾지 못해 번복할 수 없습니다."
+            try:
+                _, _, new_winner = self.reverse_locked(record)
+            except Exception as e:
+                log.error("[GAME] 번복 실패 R%s: %s", self.game_round, e)
+                return "record_failed", "번복을 저장하지 못했습니다. 다시 시도해 주세요."
+        self._run_effect("result_reversed", record)
+        return "ok", f"ROUND {record['round']} 결과를 TEAM {new_winner[-1]} 승리로 바꿨습니다."
