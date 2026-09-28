@@ -99,6 +99,7 @@
 - 코드 저장소에서 data/history_data.json을 직접 추적하는 방식은 선택하지 않았다. 봇이 코드 저장소에 자동 커밋과 push를 하게 되어 코드 이력이 데이터 커밋으로 덮이고, push 자격증명과 충돌 관리 부담이 늘기 때문이다.
 - 운영 소개선 3건을 확정했다. 배포 스크립트(git pull → 빌드 → pm2 restart), 상태 확인 실패 시 Discord webhook 알림, history_data.json의 Cache-Control: no-cache 지정이다. plan 9-2·12-1과 checklist 2·6·7절에 반영했다.
 - 액티비티 안에서 전적 JSON을 읽을 때 모든 요청이 `/` 매핑(arena.hansoljj.com/pick)을 거친다는 경로 주의점을 9-3절에 추가했다.
+- 윈도우 개발 환경을 재확인했다. node v25.0.0, npm 11.6.2, uv 0.12.14는 설치돼 있고 cloudflared는 여전히 미설치다. pyproject.toml 의존성은 py-cord 2.8.1, python-dotenv, requests뿐이라 aiohttp 직접 의존성 추가가 필요하다.
 
 ## 2026-09-28 프론트 구성 변경 확정
 
