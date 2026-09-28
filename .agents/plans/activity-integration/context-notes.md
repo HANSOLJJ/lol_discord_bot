@@ -18,7 +18,7 @@
 - 기존 봇 + aiohttp + 맥미니 + 터널을 선택했다. 게임 상태·pick_lock·타이머·기록을 한 프로세스에 유지해 별도 게임 서버와의 동기화를 줄인다.
 - Worker+Durable Object 분업은 시작·embed·기록이 맥미니에 남고 상태가 분리된다. 전면 Workers 이식은 Python 로직과 presence 기반 참가자 선정까지 재설계해야 한다. VPS는 향후 대안이나 현재 운영 부담이 늘어난다.
 - Cloudflare로 옮기면 항상 빨라진다고 단정할 근거는 없다. SDK의 참가자 정보만으로 게임 상태 동기화를 대신하지 않고 자체 서버를 사용한다.
-- Vite + Embedded App SDK, 바닐라 JS, 개발 앱 분리, 채널 현황판과 전환 스위치는 기존 결정이다. 비상 개인 버튼은 필요가 확인되면 별도 검토한다.
+- 초기 결정은 Vite + Embedded App SDK와 바닐라 JS였다. 프론트 구성은 아래 2026-09-28 추가 결정에서 React·TypeScript로 변경했다. 개발 앱 분리, 채널 현황판과 전환 스위치는 유지한다. 비상 개인 버튼은 필요가 확인되면 별도 검토한다.
 - 개발 앱은 URL Mapping과 봇 토큰을 운영에서 분리한다. 운영 주소를 개발 터널로 바꾸거나 같은 토큰의 봇 두 개를 실행하는 문제를 피한다.
 - pm2 자동 기동은 사용자 요구이다. 이전 조사에서 맥미니 재부팅 뒤 tmux 봇이 꺼진 채 발견됐다. 새 프로세스 등록 전 현재 실행 상태를 확인한다.
 
@@ -73,3 +73,18 @@
 - [Discord How Activities Work](https://github.com/discord/discord-api-docs/blob/main/developers/activities/how-activities-work.mdx). LAUNCH_ACTIVITY와 Entry Point 흐름의 근거이다.
 - [Python asyncio.gather](https://docs.python.org/3/library/asyncio-task.html#asyncio.gather). 모든 작업 완료를 기다리는 동작의 근거이다.
 - [Cloudflare Pages Build Configuration](https://developers.cloudflare.com/pages/configuration/build-configuration/). 빌드 루트와 공개 출력 디렉터리 분리의 근거이다.
+
+## 2026-09-28 프론트 구성 변경 확정
+
+- 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
+- 기존 대시보드는 약 1,560줄의 단일 HTML에 집계·DOM 생성·이벤트 연결이 함께 있다. 픽·인증·재접속·결과·전적 화면을 통합할 때 상태와 컴포넌트 경계를 명시하는 편이 관리에 유리하다고 판단했다.
+- 측정용 골격부터 React·TypeScript를 사용한다. 기존 대시보드는 집계 함수를 먼저 분리해 재사용하고 결과·전적 통합 단계에서 UI를 이관한다. 카운트다운 개선에 대시보드 전체 재작성을 선행 조건으로 걸지 않는다.
+- 카운트다운 정확도는 서버 판정과 시각 보정이 담당한다. 계산을 React와 분리하고 표시할 초만 컴포넌트에 전달한다. 주입 가능한 시계로 복귀·경계 상황을 검증한다.
+- 서버 스냅샷과 사용자 탭·필터 상태를 구분한다. 연결·구독은 화면마다 복제하지 않으며 React 개발 모드의 setup/cleanup과 재진입에서 리스너·소켓·타이머 정리를 검증한다.
+- TypeScript는 외부 JSON의 런타임 검증을 대신하지 않는다. 메시지 수신 검증과 별도 타입 검사·빌드를 모두 계획에 넣었다.
+- 서버는 기존 Python 봇 + aiohttp.web을 유지한다. aiohttp 자체가 HTTP·WebSocket 서버 기능을 제공한다. FastAPI의 요청 검증·OpenAPI 문서화 이점은 있지만 현재 범위에서 전환하지 않는다. aiohttp는 직접 사용하는 의존성으로 명시한다.
+- 이번 변경은 계획 문서에 한정한다. 패키지 설치·실제 프론트 구현·서버 변경은 아직 수행하지 않았다.
+- [React 공식 Vite·TypeScript 안내](https://react.dev/learn/build-a-react-app-from-scratch). 선택한 프론트 구성의 근거이다.
+- [Vite TypeScript·CSS Modules 안내](https://vite.dev/guide/features.html). TypeScript 변환과 별도의 타입 검사, CSS Modules 지원의 근거이다.
+- [aiohttp 웹 서버 안내](https://docs.aiohttp.org/en/stable/web_quickstart.html). HTTP 라우트·JSON 응답·WebSocket 지원의 근거이다.
+- [FastAPI 기능 안내](https://fastapi.tiangolo.com/features/). 대안 비교에서 요청 검증·자동 API 문서화 기능을 확인했다.
