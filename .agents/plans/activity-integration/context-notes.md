@@ -188,6 +188,14 @@
 - RTT 값은 윈도우 개발 터널로 같은 PC에 돌아오는 경로라 운영 경로가 아니다. 단계 1의 p95 < 1초 판정은 맥미니 경로에서 한다.
 - 사용자가 오후 3:31에 실행해 둔 봇은 .env의 DEV_MODE=false로 뜬 운영 봇이었고, 사용자가 테스트 전에 종료했다. 맥미니에도 운영 봇이 없어 그 시점부터 운영 봇은 꺼진 상태다.
 
+## 2026-09-28 다른 계정의 액티비티 실행 조건
+
+- 사용자가 다른 계정으로 웹 브라우저 Discord에서 참가를 시도했으나 되지 않았다. 공식 문서 문장("Launching a non-distributed Activity is limited to you or members of the developer team")대로 소유자 외 계정에는 권한이 없다.
+- Discord 개발자 지원 문서("What are Verified and Unverified Activities?", "Unverified Activity Safety")에 따르면, 검증되지 않은 액티비티는 개발팀과 명시적으로 초대받은 앱 테스터만 실행할 수 있고 멤버 25명 미만 서버와 DM에서만 실행된다. 검증된 액티비티는 모든 Discord 사용자가 App Launcher에서 찾고 실행·참가할 수 있다. "배포된" 상태는 이 검증을 뜻하는 것으로 본다.
+- 앱 테스터 절차: 포털의 앱 → App Testers에서 사용자명으로 초대하고, 초대받은 사람이 이메일로 수락한다. 팀 소유 여부와 무관하게 최대 50명이다. 테스터는 클라이언트 고급 설정의 Application Test Mode를 켜고 앱 ID를 넣어 활성화해야 비공개 액티비티가 보인다.
+- 코디네이터가 처음에 Application Test Mode 입력창을 "다른 계정 권한과 무관하니 취소하라"고 잘못 안내했다가 정정했다. 이 입력창은 앱 테스터 절차의 일부다.
+- 운영 전환 때 친구 6명은 앱 테스터(각자 이메일 수락과 테스트 모드 설정, 운영 서버 멤버 25명 미만 조건) 또는 앱 인증 중 하나로 해결한다. 앱 인증 요건은 포털 앱 인증 화면에 나온 팀 소유, 이용약관·개인정보 처리방침 링크, 팀원 2단계 인증이다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.
