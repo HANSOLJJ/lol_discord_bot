@@ -31,6 +31,7 @@ from game_recorder import (
     set_game_winner,
     SeasonMismatchError,
 )
+from activity_server import ActivityServer, DEFAULT_PORT as DEFAULT_ACTIVITY_PORT
 
 intents = discord.Intents.default()
 intents.presences = True
@@ -1817,4 +1818,42 @@ if not token:
     print(f"❌ {token_key}이 .env 파일에 없습니다!")
     exit(1)
 
-bot.run(token)
+
+##
+# @brief 액티비티 서버를 띄운 뒤 봇을 실행하고, 종료(Ctrl+C 포함) 때 봇과 액티비티 서버를 정리한다.
+# @details 액티비티 OAuth2 값(DEV_MODE 규칙은 봇 토큰과 같다)이 없거나 포트를 못 열면 경고만 출력하고
+#          봇은 그대로 실행한다. on_ready는 재연결 때 다시 불리므로 서버는 여기서 한 번만 띄운다.
+async def main():
+    suffix = "_DEV" if DEV_MODE else ""
+    client_id = os.getenv(f"DISCORD_CLIENT_ID{suffix}")
+    client_secret = os.getenv(f"DISCORD_CLIENT_SECRET{suffix}")
+    activity = None
+    if client_id and client_secret:
+        activity = ActivityServer(
+            dev_mode=DEV_MODE,
+            client_id=client_id,
+            client_secret=client_secret,
+            port=int(os.getenv("ACTIVITY_PORT", DEFAULT_ACTIVITY_PORT)),
+        )
+        try:
+            await activity.start()
+        except OSError as e:
+            print(f"[WARN] 액티비티 서버를 시작하지 못했습니다: {e}")
+            activity = None
+    else:
+        print(
+            f"[WARN] DISCORD_CLIENT_ID{suffix}/DISCORD_CLIENT_SECRET{suffix}가 없어 액티비티 서버를 시작하지 않습니다."
+        )
+    try:
+        # async with는 봇을 이 이벤트 루프에 붙이고, 빠져나갈 때 bot.close()를 부른다
+        async with bot:
+            await bot.start(token)
+    finally:
+        if activity is not None:
+            await activity.close()
+
+
+try:
+    asyncio.run(main())
+except KeyboardInterrupt:
+    pass
