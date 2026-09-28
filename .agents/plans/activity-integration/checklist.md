@@ -75,6 +75,7 @@
 ## 6. 1차 운영 전환
 
 - [ ] 운영 앱 Activities·플랫폼·Entry Point·OAuth·URL Mapping을 설정한다.
+- [ ] config.json의 channels를 ["팀짜기"]로 줄여 TEAM1·TEAM2 음성 채널 채팅에 메시지를 보내지 않게 한다.
 - [ ] 터널/DNS 변경 시각을 맞추고 env·pm2를 확인한다.
 - [ ] 유휴 상태에서 activity 모드로 바꾸고 실전 한 판을 진행한다.
 - [ ] 카운트다운·픽·자동 배정·기존 승리·대시보드 반영과 되돌리기 절차를 확인한다.
