@@ -11,4 +11,4 @@
 - [x] WS 왕복 테스트
 - [x] got_champe activity 모드: 현황판·픽 화면 열기(LAUNCH_ACTIVITY)·액티비티 시작 연결·공지
 - [x] config.json pick_mode·dev_pick_mode
-- [ ] 전체 테스트·py_compile·보고
+- [x] 전체 테스트·py_compile·보고 (report.md)
