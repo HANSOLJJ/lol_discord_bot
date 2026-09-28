@@ -101,6 +101,13 @@
 - 액티비티 안에서 전적 JSON을 읽을 때 모든 요청이 `/` 매핑(arena.hansoljj.com/pick)을 거친다는 경로 주의점을 9-3절에 추가했다.
 - 윈도우 개발 환경을 재확인했다. node v25.0.0, npm 11.6.2, uv 0.12.14는 설치돼 있고 cloudflared는 여전히 미설치다. pyproject.toml 의존성은 py-cord 2.8.1, python-dotenv, requests뿐이라 aiohttp 직접 의존성 추가가 필요하다.
 
+## 2026-09-28 포털 활성화 절차 확인
+
+- 사용자가 운영 앱(롤랜덤챔프봇)의 앱 인증 페이지에서 활성화 방법을 물었다. 앱 인증은 서버 100개 이상 확장용이라 이 프로젝트에 불필요하다고 안내했다.
+- 운영 앱에서 Enable Activities를 먼저 켜지 않도록 안내했다. 켜는 즉시 Launch Entry Point 명령이 운영 서버에 노출되는데, URL 매핑이 없고 sync_commands와의 공존도 검증되지 않았기 때문이다. dev 앱에서 먼저 진행한다.
+- Discord 공식 문서(building-an-activity.mdx)에서 확인한 절차: OAuth2 Redirects에 `https://127.0.0.1`, 활동 > URL 매핑의 `/`, 활동 > 설정의 Enable Activities, 활성화 시 기본 Entry Point 명령 Launch 자동 생성, Installation Contexts의 User Install·Guild Install 모두 선택.
+- 같은 문서의 "Launching a non-distributed Activity is limited to you or members of the developer team" 문장에 따라, 팀 외부 계정의 실행 조건을 운영 전환 전 결정으로 15절에 추가했다. local-development·overview 문서에는 배포 요건이 명시돼 있지 않아 dev 앱에서 실험으로 확정한다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.

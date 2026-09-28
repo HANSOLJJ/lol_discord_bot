@@ -254,8 +254,8 @@ Data Dragon 이미지는 `/ddragon/...`으로 요청한다. 전적 화면의 외
 1. [Developer Portal](https://discord.com/developers/applications)에서 dev 앱을 만들고 Bot 토큰을 로컬 `.env`에 설정한다. 운영 토큰과 혼용하지 않는다.
 2. 기존 봇이 사용하는 Presence Intent와 Server Members Intent를 활성화한다.
 3. OAuth2 Client ID와 Secret을 설정한다. 기존 설계의 Redirects 자리표시자는 `https://127.0.0.1`이다. 포털과 SDK 흐름에서 요구하는 값을 실제 인증으로 검증한다.
-4. `bot`, `applications.commands`로 TEST2에 초대한다. View Channels, Send Messages, Embed Links, Read Message History 등 필요한 채널 권한을 확인한다.
-5. Activities를 활성화하고 Web·iOS·Android를 지원 대상으로 설정한다. 개발자 이외 테스트 계정의 접근 권한도 확인한다.
+4. 설치 메뉴의 Installation Contexts에서 User Install과 Guild Install을 모두 선택한다. `bot`, `applications.commands`로 TEST2에 초대한다. View Channels, Send Messages, Embed Links, Read Message History 등 필요한 채널 권한을 확인한다.
+5. 활동 > URL 매핑에 `/`를 설정하고, 활동 > 설정에서 Enable Activities를 켠 뒤 Web·iOS·Android를 지원 대상으로 설정한다. 활성화하면 기본 Entry Point 명령 `Launch`가 자동 생성된다. 공식 문서상 배포되지 않은 액티비티는 소유자와 개발자 팀 멤버만 실행할 수 있으므로, 다른 계정 테스트는 개발자 팀 또는 포털의 앱 테스터 기능으로 권한을 준 뒤 실제 실행으로 확인한다.
 6. TEST2의 명령 채널과 TEAM1·TEAM2를 `config.json`에 맞춘다. 일부 채널 누락을 전체 정상으로 취급하지 않는다.
 7. 기본 Entry Point 명령과 `bot.sync_commands()`의 공존을 검증한다. 동기화 때문에 실행 명령이 삭제되지 않아야 한다.
 
@@ -373,6 +373,7 @@ DNS는 `cloudflared tunnel route dns finance pick.hansoljj.com`으로 연결한�
 | 관전·결과 입력 권한 | 각 API 공개 전 | 참가자와 관전자를 분리하고 결과 권한은 별도로 정한다. |
 | 기준 원격·공개 범위·이력 보존 | 저장소 통합 전 | 봇 경로 유지 + web 추가가 최소 변경안이다. |
 | 결과 저장 기준 | 결과 UI 구현 전 | history 중심 재계산 또는 SQLite 트랜잭션 비교 |
+| 운영 서버 친구들의 실행 조건 | 운영 전환 전 | 비배포 액티비티는 팀 멤버만 실행 가능하다. 팀 초대, 앱 테스터, 배포 요건 중 무엇으로 6명이 실행하게 할지 dev 앱에서 실험해 확정한다. 앱 인증은 서버 100개 이상 확장용이라 불필요하다. |
 | 패키지 설치·운영 작업 시각 | 실제 설치·터널 변경 전 | 사용자 규칙과 공유 finance 서비스 영향에 따른 확인 |
 
 공식 자료와 기존 판단의 상세 근거는 [context-notes.md](context-notes.md)에 있다. 환경·버전·호스팅에 관한 과거 관측은 실행 직전에 재확인한다.
