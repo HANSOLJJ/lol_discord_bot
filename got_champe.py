@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 import json
 import unicodedata
 import paths
+from pick_logic import process_pick
 from game_recorder import (
     record_game,
     get_current_season,
@@ -868,74 +869,63 @@ class ChampionButton(Button):
 
         # === 임계 구역: 상태 판단과 변경만 (디스코드 통신 없음) ===
         async with pick_lock:
-            if not game_started:
-                reply = "⏳ 아직 시작 전입니다. 카운트다운이 끝날 때까지 기다려주세요!"
-            elif not pick_order:
-                reply = "⚠️ 먼저 `/게임시작`으로 게임을 시작해주세요!"
-            elif current_pick_index >= len(pick_order):
-                reply = "⚠️ 모든 선택이 완료되었습니다!"
-            else:
-                current_picker = pick_order[current_pick_index]
+            current_picker = (
+                pick_order[current_pick_index]
+                if 0 <= current_pick_index < len(pick_order)
+                else None
+            )
+            team = get_member_team(current_picker) if current_picker else None
+            team_emoji = "🔵" if team == "team1" else "🔴"
+            picker_mention = current_picker.mention if current_picker else ""
 
-                # 턴제 확인 (DEV_MODE가 아닐 때만)
-                if not DEV_MODE and interaction.user.id != current_picker.id:
-                    reply = f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!"
-
-                # 카운트가 0에 닿은 뒤 유예까지 지나서 접수된 클릭은 거절한다. 유예 안 클릭은 인정한다 -
-                # 편집이 늦게 반영된 채널에서 화면의 "1초"를 보고 누른 사람이 손해 보지 않게 한다.
-                # (카운트 중에는 마감이 inf라 항상 통과)
-                elif clicked_at > current_pick_deadline + config.get(
+            pick_res = process_pick(
+                game_started=game_started,
+                pick_order=pick_order,
+                current_pick_index=current_pick_index,
+                selected_users=selected_users,
+                excluded=excluded,
+                auto_assigned_users=auto_assigned_users,
+                user_id=interaction.user.id,
+                champ_name=self.champ_name,
+                clicked_at=clicked_at,
+                current_pick_deadline=current_pick_deadline,
+                pick_grace_seconds=config.get(
                     "pick_grace_seconds", DEFAULT_PICK_GRACE_SECONDS
-                ):
-                    reply = "⏰ 선택 시간이 지났습니다!"
+                ),
+                dev_mode=DEV_MODE,
+                max_players=MAX_PLAYERS,
+                team_emoji=team_emoji,
+                picker_mention=picker_mention,
+            )
 
-                # 본인이 고른 챔피언 재클릭 = 선택 취소
-                elif (
-                    current_picker.id in selected_users
-                    and selected_users[current_picker.id] == self.champ_name
-                ):
-                    del selected_users[current_picker.id]
-                    excluded.discard(self.champ_name)
-                    auto_assigned_users.discard(current_picker.id)
-                    self.restyle_everywhere(
-                        self.champ_name, discord.ButtonStyle.secondary
-                    )
-                    result = "cancel"
-                    reply = f"↩️ **{self.champ_name}** 선택 취소"
+            current_pick_index = pick_res.current_pick_index
+            all_picked = pick_res.all_picked
+            reply = pick_res.message
 
-                elif self.champ_name in selected_users.values():
-                    reply = "⚠️ 이미 선택된 챔피언입니다!"
+            if pick_res.kind == "cancel":
+                result = "cancel"
+                self.restyle_everywhere(
+                    self.champ_name, discord.ButtonStyle.secondary
+                )
+            elif pick_res.kind == "pick":
+                result = "pick"
+                if current_timer_task and not current_timer_task.done():
+                    current_timer_task.cancel()
 
-                elif current_picker.id in selected_users:
-                    reply = "⚠️ 이미 챔피언을 선택하셨습니다!"
+                self.restyle_everywhere(
+                    f"{team_emoji} {self.champ_name}",
+                    (
+                        discord.ButtonStyle.primary
+                        if team == "team1"
+                        else discord.ButtonStyle.danger
+                    ),
+                )
 
-                else:
-                    # 선택 확정
-                    if current_timer_task and not current_timer_task.done():
-                        current_timer_task.cancel()
-
-                    selected_users[current_picker.id] = self.champ_name
-                    excluded.add(self.champ_name)
-
-                    team = get_member_team(current_picker)
-                    team_emoji = "🔵" if team == "team1" else "🔴"
-                    self.restyle_everywhere(
-                        f"{team_emoji} {self.champ_name}",
-                        (
-                            discord.ButtonStyle.primary
-                            if team == "team1"
-                            else discord.ButtonStyle.danger
-                        ),
-                    )
-
-                    current_pick_index += 1
-                    result = "pick"
-                    reply = f"{team_emoji} **{self.champ_name}** 선택 완료!"
-                    all_picked = len(selected_users) >= MAX_PLAYERS
-
-                    if not all_picked:
-                        # 다음 차례 시작 (이전 타이머는 위에서 취소했고, index 체크로도 스스로 종료)
-                        start_pick_timer(current_pick_index, self.game_id)
+                if not all_picked:
+                    # 다음 차례 시작 (이전 타이머는 위에서 취소했고, index 체크로도 스스로 종료)
+                    start_pick_timer(current_pick_index, self.game_id)
+            elif pick_res.reason == "not_turn" and current_picker:
+                reply = f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!"
 
         # === 락 밖: 응답과 화면 갱신 (클릭끼리 서로 기다리지 않는다) ===
         await interaction.response.send_message(reply, ephemeral=True)
