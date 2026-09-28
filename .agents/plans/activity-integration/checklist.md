@@ -27,7 +27,8 @@
 - [ ] 개발 프록시·터널·URL Mapping을 연결하고 타입 검사·빌드를 통과한다.
 - [ ] performance.now 기준점과 최초 상태 동기화 표시를 구현한다.
 - [ ] 맥미니 경로에서 PC·모바일 RTT 각 100회, p50/p95/최대와 상태 반영 지연을 기록한다. p95 < 1초 게이트를 확인한다.
-- [ ] LAUNCH_ACTIVITY 채널별 동작과 Entry Point/sync_commands 공존을 검증한다.
+- [x] Entry Point 명령과 봇 명령 동기화의 공존을 검증한다. (py-cord 자동 동기화를 끄고 Entry Point를 포함해 직접 동기화)
+- [ ] LAUNCH_ACTIVITY 채널별 동작을 검증한다.
 
 ## 2. 저장소·배포 통합
 

@@ -143,6 +143,15 @@
 - 윈도우에서 백그라운드 npm run dev를 작업 중지로 멈추면 자식 node(vite) 프로세스가 남아 5173을 계속 점유했다. 명령줄로 해당 vite 프로세스임을 확인한 뒤 종료했다. 이후 검증 때도 포트 해제를 확인한다.
 - 남은 1단계 준비 항목은 실제 테스트 계정 접근 확인, CSS Modules 적용, activity_server 구현, LAUNCH_ACTIVITY와 sync_commands 공존 검증이다. 전역 명령에 launch만 있는 지금 봇을 실행하면 공존 검증을 바로 할 수 있다.
 
+## 2026-09-28 Entry Point 명령과 명령 동기화 공존
+
+- dev 앱에 액티비티를 켜 Launch Entry Point 명령(type 4)만 있는 상태에서 dev 봇을 실행했다. py-cord의 on_connect 자동 동기화와 on_ready의 bot.sync_commands()가 모두 50240 오류("You cannot remove this app's Entry Point command in a bulk update operation")로 실패했다. Launch는 지워지지 않았지만 슬래시 명령이 하나도 등록되지 않았다.
+- py-cord 2.8.1 코드를 확인한 결과, 모르는 명령을 삭제 대상으로 분류해 일괄 덮어쓰기에서 빼고, delete_existing=False나 individual 방식에서도 등록 후 대조 단계에서 모르는 명령에 ValueError를 낸다. 라이브러리 설정만으로는 해결되지 않는다.
+- Bot(auto_sync_commands=False)로 자동 동기화를 끄고, on_ready에서 sync_commands_keeping_entry_point()로 직접 동기화하게 바꿨다. 등록된 명령을 조회해 type 4 명령을 application_id·version만 빼고 그대로 덮어쓰기 목록에 포함한다. 명령 ID 캐시는 하지 않으며, py-cord가 ID로 못 찾으면 이름으로 찾는 동작(process_application_commands)에 의존한다. 전역 명령에는 interaction data의 guild_id가 없어 이름 대조가 성립한다.
+- 검증으로 dev 봇을 두 번 실행했다. 두 번 모두 오류 없이 로그인했고, 전역 명령은 launch(4)와 게임시작·승리·누적결과·시즌시작·번복(1)이 함께 등록됐다. 운영 앱에는 아직 Entry Point가 없어 운영 봇은 기존처럼 슬래시 명령만 덮어쓴다.
+- 동작 차이로, 예전 py-cord는 변경이 없으면 덮어쓰기를 건너뛰었지만 지금은 on_ready마다 조회 1회와 덮어쓰기 1회를 한다. 기존 명령 덮어쓰기는 명령 생성 한도에 포함되지 않으므로 문제로 보지 않았다. 모르는 명령이 들어올 때의 py-cord 자동 재동기화도 함께 꺼진다.
+- 슬래시 명령이 실제 Discord에서 실행되는지는 사용자가 TEST2에서 확인할 항목으로 남겼다.
+
 ## 2026-09-28 프론트 구성 변경 확정
 
 - 사용자는 통합 목표에 맞는 프론트 개선안을 요청했고, Vite + React + TypeScript + Discord Embedded App SDK, React 기본 상태 관리, CSS Modules, WebSocket/fetch 조합으로 플랜을 다시 작성하라고 승인했다.

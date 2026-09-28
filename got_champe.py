@@ -35,7 +35,8 @@ from game_recorder import (
 intents = discord.Intents.default()
 intents.presences = True
 intents.members = True
-bot = discord.Bot(intents=intents)
+# py-cord 자동 동기화는 액티비티 Entry Point 명령을 지우려다 Discord에 거절된다. on_ready에서 직접 동기화한다.
+bot = discord.Bot(intents=intents, auto_sync_commands=False)
 
 #  === 환경변수 로드 ===
 load_dotenv()
@@ -1761,6 +1762,27 @@ async def 번복(
     )
 
 
+##
+# @brief 슬래시 커맨드를 전역 등록하되 액티비티 Entry Point 명령(Launch)은 유지한다.
+# @details py-cord 2.8.1은 Entry Point 명령(type 4)을 몰라 일괄 덮어쓰기 목록에서 빼고, Discord는
+#          Entry Point가 빠진 일괄 덮어쓰기를 50240 오류로 거절한다. 그래서 Discord에 등록된 Entry Point를
+#          그대로 목록에 포함해 덮어쓴다. 명령 ID를 캐시하지 않아도 py-cord가 이름으로 찾아 실행한다.
+async def sync_commands_keeping_entry_point():
+    app_id = bot.user.id
+    existing = await bot.http.get_global_commands(app_id)
+    entry_points = [
+        {k: v for k, v in c.items() if k not in ("application_id", "version")}
+        for c in existing
+        if c["type"] == 4
+    ]
+    commands = [
+        cmd.to_dict()
+        for cmd in bot.pending_application_commands
+        if cmd.guild_ids is None
+    ]
+    await bot.http.bulk_upsert_global_commands(app_id, commands + entry_points)
+
+
 # === 봇 시작 시 챔피언 로드 ===
 ##
 # @brief 봇 준비 완료 이벤트. 챔피언·전적·설정을 로드하고 커맨드를 동기화한다.
@@ -1775,7 +1797,7 @@ async def on_ready():
     # round_counter 초기화 (total_rounds + 1)
     round_counter = wins_data.get("total_rounds", 0) + 1
 
-    await bot.sync_commands()
+    await sync_commands_keeping_entry_point()
     print(f"[OK] Bot logged in: {bot.user}")
     print(f"[DEV_MODE] {DEV_MODE}")
     print(f"[WINS] Loaded {len(wins_data) - 1} players")  # total_rounds 제외

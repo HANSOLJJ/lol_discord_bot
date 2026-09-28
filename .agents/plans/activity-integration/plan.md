@@ -164,7 +164,8 @@ Cloudflare Access 로그인은 붙이지 않는다. 토큰 교환 경로는 공�
 - `asyncio.run(main())`에서 웹 서버를 시작하고 `await bot.start(token)`을 실행한다. 재호출되는 `on_ready`에서 서버를 띄우지 않는다. 종료 시 소켓·HTTP 세션·runner와 타이머를 정리한다.
 - `ChampionButton.callback`의 판단·변경을 공통 픽 함수로 추출한다. Discord 응답·버튼 색 갱신과 게임 규칙을 분리하고 구 모드 회귀 테스트부터 통과한다.
 - activity 모드에서는 시작·턴 변경·픽·자동 배정·완료 때만 현황판을 갱신한다. `픽 화면 열기` 버튼 1개를 남기고 카운트다운 숫자는 넣지 않는다.
-- `LAUNCH_ACTIVITY`는 응답 type 12이다. 기존 조사에서는 py-cord 2.8.1에 헬퍼가 없어 raw callback을 계획했다. 구현 시 설치 버전의 지원 여부를 확인하고 이중 응답하지 않는다.
+- `LAUNCH_ACTIVITY`는 응답 type 12이다. py-cord 2.8.1에는 Entry Point 명령과 LAUNCH_ACTIVITY 지원이 모두 없음을 설치 코드에서 확인했다(2026-09-28). raw callback으로 응답하고 이중 응답하지 않는다.
+- 명령 동기화는 py-cord 자동 동기화를 끄고 `sync_commands_keeping_entry_point()`로 직접 한다. py-cord의 일괄 덮어쓰기는 Entry Point 명령을 빼서 Discord가 50240 오류로 거절하기 때문이다. Discord에 등록된 Entry Point를 목록에 포함해 덮어쓴다(2026-09-28 dev 앱에서 검증).
 - 초기 메시지·편집 실패에 채널 ID·게임 ID·에러 종류를 기록한다. 부분 실패를 사용자에게 알리고, 메시지가 없는 채널의 실행 진입 경로도 확인한다. 전송이 적어져도 실패가 사라진다고 보장하지 않는다.
 - 1차는 `/승리`, `/번복`, `/시즌시작`, `game_recorder`의 기존 기록 경로를 유지한다. 결과 통합은 10절의 별도 단계이다.
 
