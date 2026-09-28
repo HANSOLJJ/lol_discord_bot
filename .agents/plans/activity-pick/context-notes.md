@@ -29,4 +29,7 @@
   pm2는 이미 launchd(`pm2.hansol.plist`)에 등록돼 finance를 띄우고 있으므로 같은 pm2에 `lol` 앱을 추가한다.
 - 코드 조사: aiohttp 3.14.3 이미 설치(py-cord 의존성) → Python 새 패키지 없음. py-cord 2.8.1에 LAUNCH_ACTIVITY 헬퍼 없음 → raw callback type 12.
   맥미니 봇 경로 `~/projects/lol_discord_bot`(d68de61), node v25.8.1, uv `/opt/homebrew/bin/uv`.
-- **미결 (사용자 확인 필요)**: dev 전용 디스코드 앱 생성 여부(설계 9절 제안), Vite·SDK 설치 승인, 터널 재시작 작업 시각.
+- **dev 앱 따로 만든다** (사용자가 설계 문서에 적으라고 지시). 이유: URL Mapping이 앱마다 한 벌이라, 운영 앱으로 개발하면
+  운영 주소를 개발 PC로 바꿔야 하고 그 사이 친구들이 개발 화면을 보게 된다. 토큰이 달라서 윈도우 봇과 맥미니 봇이 같은 클릭을 둘 다 받는 문제도 사라진다.
+  개발 루프는 Vite(:5173)가 `/pick-api`를 봇(:8790)으로 proxy하고 quick tunnel 하나만 연다. 윈도우에 cloudflared가 없다(확인).
+- **미결 (사용자 확인 필요)**: Vite·SDK·윈도우 cloudflared 설치 승인, 터널 재시작 작업 시각, 지금 TEST2 테스트 때 운영 토큰을 같이 쓰는지.

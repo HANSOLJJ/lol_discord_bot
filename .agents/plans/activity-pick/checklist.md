@@ -9,8 +9,9 @@
 - [ ] 재부팅 테스트 (finance와 lol 둘 다 자동 복귀)
 
 ## 1. 측정용 골격
-- [ ] dev 디스코드 앱 생성 여부 사용자 확인 → 생성·TEST2 초대·Activities 활성화·OAuth redirect
-- [ ] Vite·SDK 설치 사용자 승인
+- [ ] dev 앱 `롤랜덤챔프봇-dev` 생성 (설계 9-2절, 사용자): Bot 토큰·intents, OAuth2 id·secret·redirect, TEST2 초대, Activities, URL Mapping
+- [ ] 윈도우 `.env`를 dev 앱 값으로 교체, TEST2 채널 3개 확인
+- [ ] Vite·SDK·윈도우 cloudflared 설치 사용자 승인
 - [ ] `activity_server.py` (token·ws·ping/pong)
 - [ ] `got_champe.py` 실행 구조를 `asyncio.run(main())`으로
 - [ ] `lol_arena/activity/` Vite 골격 (ready → authorize → token → ws → ping 100회 RTT 표시)

@@ -14,6 +14,7 @@
 | 프론트 | Vite + `@discord/embedded-app-sdk` | 사용자 결정 |
 | 채널 embed | **픽 현황판만 유지** (카운트다운 편집 없음, 버튼 없음) + 전환 기간에는 구 방식 스위치 | 액티비티를 안 켠 사람도 진행을 본다. 편집이 판당 7~8회로 줄어 지연·rate limit 문제가 없다 |
 | 자동 기동 | pm2(이미 launchd에 등록됨)로 봇 실행, tmux 수동 실행 폐기 | 2026-09-28 맥미니 재부팅 뒤 봇이 꺼진 채 발견됐다 |
+| 개발 환경 | dev 전용 디스코드 앱 `롤랜덤챔프봇-dev` (TEST2 전용, 9절) | URL Mapping이 앱마다 한 벌이라 운영 앱으로 개발하면 운영 주소를 바꿔야 한다 |
 
 검토하고 버린 안은 context-notes에 이유와 함께 남겼다(Worker+DO 분업, 전면 Workers 이식, VPS, 디스코드 API 경유 동기화).
 
@@ -207,14 +208,68 @@ module.exports = {
 재시작하는 몇 초 동안 fin.hansoljj.com도 끊긴다. cloudflared 2026.8.2는 구버전 경고가 뜨지만 이번 범위에서 올리지 않는다.
 웹소켓은 Tunnel이 별도 설정 없이 통과시킨다.
 
-## 9. 개발·테스트 환경
+## 9. 개발·테스트 환경: dev 앱
 
-- **dev 전용 디스코드 앱을 따로 만든다(제안, 사용자 확인 필요)**. 액티비티 URL Mapping은 앱마다 하나라, 운영 앱으로 개발하면
-  운영 매핑을 바꿔야 한다. dev 앱을 TEST2 서버에 초대하고, 윈도우 `.env`에 dev 앱의 token·client id·secret을 둔다.
-- 윈도우 개발 루프: 봇(`DEV_MODE=true`, :8790) + `npm run dev`(:5173, `/pick-api`는 8790으로 proxy) +
-  `cloudflared tunnel --url http://localhost:5173`(quick tunnel) → dev 앱 URL Mapping `/` = quick tunnel 주소, `/ddragon` = Data Dragon.
-  quick tunnel 주소는 매번 바뀌므로 개발 세션마다 매핑을 고친다.
-- 봇 로직 테스트는 지금처럼 저장소 밖(`e:\tmp`)의 exec 방식 스크립트로 한다. `apply_pick` 분리 전후로 같은 결과인지 확인한다.
+### 9-1. 왜 앱을 하나 더 만드나
+
+디스코드 개발자 포털의 "앱"은 봇 계정 그 자체다(지금은 롤랜덤챔프봇 하나). 봇 토큰도, 액티비티가 띄울 웹 주소(URL Mapping)도 이 앱에 붙는다.
+URL Mapping은 앱마다 한 벌이다. 운영은 `arena.hansoljj.com/pick`을, 개발은 윈도우 PC의 개발 서버를 띄워야 하므로 앱이 하나면
+개발할 때마다 운영 주소를 바꿨다가 되돌려야 하고, 그 사이 친구들이 켜면 개발 중인 화면(또는 빈 화면)을 보게 된다.
+
+그래서 **dev 앱 `롤랜덤챔프봇-dev`를 따로 만들어 TEST2 서버에만 초대한다**(2026-09-28 결정). 이렇게 하면 다음과 같이 분리된다.
+
+| | 운영 앱 (롤랜덤챔프봇) | dev 앱 (롤랜덤챔프봇-dev) |
+|---|---|---|
+| 초대된 서버 | 실서버 | TEST2만 |
+| 봇 실행 위치 | 맥미니 (pm2) | 윈도우 PC (필요할 때만) |
+| `.env` | 맥미니 `.env`: 운영 토큰·client id·secret, `DEV_MODE=false` | 윈도우 `.env`: dev 토큰·client id·secret, `DEV_MODE=true` |
+| URL Mapping `/` | `arena.hansoljj.com/pick` | 개발 세션마다 바뀌는 quick tunnel 주소 |
+| URL Mapping `/pick-api` | `pick.hansoljj.com/pick-api` | 없음 (Vite 개발 서버가 8790으로 proxy) |
+| 프론트 client id | `activity/.env.production` | `activity/.env.development` |
+
+덤으로, 윈도우에서 봇을 켜도 운영 봇과 토큰이 달라서 같은 클릭을 두 봇이 받는 일이 없다.
+
+### 9-2. dev 앱 만들기 (사용자, 1회)
+
+<https://discord.com/developers/applications> 에서 진행한다.
+
+1. **New Application** → 이름 `롤랜덤챔프봇-dev`
+2. **Bot** 탭
+   - Reset Token → 토큰을 윈도우 `.env`의 `DISCORD_TOKEN`에 넣는다(운영 토큰은 윈도우에서 뺀다)
+   - Privileged Gateway Intents: **Presence Intent**, **Server Members Intent** 켜기 (`got_champe.py:36-37`이 요구)
+3. **OAuth2** 탭
+   - Client ID → `.env`의 `DISCORD_CLIENT_ID`, `activity/.env.development`의 `VITE_DISCORD_CLIENT_ID`
+   - Reset Secret → `.env`의 `DISCORD_CLIENT_SECRET` (커밋·로그 금지)
+   - Redirects에 `https://127.0.0.1` 추가 (액티비티 OAuth는 이 값을 쓰지 않지만 등록된 redirect가 하나는 있어야 한다)
+4. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`, 권한은 운영 봇과 같게
+   (View Channels, Send Messages, Embed Links, Read Message History) → 생성된 링크로 **TEST2 서버에 초대**
+5. **Activities → Settings**: Enable Activities, 지원 플랫폼 Web·iOS·Android 체크
+6. **Activities → URL Mappings**: 아래 순서로 등록(긴 prefix가 먼저)
+
+   | PREFIX | TARGET |
+   |---|---|
+   | `/ddragon` | `ddragon.leagueoflegends.com` |
+   | `/` | (9-3에서 받은 quick tunnel 주소, 프로토콜 없이) |
+
+7. TEST2 서버에 `config.json`의 채널(`팀짜기`, `TEAM1`, `TEAM2`)이 있는지 확인한다. 없으면 봇이 "설정된 채널을 찾을 수 없습니다"로 멈춘다
+
+### 9-3. 개발 세션 순서 (윈도우)
+
+1. 봇: `uv run python -u got_champe.py` (dev 토큰, `DEV_MODE=true`, 웹소켓 :8790)
+2. 프론트: `lol_arena/activity`에서 `npm run dev` (:5173). `vite.config`에 아래 설정을 둔다
+   - `server.proxy`: `/pick-api` → `http://127.0.0.1:8790` (`ws: true`)
+   - `server.allowedHosts`: `['.trycloudflare.com']` (Vite가 모르는 호스트 요청을 거부하므로)
+   - `server.hmr.clientPort: 443` (디스코드 프록시 뒤에서 HMR 웹소켓이 443으로 붙게)
+3. 터널: `cloudflared tunnel --url http://localhost:5173` → 출력된 `https://xxxx.trycloudflare.com`을 dev 앱 URL Mapping `/`에 넣는다.
+   quick tunnel 주소는 실행할 때마다 바뀌므로 매 세션 갱신한다. **윈도우에 cloudflared가 아직 없다(2026-09-28 확인) → 설치는 사용자 승인 후**
+4. TEST2에서 `/게임시작` → "픽 화면 열기" 또는 음성 채널 로켓 아이콘으로 액티비티 실행
+
+DEV_MODE에서는 가상 유저 6명(`wins_dev.json`)으로 게임이 만들어지고 턴 검사를 건너뛴다. 그래서 인증된 사람 한 명이 6명 차례를 모두 고를 수 있다.
+판 기록의 GitHub PUT도 dev에서는 건너뛴다(`game_recorder`의 기존 동작). 다른 기기(모바일) 확인은 같은 계정으로 TEST2에 들어가 액티비티를 켜면 된다.
+
+### 9-4. 봇 로직 테스트
+
+지금처럼 저장소 밖(`e:\tmp`)의 exec 방식 스크립트로 한다. `apply_pick` 분리 전후로 같은 결과인지 확인한다.
 
 ## 10. 구현 순서 (커밋 단위)
 
@@ -232,11 +287,11 @@ module.exports = {
 
 ## 11. 디스코드 개발자 포털 작업 (사용자)
 
-운영 앱(롤랜덤챔프봇)과 dev 앱 각각:
+dev 앱은 9-2절 절차로 1단계 전에 만든다. 운영 앱(롤랜덤챔프봇)은 5단계(운영 전환)에서 아래를 한다.
 
 1. **Activities → Settings**: Activities 활성화 (지원 플랫폼 Web·iOS·Android)
-2. **Activities → URL Mappings**: 2절 표. 운영 앱의 `/` = `arena.hansoljj.com/pick`, `/pick-api` = `pick.hansoljj.com/pick-api`
-3. **OAuth2**: Redirects에 자리표시자 `https://127.0.0.1` 추가, Client Secret 발급 → `.env`
+2. **Activities → URL Mappings**: 위에서부터 `/pick-api` = `pick.hansoljj.com/pick-api`, `/ddragon` = `ddragon.leagueoflegends.com`, `/` = `arena.hansoljj.com/pick`
+3. **OAuth2**: Redirects에 자리표시자 `https://127.0.0.1` 추가, Client Secret 발급 → 맥미니 `.env`
 4. 액티비티를 켜면 디스코드가 Entry Point 커맨드(앱 이름으로 된 "실행" 커맨드)를 자동으로 만든다. 기존 슬래시 커맨드 동기화(`bot.sync_commands()`)가 이것을 지우지 않는지 1단계에서 확인한다
 
 ## 12. 위험과 확인할 것
