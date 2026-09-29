@@ -1,5 +1,6 @@
 // 카운트다운 숫자 및 프로그레스 바를 격리 렌더링하는 컴포넌트
 import type { ReactNode } from 'react'
+import { useCountdownMaxSeconds } from '../hooks/useCountdownMaxSeconds.ts'
 import { useRemainingSeconds } from '../hooks/useRemainingSeconds.ts'
 import type { ClockAnchor } from '../lib/clock.ts'
 import type { StateMessage } from '../lib/protocol.ts'
@@ -13,7 +14,6 @@ import {
   COLOR_WARNING_RED,
   COLOR_YELLOW,
   getCountdownDeadline,
-  getCountdownMaxSeconds,
   getCurrentPicker,
   getPauseBanner,
   getPausedSeconds,
@@ -39,7 +39,8 @@ export function TurnCountdown({ state, anchor, isConnected, isPending, onStartNo
   const isStarting = state.phase === 'starting'
   const isAdvantage = state.phase === 'advantage'
   const isPicking = state.phase === 'picking'
-  const liveSeconds = useRemainingSeconds(getCountdownDeadline(state), anchor)
+  const deadlineMs = getCountdownDeadline(state)
+  const liveSeconds = useRemainingSeconds(deadlineMs, anchor)
   const paused = state.paused !== null
   // 정지 중에는 서버가 저장한 남은 시간으로 숫자를 고정한다.
   const seconds = paused ? getPausedSeconds(state) : liveSeconds
@@ -94,7 +95,7 @@ export function TurnCountdown({ state, anchor, isConnected, isPending, onStartNo
     hint = '재개하면 남은 시간부터 이어집니다'
   }
 
-  const maxSeconds = getCountdownMaxSeconds(state.phase)
+  const maxSeconds = useCountdownMaxSeconds(deadlineMs, liveSeconds, state.phase)
   const currentSeconds = seconds ?? 0
   const progressPercent = Math.min(100, Math.max(0, Math.round((currentSeconds / maxSeconds) * 100)))
 

@@ -223,6 +223,12 @@ export function canReverseGame(state: StateMessage, isPending: boolean, isConnec
   return state.phase === 'completed' && state.me.can_reverse
 }
 
+/** 헤더에 "입장 n/N"을 보여 줄지와 그 값을 구한다. 입장이 의미 있는 starting·advantage·picking에서만 보인다. */
+export function getHeaderPresence(state: StateMessage | null): { present: number; total: number } | null {
+  if (!state || !TURN_PHASES.includes(state.phase)) return null
+  return getPresence(state)
+}
+
 /** 이번 판 참가자 가운데 입장한 사람 수와 전체 참가자 수를 구한다. 게임이 없으면 null이다. */
 export function getPresence(state: StateMessage | null): { present: number; total: number } | null {
   if (!state || state.players.length === 0) return null
@@ -251,6 +257,21 @@ export function getCountdownDeadline(state: StateMessage | null): number | null 
 /** 진행 막대의 전체 길이(초)를 구한다. starting은 전원 입장 뒤 카운트다운 길이다. */
 export function getCountdownMaxSeconds(phase: Phase | undefined): number {
   return phase === 'starting' ? READY_COUNTDOWN_SECONDS : TURN_SECONDS
+}
+
+export interface CountdownPeak {
+  key: number | null
+  value: number
+}
+
+/**
+ * 카운트다운마다(마감 시각 key 기준) 처음 본 가장 큰 남은 초를 기록한다. 바뀐 것이 없으면 같은 객체를 돌려준다.
+ * DEV_MODE의 고정 자동 시작처럼 카운트다운이 기본 길이보다 길 때 진행 막대가 꽉 찬 채 멈추지 않게 하는 데 쓴다.
+ */
+export function nextCountdownPeak(prev: CountdownPeak, key: number | null, seconds: number | null): CountdownPeak {
+  if (prev.key !== key) return { key, value: seconds ?? 0 }
+  if (seconds !== null && seconds > prev.value) return { key, value: seconds }
+  return prev
 }
 
 /** 정지 중에 고정해 보여 줄 남은 초를 구한다. 정지가 아니거나 입장 대기 중 정지면 null이다. */
@@ -303,6 +324,8 @@ export function getPresenceAlerts(
 ): PresenceAlerts {
   if (!prev || next.game_id === null || prev.game_id !== next.game_id) return { messages: [], departed: [] }
   const showAlerts = TURN_PHASES.includes(next.phase)
+  // 입장 대기 중에는 멈출 타이머가 없으므로 일시정지 안내를 붙이지 않는다.
+  const pauseHint = next.phase === 'starting' && next.start_at_ms === null ? '' : ' — 필요하면 일시정지하세요'
   const messages: string[] = []
   const stillDeparted = new Set(departed)
   for (const p of next.players) {
@@ -311,7 +334,7 @@ export function getPresenceAlerts(
     const isPresent = next.present.includes(p.id)
     if (wasPresent && !isPresent) {
       stillDeparted.add(p.id)
-      if (showAlerts) messages.push(`⚠ ${p.name}님 연결 끊김 — 필요하면 일시정지하세요`)
+      if (showAlerts) messages.push(`⚠ ${p.name}님 연결 끊김${pauseHint}`)
     } else if (!wasPresent && isPresent && stillDeparted.has(p.id)) {
       stillDeparted.delete(p.id)
       if (showAlerts) messages.push(`${p.name}님 다시 입장`)

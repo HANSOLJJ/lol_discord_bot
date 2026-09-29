@@ -29,6 +29,8 @@ import {
   canStartNow,
   getCountdownDeadline,
   getCountdownMaxSeconds,
+  getHeaderPresence,
+  nextCountdownPeak,
   getPauseBanner,
   getPausedSeconds,
   getPresence,
@@ -369,6 +371,28 @@ describe('입장 현황·일시정지 계산 함수 (view-logic)', () => {
     const back = getPresenceAlerts(noJae, all, left.departed)
     assert.deepEqual(back.messages, ['윤재철님 다시 입장'])
     assert.deepEqual(back.departed, [])
+  })
+
+  it('입장 대기 중 이탈 알림에는 일시정지 안내를 붙이지 않는다', () => {
+    const others = SAMPLE_PLAYER_IDS.filter((id) => id !== '555555555555555555')
+    const waitingAll = startingState({ present: [...SAMPLE_PLAYER_IDS] })
+    const waitingNoJae = startingState({ present: others })
+    assert.deepEqual(getPresenceAlerts(waitingAll, waitingNoJae, []).messages, ['⚠ 윤재철님 연결 끊김'])
+  })
+
+  it('헤더 입장 표시(getHeaderPresence)는 starting·advantage·picking에서만 보인다', () => {
+    assert.deepEqual(getHeaderPresence(startingState()), { present: 4, total: 6 })
+    assert.notEqual(getHeaderPresence(pickingOtherTurnState()), null)
+    assert.equal(getHeaderPresence(awaitingResultState()), null)
+    assert.equal(getHeaderPresence(null), null)
+  })
+
+  it('진행 막대 길이(nextCountdownPeak)는 카운트다운마다 처음 본 남은 초를 기억한다', () => {
+    const first = nextCountdownPeak({ key: null, value: 0 }, 1000, 15)
+    assert.deepEqual(first, { key: 1000, value: 15 })
+    assert.equal(nextCountdownPeak(first, 1000, 12), first) // 줄어들어도 그대로
+    assert.deepEqual(nextCountdownPeak(first, 2000, 5), { key: 2000, value: 5 }) // 새 카운트다운은 새로 잡는다
+    assert.equal(Math.max(getCountdownMaxSeconds('starting'), first.value), 15)
   })
 
   it('이탈 알림은 처음 입장·내 변화·다른 판·결과 단계에서는 띄우지 않는다', () => {

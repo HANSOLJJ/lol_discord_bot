@@ -1,5 +1,6 @@
 // 작은 창(Pip) 요약 화면: 카운트다운 숫자, 차례 안내, 6개 진행 원 슬롯
 import { useState } from 'react'
+import { useCountdownMaxSeconds } from '../hooks/useCountdownMaxSeconds.ts'
 import { useRemainingSeconds } from '../hooks/useRemainingSeconds.ts'
 import type { ClockAnchor } from '../lib/clock.ts'
 import type { Champion, StateMessage } from '../lib/protocol.ts'
@@ -11,7 +12,6 @@ import {
   COLOR_YELLOW,
   getChampionPortraitUrl,
   getCountdownDeadline,
-  getCountdownMaxSeconds,
   getCurrentPicker,
   getPauseBanner,
   getPausedSeconds,
@@ -49,7 +49,8 @@ function PipSlotImage({ champion, ddragonVersion }: { champion: Champion; ddrago
 
 export function PipView({ state, anchor }: Props) {
   const isAdvantage = state?.phase === 'advantage'
-  const liveSeconds = useRemainingSeconds(getCountdownDeadline(state), anchor)
+  const deadlineMs = getCountdownDeadline(state)
+  const liveSeconds = useRemainingSeconds(deadlineMs, anchor)
   const paused = Boolean(state?.paused)
   // 정지 중에는 서버가 저장한 남은 시간으로 숫자를 고정한다.
   const seconds = paused ? getPausedSeconds(state) : liveSeconds
@@ -93,7 +94,7 @@ export function PipView({ state, anchor }: Props) {
   const pauseBanner = getPauseBanner(state)
   if (pauseBanner) hint = pauseBanner
 
-  const maxSeconds = getCountdownMaxSeconds(state?.phase)
+  const maxSeconds = useCountdownMaxSeconds(deadlineMs, liveSeconds, state?.phase)
   const currentSeconds = seconds ?? 0
   const progressPercent = Math.min(100, Math.max(0, Math.round((currentSeconds / maxSeconds) * 100)))
 
