@@ -420,6 +420,15 @@ class GameCore:
         if timer is not None and not timer.done() and timer is not asyncio.current_task():
             timer.cancel()
 
+    ##
+    # @brief 세션 안에서 쌓인 챔피언 제외 목록을 비운다(/챔피언리셋). 락 안에서 부른다.
+    # @details 진행 중인 판의 후보는 바꾸지 않아 다음 판부터 적용된다.
+    # @return 제외를 푼 챔피언 수.
+    def reset_champion_pool(self):
+        count = len(self.excluded)
+        self.excluded.clear()
+        return count
+
     # === 픽 ===
 
     ##

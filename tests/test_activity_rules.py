@@ -545,6 +545,31 @@ class PauseTest(RulesBase):
         self.assertIsNone(self.state()["paused"])
 
 
+class ChampionPoolResetTest(RulesBase):
+    """/챔피언리셋: 제외 목록을 비우면 다음 판 후보에 이전 챔피언이 다시 나올 수 있다."""
+
+    async def test_reset_applies_from_next_game(self):
+        await self.start_picking()
+        await self.pick_all()
+        first = self.state()["champions"]
+        picked = set(self.state()["selections"].values())
+        self.assertEqual(len(self.core.excluded), 6)
+        async with self.core.lock:
+            self.assertEqual(self.core.reset_champion_pool(), 6)
+        self.assertEqual(self.core.excluded, set())
+        self.assertEqual(self.state()["champions"], first)  # 떠 있는 판의 후보는 그대로다
+        self.assertEqual((await self.start(game_id=self.state()["game_id"]))[0], "ok")
+        again = {c["id"] for c in self.state()["champions"]}
+        self.assertTrue(picked & again)  # 앞에서부터 뽑는 배치라 이전 판 챔피언이 다시 나온다
+
+    async def test_without_reset_previous_picks_are_excluded(self):
+        await self.start_picking()
+        await self.pick_all()
+        picked = set(self.state()["selections"].values())
+        await self.start(game_id=self.state()["game_id"])
+        self.assertFalse(picked & {c["id"] for c in self.state()["champions"]})
+
+
 class EmbedModeTest(RulesBase):
     pick_mode = "embed"
 

@@ -1611,6 +1611,24 @@ async def 시즌시작(ctx):
     )
 
 
+##
+# @brief /챔피언리셋 슬래시 커맨드. 세션 안에서 이미 나와 제외된 챔피언 목록을 비운다.
+# @details 누구나 확인 없이 쓸 수 있고 채널에 공개로 알린다. 진행 중인 판의 후보는 그대로이고 다음 판부터
+#          적용된다. 예전에는 봇을 재시작해야만 비워졌다.
+# @param ctx 슬래시 커맨드 상호작용 컨텍스트.
+@bot.slash_command(
+    name="챔피언리셋",
+    description="이미 나온 챔피언 제외 목록을 비웁니다 (다음 판부터 적용).",
+)
+async def 챔피언리셋(ctx):
+    async with game.lock:
+        count = game.reset_champion_pool()
+    print(f"[POOL] {ctx.author.display_name} 챔피언 풀 초기화 ({count}개 제외 해제)")
+    await ctx.respond(
+        f"♻️ {ctx.author.display_name}님이 챔피언 풀을 초기화했습니다 ({count}개 제외 해제)"
+    )
+
+
 # === 결과 번복 ===
 ##
 # @brief history 판 기록의 한 팀을 embed용 문자열로 만든다(멘션 + 챔피언).
