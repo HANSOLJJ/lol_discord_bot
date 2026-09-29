@@ -169,13 +169,13 @@ const remaining = Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000
 | phase | 언제 | 채워지는 시간·차례 필드 |
 |---|---|---|
 | `none` | 서버가 켜진 뒤 아직 게임이 없을 때 | 모두 `null`, 목록은 빈 값 |
-| `starting` | 게임 시작 직후, 자동 시작 전 | `start_at_ms` |
+| `starting` | 게임 시작 직후, 자동 시작 전 (v4: 입장 대기 → 5초 카운트다운, §15) | `start_at_ms` (v4: 입장 대기 중 `null`) |
 | `picking` | 픽 진행 중 | `deadline_ms`, `grace_ms`, `turn_id`, `current_index` |
 | `awaiting_result` | 6명이 모두 고른 뒤, 승리 팀 입력 전 | 모두 `null` |
 | `completed` | 승리 팀이 기록된 뒤, 다음 판 시작 전까지 | 모두 `null`, `result` 채움 |
 | `aborted` | v2 서버는 보내지 않는다(예약) | 클라이언트는 `none`처럼 처리한다 |
 
-- `starting`의 길이는 config `auto_start_seconds`(현재 15초)이다. `start_at_ms`가 되면 서버가 `picking`으로 바꾼다. 클라이언트가 먼저 시작시키지 않는다.
+- `starting`의 길이는 config `auto_start_seconds`(현재 15초)이다. v4부터는 DEV_MODE에서만 이 규칙을 쓰고, 운영은 §15의 전원 입장 → `ready_countdown_seconds`(5초) 규칙을 따른다. `start_at_ms`가 되면 서버가 `picking`으로 바꾼다. 클라이언트가 먼저 시작시키지 않는다.
 - 액티비티의 `start`는 `none`, `awaiting_result`, `completed`에서만 받는다. 픽 도중(`starting`, `picking`)에 실수로 판이 새로 시작되지 않게 하기 위해서이다.
 - `completed` 화면은 다음 판을 시작할 때까지 남는다. 그 사이에 번복할 수 있다.
 - `awaiting_result`에서 새 판을 시작하면 결과를 입력하지 않은 이전 판은 기록 없이 버려진다. 게임을 중간에 접은 경우를 위한 것이고, 화면에서는 승리 팀 버튼과 떨어진 곳에 "결과 없이 새 판" 버튼으로 둔다.
@@ -403,7 +403,7 @@ DEV_MODE에서는 권한이 넓어진다(11절). 클라이언트는 버튼 활�
 | phase | 화면 |
 |---|---|
 | `none` | 대기 화면과 "게임 시작" 버튼(`me.can_start`) |
-| `starting` | 팀 구성, 픽 순서, 후보 8개, `start_at_ms`까지 남은 초 |
+| `starting` | 팀 구성, 픽 순서, 후보 8개, `start_at_ms`까지 남은 초 (v4: 입장 대기 중에는 입장 현황과 "지금 시작", §15) |
 | `picking` | 위와 같고, 지금 고르는 사람 노란색 강조, 남은 초(5초 이하 빨강), 뽑힌 챔피언 잠금. `me.can_pick`이 참이면 후보 카드를 누를 수 있다 |
 | `awaiting_result` | 픽 결과와 승리 팀 버튼 두 개(`me.can_report`). 떨어진 곳에 작은 "결과 없이 새 판" 버튼(`me.can_start`) |
 | `completed` | 결과, 번복 버튼(`me.can_reverse`), "다음 판 시작" 버튼(`me.can_start`). 번복됐으면 표시 |
