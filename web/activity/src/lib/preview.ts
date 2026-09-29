@@ -12,7 +12,10 @@ import {
   pickingForcedState,
   pickingMyTurnState,
   pickingOtherTurnState,
+  pickingPausedState,
   pickingWarningState,
+  startingCountdownState,
+  startingPausedState,
   startingState,
 } from '../test/fixtures.ts'
 import type { StateMessage } from './protocol.ts'
@@ -20,12 +23,15 @@ import type { StateMessage } from './protocol.ts'
 export type PreviewKey =
   | 'none'
   | 'starting'
+  | 'starting_countdown'
+  | 'starting_paused'
   | 'advantage_ban'
   | 'advantage_force'
   | 'advantage_waiting'
   | 'picking'
   | 'picking_other'
   | 'picking_warning'
+  | 'picking_paused'
   | 'picking_banned'
   | 'picking_forced'
   | 'picking_forced_last'
@@ -49,6 +55,10 @@ export function getPreviewState(phaseKey: string | null): StateMessage | null {
       return noneState()
     case 'starting':
       return startingState()
+    case 'starting_countdown':
+      return startingCountdownState()
+    case 'starting_paused':
+      return startingPausedState()
     case 'advantage_ban':
       return advantageBanPendingState()
     case 'advantage_force':
@@ -61,6 +71,8 @@ export function getPreviewState(phaseKey: string | null): StateMessage | null {
       return pickingOtherTurnState()
     case 'picking_warning':
       return pickingWarningState()
+    case 'picking_paused':
+      return pickingPausedState()
     case 'picking_banned':
       return pickingBannedState()
     case 'picking_forced':

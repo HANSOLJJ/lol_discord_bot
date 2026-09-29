@@ -57,7 +57,27 @@
   min-width: 0;
 }
 
+.player {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.presenceDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #8b93a7;
+}
+
+.presenceDot[data-present='true'] {
+  background: #3fb950;
+}
+
 .playerName {
+  min-width: 0;
   max-width: 128px;
   font-size: 14px;
   font-weight: 600;
@@ -69,6 +89,7 @@
 }
 
 .playerNamePc {
+  min-width: 0;
   max-width: 130px;
   font-size: 15px;
   font-weight: 600;
@@ -83,6 +104,11 @@
 .playerNamePc[data-active='true'] {
   color: #facc15;
   border-bottom: 2px solid #facc15;
+}
+
+.playerName[data-present='false'],
+.playerNamePc[data-present='false'] {
+  opacity: 0.5;
 }
 
 .advantageRowMobile {

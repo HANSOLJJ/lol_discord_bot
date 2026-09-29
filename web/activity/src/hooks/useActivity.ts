@@ -4,6 +4,7 @@ import { browserConnectionOptions, Connection, type ConnectionSnapshot } from '.
 import { authenticate, getGuildId, LoginRequiredError } from '../lib/discord.ts'
 import { getPreviewState } from '../lib/preview.ts'
 import { getReplyMessage, type DiscordUser, type ReplyMessage, type StateMessage, type Team } from '../lib/protocol.ts'
+import { getPresenceAlerts } from '../lib/view-logic.ts'
 import { USER } from '../test/fixtures.ts'
 
 export type AuthState =
@@ -24,6 +25,9 @@ export interface Activity {
   pick: (game_id: string, turn_id: string, champion_id: string) => Promise<ReplyMessage>
   result: (game_id: string, winner: Team) => Promise<ReplyMessage>
   reverse: (game_id: string, expected_winner: Team) => Promise<ReplyMessage>
+  startNow: (game_id: string) => Promise<ReplyMessage>
+  pause: (game_id: string) => Promise<ReplyMessage>
+  resume: (game_id: string) => Promise<ReplyMessage>
 }
 
 export function useActivity(previewPhase?: string | null): Activity {
@@ -95,6 +99,23 @@ export function useActivity(previewPhase?: string | null): Activity {
       if (connRef.current === conn) connRef.current = null
     }
   }, [signIn, isPreview])
+
+  // 받은 state가 화면에 반영된 뒤 서버에 입장을 알린다. 연결 모듈이 연결마다 한 번만 보낸다.
+  useEffect(() => {
+    connRef.current?.notifyRendered()
+  }, [snapshot])
+
+  // 다른 참가자가 나가거나 다시 들어오면 알린다. 자동 일시정지는 하지 않는다.
+  const state = snapshot?.state ?? null
+  const prevStateRef = useRef<StateMessage | null>(null)
+  const departedRef = useRef<string[]>([])
+  useEffect(() => {
+    if (state === null) return
+    const alerts = getPresenceAlerts(prevStateRef.current, state, departedRef.current)
+    prevStateRef.current = state
+    departedRef.current = alerts.departed
+    if (alerts.messages.length > 0) showToast(alerts.messages.join(' · '))
+  }, [state, showToast])
 
   const login = useCallback(() => signIn(true), [signIn])
 
@@ -253,10 +274,40 @@ export function useActivity(previewPhase?: string | null): Activity {
     [wrapAction, showToast],
   )
 
+  const gameAction = useCallback(
+    (request: (conn: Connection) => Promise<ReplyMessage>, previewId: string) => {
+      return wrapAction(
+        () => request(connRef.current!),
+        () => ({
+          t: 'reply',
+          id: previewId,
+          ok: true,
+          code: 'ok',
+          message: null,
+          state_version: 1,
+        }),
+      )
+    },
+    [wrapAction],
+  )
+
+  const startNow = useCallback(
+    (game_id: string) => gameAction((conn) => conn.requestStartNow(game_id), 'preview-start-now'),
+    [gameAction],
+  )
+  const pauseAction = useCallback(
+    (game_id: string) => gameAction((conn) => conn.requestPause(game_id), 'preview-pause'),
+    [gameAction],
+  )
+  const resumeAction = useCallback(
+    (game_id: string) => gameAction((conn) => conn.requestResume(game_id), 'preview-resume'),
+    [gameAction],
+  )
+
   return {
     auth,
     snapshot,
-    state: snapshot?.state ?? null,
+    state,
     isPending,
     toast,
     login,
@@ -266,5 +317,8 @@ export function useActivity(previewPhase?: string | null): Activity {
     pick,
     result: resultAction,
     reverse: reverseAction,
+    startNow,
+    pause: pauseAction,
+    resume: resumeAction,
   }
 }

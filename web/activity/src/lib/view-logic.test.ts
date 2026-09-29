@@ -12,13 +12,29 @@ import {
   pickingForcedState,
   pickingMyTurnState,
   pickingOtherTurnState,
+  pickingPausedState,
   SAMPLE_CHAMPIONS,
+  SAMPLE_PLAYER_IDS,
+  startingCountdownState,
+  startingPausedState,
+  startingState,
 } from '../test/fixtures.ts'
 import {
   canClickChampion,
+  canPause,
   canReportWinner,
+  canResume,
   canReverseGame,
   canStartGame,
+  canStartNow,
+  getCountdownDeadline,
+  getCountdownMaxSeconds,
+  getPauseBanner,
+  getPausedSeconds,
+  getPresence,
+  getPresenceAlerts,
+  isPlayerPresent,
+  isWaitingForPlayers,
   COLOR_WARNING_RED,
   COLOR_YELLOW,
   getAdvantageHeaderInfo,
@@ -255,5 +271,131 @@ describe('화면 계산 함수 (view-logic)', () => {
     const infoOther = getAdvantageHeaderInfo(advWaiting)
     assert.ok(infoOther)
     assert.equal(infoOther.hint, 'TEAM 2가 고르는 중')
+  })
+})
+
+describe('입장 현황·일시정지 계산 함수 (view-logic)', () => {
+  it('입장 수(getPresence)는 참가자만 세고, 게임이 없으면 null이다', () => {
+    assert.equal(getPresence(null), null)
+    assert.equal(getPresence(noneState()), null)
+    assert.deepEqual(getPresence(startingState()), { present: 4, total: 6 })
+    assert.deepEqual(getPresence(startingCountdownState()), { present: 6, total: 6 })
+    // 참가자가 아닌 ID(관전자)는 세지 않는다.
+    assert.deepEqual(getPresence(startingState({ present: ['999', SAMPLE_PLAYER_IDS[0]] })), { present: 1, total: 6 })
+    // 분모는 players 길이다(MAX_PLAYERS = 2 테스트 판).
+    const two = startingState({ players: startingState().players.slice(0, 2), present: [SAMPLE_PLAYER_IDS[1]] })
+    assert.deepEqual(getPresence(two), { present: 1, total: 2 })
+
+    assert.equal(isPlayerPresent(startingState(), SAMPLE_PLAYER_IDS[0]), true)
+    assert.equal(isPlayerPresent(startingState(), SAMPLE_PLAYER_IDS[5]), false)
+  })
+
+  it('입장 대기·카운트다운·정지 상태에서 카운트다운 마감과 막대 길이를 구한다', () => {
+    assert.equal(isWaitingForPlayers(startingState()), true)
+    assert.equal(isWaitingForPlayers(startingCountdownState()), false)
+    assert.equal(isWaitingForPlayers(startingPausedState()), false)
+    assert.equal(isWaitingForPlayers(pickingOtherTurnState()), false)
+
+    assert.equal(getCountdownDeadline(null), null)
+    assert.equal(getCountdownDeadline(startingState()), null)
+    assert.equal(getCountdownDeadline(startingCountdownState()), 1790000005000)
+    assert.equal(getCountdownDeadline(pickingOtherTurnState()), 1790000020000)
+    assert.equal(getCountdownDeadline(advantageBanPendingState()), 1790000025000)
+    assert.equal(getCountdownDeadline(awaitingResultState()), null)
+    // 정지 중에는 서버가 마감을 null로 보내지만, 값이 남아 있어도 흐르지 않게 한다.
+    assert.equal(getCountdownDeadline(pickingPausedState({ deadline_ms: 1790000020000 })), null)
+
+    assert.equal(getCountdownMaxSeconds('starting'), 5)
+    assert.equal(getCountdownMaxSeconds('picking'), 20)
+    assert.equal(getCountdownMaxSeconds('advantage'), 20)
+  })
+
+  it('정지 중 고정 초(getPausedSeconds)와 배너(getPauseBanner)를 구한다', () => {
+    assert.equal(getPausedSeconds(pickingOtherTurnState()), null)
+    assert.equal(getPausedSeconds(pickingPausedState()), 13)
+    assert.equal(getPausedSeconds(pickingPausedState({ paused: { by: '1', remaining_ms: 5000 } })), 5)
+    assert.equal(getPausedSeconds(pickingPausedState({ paused: { by: '1', remaining_ms: 0 } })), 0)
+    // 입장 대기 중 정지는 남은 초가 없다.
+    assert.equal(getPausedSeconds(startingPausedState()), null)
+
+    assert.equal(getPauseBanner(pickingOtherTurnState()), null)
+    assert.equal(getPauseBanner(pickingPausedState()), '⏸ 청명사냥꾼님이 일시정지함')
+    assert.equal(getPauseBanner(startingPausedState()), '⏸ 사무엘님이 일시정지함')
+    // 참가자가 아닌 사람(DEV_MODE)이 정지해도 문구를 만든다.
+    assert.equal(getPauseBanner(pickingPausedState({ paused: { by: '999', remaining_ms: 1000 } })), '⏸ 누군가님이 일시정지함')
+  })
+
+  it('지금 시작·일시정지·재개 버튼 활성화는 me 권한·phase·연결·대기 요청을 따른다', () => {
+    const waiting = startingState()
+    assert.equal(canStartNow(waiting, false, true), true)
+    assert.equal(canStartNow(waiting, true, true), false)
+    assert.equal(canStartNow(waiting, false, false), false)
+    assert.equal(canStartNow(startingCountdownState(), false, true), false)
+    assert.equal(canStartNow(pickingOtherTurnState({ me: { ...waiting.me } }), false, true), false)
+
+    assert.equal(canPause(waiting, false, true), true)
+    assert.equal(canPause(startingCountdownState(), false, true), true)
+    assert.equal(canPause(pickingOtherTurnState(), false, true), true)
+    assert.equal(canPause(pickingOtherTurnState(), true, true), false)
+    assert.equal(canPause(pickingPausedState(), false, true), false)
+    assert.equal(canPause(awaitingResultState({ me: { ...waiting.me } }), false, true), false)
+
+    assert.equal(canResume(pickingPausedState(), false, true), true)
+    assert.equal(canResume(startingPausedState(), false, true), true)
+    assert.equal(canResume(pickingPausedState(), false, false), false)
+    assert.equal(canResume(pickingPausedState({ me: { ...pickingPausedState().me, can_resume: false } }), false, true), false)
+    assert.equal(canResume(pickingOtherTurnState({ me: { ...pickingPausedState().me } }), false, true), false)
+  })
+
+  it('일시정지 중에는 내 차례·어드밴티지여도 챔피언을 누를 수 없다', () => {
+    const paused = { by: SAMPLE_PLAYER_IDS[1], remaining_ms: 8000 }
+    assert.equal(canClickChampion('Annie', pickingMyTurnState(), false), true)
+    assert.equal(canClickChampion('Annie', pickingMyTurnState({ deadline_ms: null, paused }), false), false)
+    assert.equal(canClickChampion('Ahri', advantageBanPendingState(), false), true)
+    assert.equal(canClickChampion('Ahri', advantageBanPendingState({ deadline_ms: null, paused }), false), false)
+  })
+
+  it('이탈 알림(getPresenceAlerts)은 다른 참가자가 나가면 띄우고, 나갔던 사람이 돌아오면 재입장을 띄운다', () => {
+    const all = pickingOtherTurnState()
+    const noJae = pickingOtherTurnState({ present: SAMPLE_PLAYER_IDS.filter((id) => id !== '555555555555555555') })
+
+    const left = getPresenceAlerts(all, noJae, [])
+    assert.deepEqual(left.messages, ['⚠ 윤재철님 연결 끊김 — 필요하면 일시정지하세요'])
+    assert.deepEqual(left.departed, ['555555555555555555'])
+
+    // 변화가 없으면 알림 없이 이탈 목록을 유지한다.
+    assert.deepEqual(getPresenceAlerts(noJae, noJae, left.departed), { messages: [], departed: ['555555555555555555'] })
+
+    const back = getPresenceAlerts(noJae, all, left.departed)
+    assert.deepEqual(back.messages, ['윤재철님 다시 입장'])
+    assert.deepEqual(back.departed, [])
+  })
+
+  it('이탈 알림은 처음 입장·내 변화·다른 판·결과 단계에서는 띄우지 않는다', () => {
+    // 입장 대기 중 처음 들어오는 사람은 재입장이 아니다.
+    const four = startingState()
+    const six = startingCountdownState()
+    assert.deepEqual(getPresenceAlerts(four, six, []).messages, [])
+
+    // 내 연결이 빠졌다 돌아온 것은 알리지 않는다.
+    const meId = SAMPLE_PLAYER_IDS[0]
+    const withoutMe = pickingOtherTurnState({ present: SAMPLE_PLAYER_IDS.slice(1) })
+    assert.deepEqual(getPresenceAlerts(pickingOtherTurnState(), withoutMe, []).messages, [])
+    assert.deepEqual(getPresenceAlerts(withoutMe, pickingOtherTurnState(), [meId]).messages, [])
+
+    // 첫 state이거나 판이 바뀌면 비교하지 않고 이탈 목록을 비운다.
+    assert.deepEqual(getPresenceAlerts(null, withoutMe, []), { messages: [], departed: [] })
+    const otherGame = pickingOtherTurnState({ game_id: 'g-2', present: [] })
+    assert.deepEqual(getPresenceAlerts(pickingOtherTurnState(), otherGame, ['555555555555555555']), {
+      messages: [],
+      departed: [],
+    })
+
+    // 결과 입력 단계에서는 알림을 띄우지 않는다.
+    const awaitingAll = awaitingResultState()
+    const awaitingLeft = awaitingResultState({ present: SAMPLE_PLAYER_IDS.slice(0, 5) })
+    const res = getPresenceAlerts(awaitingAll, awaitingLeft, [])
+    assert.deepEqual(res.messages, [])
+    assert.deepEqual(res.departed, [SAMPLE_PLAYER_IDS[5]])
   })
 })

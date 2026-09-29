@@ -1,6 +1,7 @@
 // 픽 화면 상단 헤더: 연결 상태, 라운드/시즌, 사용자 이름
 import type { ConnectionStatus } from '../lib/connection.ts'
 import type { DiscordUser, StateMessage } from '../lib/protocol.ts'
+import { getPresence } from '../lib/view-logic.ts'
 import styles from './Header.module.css'
 
 interface Props {
@@ -34,6 +35,12 @@ export function Header({ status, user, state, isPc = false }: Props) {
       ? `ROUND ${state.round} · 시즌 ${state.season}`
       : ''
   const displayName = user ? user.global_name ?? user.username : ''
+  const presence = getPresence(state)
+  const presenceBadge = presence && (
+    <span className={isPc ? styles.presencePc : styles.presence} data-full={presence.present === presence.total}>
+      입장 {presence.present}/{presence.total}
+    </span>
+  )
 
   return (
     <header className={styles.header}>
@@ -41,8 +48,14 @@ export function Header({ status, user, state, isPc = false }: Props) {
         <span className={styles.dot} data-tone={tone} aria-hidden="true" />
         <span className={styles.statusText}>{label}</span>
         {isPc && roundText && <span className={styles.roundInfoPc}>{roundText}</span>}
+        {isPc && presenceBadge}
       </div>
-      {!isPc && roundText && <span className={styles.roundInfo}>{roundText}</span>}
+      {!isPc && (roundText || presenceBadge) && (
+        <span className={styles.middle}>
+          {roundText && <span className={styles.roundInfo}>{roundText}</span>}
+          {presenceBadge}
+        </span>
+      )}
       <span className={styles.userName}>{displayName}</span>
     </header>
   )

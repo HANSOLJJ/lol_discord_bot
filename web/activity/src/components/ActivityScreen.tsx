@@ -16,7 +16,8 @@ interface Props {
 }
 
 export function ActivityScreen({ previewPhase }: Props) {
-  const { auth, snapshot, state, isPending, toast, login, start, advantage, pick, result, reverse } = useActivity(previewPhase)
+  const { auth, snapshot, state, isPending, toast, login, start, advantage, pick, result, reverse, startNow, pause, resume } =
+    useActivity(previewPhase)
   const layoutMode = useLayoutMode()
 
   // 인증 필요 화면
@@ -81,7 +82,15 @@ export function ActivityScreen({ previewPhase }: Props) {
         <div className={styles.pcBodyGrid}>
           <div className={styles.pcLeftCol}>
             {isTurnPhase && state ? (
-              <TurnCountdown state={state} anchor={snapshot?.anchor ?? null} />
+              <TurnCountdown
+                state={state}
+                anchor={snapshot?.anchor ?? null}
+                isConnected={isConnected}
+                isPending={isPending}
+                onStartNow={startNow}
+                onPause={pause}
+                onResume={resume}
+              />
             ) : (
               <PhaseActions
                 state={state}
@@ -109,7 +118,15 @@ export function ActivityScreen({ previewPhase }: Props) {
       <TeamRoster state={state} isPc={false} />
 
       {isTurnPhase && state ? (
-        <TurnCountdown state={state} anchor={snapshot?.anchor ?? null} />
+        <TurnCountdown
+          state={state}
+          anchor={snapshot?.anchor ?? null}
+          isConnected={isConnected}
+          isPending={isPending}
+          onStartNow={startNow}
+          onPause={pause}
+          onResume={resume}
+        />
       ) : (
         <PhaseActions
           state={state}

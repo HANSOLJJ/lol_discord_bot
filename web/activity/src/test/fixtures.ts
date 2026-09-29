@@ -1,4 +1,4 @@
-// 테스트에서 쓰는 규격 예시 메시지 생성기 (ACTIVITY_PROTOCOL.md protocol_version 3)
+// 테스트에서 쓰는 규격 예시 메시지 생성기 (ACTIVITY_PROTOCOL.md protocol_version 4)
 import type { HelloMessage, StateMessage } from '../lib/protocol.ts'
 
 export const USER = { id: '365414320332472332', username: 'hansol', global_name: '정한솔', avatar: 'a1b2c3' }
@@ -11,6 +11,8 @@ export const SAMPLE_PLAYERS = [
   { id: '444444444444444444', name: '보링', team: 'team2' as const, wins: 11 },
   { id: '555555555555555555', name: '윤재철', team: 'team2' as const, wins: 10 },
 ]
+
+export const SAMPLE_PLAYER_IDS = SAMPLE_PLAYERS.map((p) => p.id)
 
 export const SAMPLE_PICK_ORDER = [
   '333333333333333333',
@@ -35,7 +37,7 @@ export const SAMPLE_CHAMPIONS = [
 export function hello(overrides: Record<string, unknown> = {}): HelloMessage {
   return {
     t: 'hello',
-    protocol_version: 3,
+    protocol_version: 4,
     server_epoch: 'epoch-a',
     server_ms: 1790000000000,
     user: USER,
@@ -46,7 +48,7 @@ export function hello(overrides: Record<string, unknown> = {}): HelloMessage {
 export function state(overrides: Record<string, unknown> = {}): StateMessage {
   return {
     t: 'state',
-    protocol_version: 3,
+    protocol_version: 4,
     server_epoch: 'epoch-a',
     game_id: null,
     state_version: 0,
@@ -67,6 +69,8 @@ export function state(overrides: Record<string, unknown> = {}): StateMessage {
     auto_assigned: [],
     advantage: null,
     result: null,
+    present: [],
+    paused: null,
     me: {
       id: USER.id,
       role: 'spectator',
@@ -76,6 +80,9 @@ export function state(overrides: Record<string, unknown> = {}): StateMessage {
       can_report: false,
       can_reverse: false,
       can_advantage: false,
+      can_start_now: false,
+      can_pause: false,
+      can_resume: false,
     },
     ...overrides,
   } as StateMessage
@@ -86,6 +93,7 @@ export function noneState(overrides: Record<string, unknown> = {}): StateMessage
 }
 
 export function startingState(overrides: Record<string, unknown> = {}): StateMessage {
+  // 입장 대기: 6명 중 4명 입장, 카운트다운 없음
   return state({
     game_id: 'g-1790000000000',
     state_version: 1,
@@ -93,7 +101,7 @@ export function startingState(overrides: Record<string, unknown> = {}): StateMes
     round: 87,
     season: 2,
     server_ms: 1790000000000,
-    start_at_ms: 1790000015000,
+    start_at_ms: null,
     deadline_ms: null,
     grace_ms: null,
     turn_id: null,
@@ -105,6 +113,7 @@ export function startingState(overrides: Record<string, unknown> = {}): StateMes
     selections: {},
     auto_assigned: [],
     result: null,
+    present: SAMPLE_PLAYER_IDS.slice(0, 4),
     me: {
       id: SAMPLE_PLAYERS[0].id, // 정한솔
       role: 'player',
@@ -113,7 +122,32 @@ export function startingState(overrides: Record<string, unknown> = {}): StateMes
       can_pick: false,
       can_report: false,
       can_reverse: false,
+      can_advantage: false,
+      can_start_now: true,
+      can_pause: true,
+      can_resume: false,
     },
+    ...overrides,
+  })
+}
+
+export function startingCountdownState(overrides: Record<string, unknown> = {}): StateMessage {
+  // 전원 입장 뒤 5초 카운트다운 중
+  return startingState({
+    state_version: 2,
+    start_at_ms: 1790000005000,
+    present: SAMPLE_PLAYER_IDS,
+    me: { ...startingState().me, can_start_now: false },
+    ...overrides,
+  })
+}
+
+export function startingPausedState(overrides: Record<string, unknown> = {}): StateMessage {
+  // 입장 대기 중 사무엘이 일시정지해 남은 초가 없다.
+  return startingState({
+    state_version: 3,
+    paused: { by: '111111111111111111', remaining_ms: null },
+    me: { ...startingState().me, can_start_now: false, can_pause: false, can_resume: true },
     ...overrides,
   })
 }
@@ -144,6 +178,7 @@ export function pickingMyTurnState(overrides: Record<string, unknown> = {}): Sta
     },
     auto_assigned: ['111111111111111111'],
     result: null,
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: SAMPLE_PLAYERS[0].id, // 정한솔
       role: 'player',
@@ -152,6 +187,10 @@ export function pickingMyTurnState(overrides: Record<string, unknown> = {}): Sta
       can_pick: true,
       can_report: false,
       can_reverse: false,
+      can_advantage: false,
+      can_start_now: false,
+      can_pause: true,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -178,6 +217,7 @@ export function pickingOtherTurnState(overrides: Record<string, unknown> = {}): 
     selections: {},
     auto_assigned: [],
     result: null,
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: SAMPLE_PLAYERS[0].id, // 정한솔 (대기 중)
       role: 'player',
@@ -186,6 +226,10 @@ export function pickingOtherTurnState(overrides: Record<string, unknown> = {}): 
       can_pick: false,
       can_report: false,
       can_reverse: false,
+      can_advantage: false,
+      can_start_now: false,
+      can_pause: true,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -196,6 +240,18 @@ export function pickingWarningState(overrides: Record<string, unknown> = {}): St
   return pickingMyTurnState({
     server_ms: 1790000050000,
     deadline_ms: 1790000054000, // 4초 남음
+    ...overrides,
+  })
+}
+
+export function pickingPausedState(overrides: Record<string, unknown> = {}): StateMessage {
+  // 청명사냥꾼 차례에 윤재철이 연결을 잃고 청명사냥꾼이 일시정지한 상태 (남은 12.3초)
+  return pickingOtherTurnState({
+    state_version: 12,
+    deadline_ms: null,
+    paused: { by: '333333333333333333', remaining_ms: 12300 },
+    present: SAMPLE_PLAYER_IDS.filter((id) => id !== '555555555555555555'),
+    me: { ...pickingOtherTurnState().me, can_pause: false, can_resume: true },
     ...overrides,
   })
 }
@@ -227,6 +283,7 @@ export function awaitingResultState(overrides: Record<string, unknown> = {}): St
     },
     auto_assigned: ['111111111111111111'],
     result: null,
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: SAMPLE_PLAYERS[0].id,
       role: 'player',
@@ -235,6 +292,10 @@ export function awaitingResultState(overrides: Record<string, unknown> = {}): St
       can_pick: false,
       can_report: true,
       can_reverse: false,
+      can_advantage: false,
+      can_start_now: false,
+      can_pause: false,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -271,6 +332,7 @@ export function completedState(overrides: Record<string, unknown> = {}): StateMe
       recorded_ms: 1790000900000,
       corrected: null,
     },
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: SAMPLE_PLAYERS[0].id,
       role: 'player',
@@ -279,6 +341,10 @@ export function completedState(overrides: Record<string, unknown> = {}): StateMe
       can_pick: false,
       can_report: false,
       can_reverse: true,
+      can_advantage: false,
+      can_start_now: false,
+      can_pause: false,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -321,6 +387,7 @@ export function samplePickingState(overrides: Record<string, unknown> = {}): Sta
     },
     auto_assigned: ['111111111111111111'],
     result: null,
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: '555555555555555555',
       role: 'player',
@@ -330,6 +397,9 @@ export function samplePickingState(overrides: Record<string, unknown> = {}): Sta
       can_report: false,
       can_reverse: false,
       can_advantage: false,
+      can_start_now: false,
+      can_pause: true,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -381,6 +451,7 @@ export function advantageBanPendingState(overrides: Record<string, unknown> = {}
       champion_id: null,
     },
     result: null,
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: '111111111111111111', // 사무엘 (team2, 5위)
       role: 'player',
@@ -390,6 +461,9 @@ export function advantageBanPendingState(overrides: Record<string, unknown> = {}
       can_report: false,
       can_reverse: false,
       can_advantage: true,
+      can_start_now: false,
+      can_pause: true,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -419,6 +493,9 @@ export function advantageWaitingState(overrides: Record<string, unknown> = {}): 
       can_report: false,
       can_reverse: false,
       can_advantage: false,
+      can_start_now: false,
+      can_pause: true,
+      can_resume: false,
     },
     ...overrides,
   })
@@ -483,6 +560,7 @@ export function pickingForcedLastState(overrides: Record<string, unknown> = {}):
       champion_id: 'Garen',
     },
     result: null,
+    present: SAMPLE_PLAYER_IDS,
     me: {
       id: '222222222222222222', // 유성호 (team1 마지막 픽 차례)
       role: 'player',
@@ -492,6 +570,9 @@ export function pickingForcedLastState(overrides: Record<string, unknown> = {}):
       can_report: false,
       can_reverse: false,
       can_advantage: false,
+      can_start_now: false,
+      can_pause: true,
+      can_resume: false,
     },
     ...overrides,
   })

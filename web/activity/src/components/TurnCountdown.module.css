@@ -64,3 +64,61 @@
   height: 4px;
   transition: width 0.2s linear;
 }
+
+.turnBox[data-paused='true'] {
+  border-color: #3a4150;
+}
+
+.pauseBanner {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #262b36;
+  color: #e6e9ef;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.btnStartNow,
+.btnControl,
+.btnResume {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btnStartNow {
+  border: none;
+  background: #5b8cff;
+  color: #ffffff;
+}
+
+.btnControl {
+  border: 1px solid #3a4150;
+  background: #1d212b;
+  color: #e6e9ef;
+}
+
+.btnResume {
+  border: none;
+  background: #3fb950;
+  color: #0f1115;
+}
+
+.btnStartNow:disabled,
+.btnControl:disabled,
+.btnResume:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

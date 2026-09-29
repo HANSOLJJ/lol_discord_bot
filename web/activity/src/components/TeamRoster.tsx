@@ -1,6 +1,6 @@
 // 픽 화면의 팀 구성(TEAM 1, TEAM 2 명단 및 현재 턴 강조) 컴포넌트
 import type { Player, StateMessage } from '../lib/protocol.ts'
-import { getAdvantageSummary, getCurrentPicker } from '../lib/view-logic.ts'
+import { getAdvantageSummary, getCurrentPicker, isPlayerPresent } from '../lib/view-logic.ts'
 import styles from './TeamRoster.module.css'
 
 interface Props {
@@ -22,10 +22,14 @@ export function TeamRoster({ state, isPc = false }: Props) {
     <div className={styles.namesWrap}>
       {players.map((p) => {
         const isActive = p.id === currentPickerId
+        const isPresent = isPlayerPresent(state, p.id)
         const nameClass = isPcView ? styles.playerNamePc : styles.playerName
         return (
-          <span key={p.id} className={nameClass} data-active={isActive} title={p.name}>
-            {p.name}
+          <span key={p.id} className={styles.player} title={`${p.name} · ${isPresent ? '입장' : '미입장'}`}>
+            <span className={styles.presenceDot} data-present={isPresent} aria-hidden="true" />
+            <span className={nameClass} data-active={isActive} data-present={isPresent}>
+              {p.name}
+            </span>
           </span>
         )
       })}

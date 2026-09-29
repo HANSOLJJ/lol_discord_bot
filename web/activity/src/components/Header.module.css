@@ -47,6 +47,29 @@
   margin-left: 12px;
 }
 
+.middle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.presence,
+.presencePc {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8b93a7;
+  font-variant-numeric: tabular-nums;
+}
+
+.presencePc {
+  margin-left: 12px;
+}
+
+.presence[data-full='true'],
+.presencePc[data-full='true'] {
+  color: #3fb950;
+}
+
 .userName {
   font-size: 13px;
   color: #8b93a7;
