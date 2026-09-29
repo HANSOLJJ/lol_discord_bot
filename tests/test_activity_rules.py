@@ -402,6 +402,149 @@ class PresenceStartTest(RulesBase):
             self.assertEqual(self.state()["phase"], "picking")
 
 
+class PauseTest(RulesBase):
+    """수동 일시정지·재개: 남은 시간 보존, 정지 중 요청 거절, 판정 순서."""
+
+    async def pause(self, user_id, game_id=None):
+        return await self.core.activity_pause(user_id, game_id or self.state()["game_id"])
+
+    async def resume(self, user_id, game_id=None):
+        return await self.core.activity_resume(user_id, game_id or self.state()["game_id"])
+
+    async def test_pause_resume_keeps_remaining_time_in_picking(self):
+        await self.start_picking()
+        ids = self.state()["pick_order"]
+        await self.clock.advance(7)
+        self.assertEqual(await self.pause(ids[3]), ("ok", "일시정지했습니다."))
+        s = self.state()
+        self.assertEqual(s["paused"], {"by": ids[3], "remaining_ms": 13000})
+        self.assertIsNone(s["deadline_ms"])
+        self.assertEqual(s["grace_ms"], 2000)
+        self.assertEqual(s["turn_id"], f"{s['game_id']}:0")
+        me = self.me(ids[0])
+        self.assertEqual((me["can_pause"], me["can_resume"], me["can_pick"]), (False, True, False))
+        self.assertFalse(self.me("999")["can_resume"])
+        await self.clock.advance(100)
+        self.assertEqual((self.state()["current_index"], self.state()["auto_assigned"]), (0, []))
+        self.assertEqual(await self.resume(ids[5]), ("ok", "재개했습니다."))  # 참가자 누구나
+        s = self.state()
+        self.assertIsNone(s["paused"])
+        self.assertEqual(s["deadline_ms"] - s["server_ms"], 13000)
+        self.assertTrue(self.me(ids[0])["can_pause"])
+        await self.clock.advance(14.9)
+        self.assertEqual(self.state()["current_index"], 0)
+        await self.clock.advance(0.1)  # 새 마감 13초 + 유예 2초
+        self.assertEqual(self.state()["auto_assigned"], [ids[0]])
+
+    async def test_old_turn_timer_is_invalid_after_resume(self):
+        await self.start_picking()
+        ids = self.state()["pick_order"]
+        await self.clock.advance(5)
+        await self.pause(ids[0])
+        await self.clock.advance(10)
+        await self.resume(ids[0])  # 새 마감은 지금부터 15초
+        await self.clock.advance(7)  # 옛 마감+유예(시작 22초)가 지났다
+        self.assertEqual(self.state()["auto_assigned"], [])
+        await self.clock.advance(10)
+        self.assertEqual(self.state()["auto_assigned"], [ids[0]])
+
+    async def test_paused_rejects_pick_before_deadline_check(self):
+        await self.start_picking()
+        await self.pause(self.picker_id())
+        self.assertEqual((await self.pick(received_at=self.clock() + 1000))[0], "paused")
+        self.assertEqual(self.state()["selections"], {})
+
+    async def test_pause_rejection_codes_in_order(self):
+        self.assertEqual((await self.core.activity_pause("101", None))[0], "wrong_phase")  # none
+        await self.start_picking()
+        s = self.state()
+        gid, player = s["game_id"], s["pick_order"][0]
+        self.assertEqual((await self.pause(player, "g-old"))[0], "stale_game")
+        self.assertEqual((await self.pause("999"))[0], "not_allowed")
+        self.assertFalse(self.me("999")["can_pause"])
+        self.assertEqual((await self.resume(player))[0], "not_paused")
+        await self.clock.advance(20.5)  # 마감이 지나 유예 중
+        self.assertEqual((await self.pause(player))[0], "timeout")
+        await self.clock.advance(1.5)  # 자동 배정, 다음 차례
+        self.assertEqual((await self.pause(player))[0], "ok")
+        self.assertEqual((await self.pause(player))[0], "already_paused")
+        self.assertEqual((await self.resume("999"))[0], "not_allowed")
+        self.assertEqual((await self.resume(player, "g-old"))[0], "stale_game")
+        await self.resume(player)
+        for _ in range(5):
+            await self.clock.advance(22)
+        self.assertEqual(self.state()["phase"], "awaiting_result")
+        self.assertEqual((await self.pause(player, gid))[0], "wrong_phase")
+        self.assertEqual((await self.resume(player, gid))[0], "wrong_phase")
+        self.assertFalse(self.me(player)["can_pause"])
+
+    async def test_pause_freezes_start_countdown(self):
+        await self.start()
+        ids = self.state()["pick_order"]
+        await self.enter_all()
+        await self.clock.advance(2)
+        await self.pause(ids[0])
+        s = self.state()
+        self.assertEqual((s["start_at_ms"], s["paused"]["remaining_ms"]), (None, 3000))
+        self.assertFalse(self.me(ids[0])["can_start_now"])
+        await self.clock.advance(100)
+        self.assertEqual(self.state()["phase"], "starting")
+        await self.resume(ids[1])
+        s = self.state()
+        self.assertEqual(s["start_at_ms"] - s["server_ms"], 3000)
+        await self.clock.advance(3)
+        self.assertEqual(self.state()["phase"], "picking")
+
+    async def test_resume_cancels_countdown_if_someone_left_while_paused(self):
+        await self.start()
+        ids = self.state()["pick_order"]
+        await self.enter_all()
+        await self.pause(ids[0])
+        await self.core.set_present(ids[1:])  # 정지 중에는 카운트다운을 건드리지 않는다
+        self.assertEqual(self.state()["paused"]["remaining_ms"], 5000)
+        await self.resume(ids[1])
+        self.assertIsNone(self.state()["start_at_ms"])  # 전원이 아니라 입장 대기로
+        await self.clock.advance(10)
+        self.assertEqual(self.state()["phase"], "starting")
+
+    async def test_pause_while_waiting_blocks_start(self):
+        await self.start()
+        ids = self.state()["pick_order"]
+        await self.pause(ids[0])
+        self.assertEqual(self.state()["paused"], {"by": ids[0], "remaining_ms": None})
+        self.assertFalse(self.me(ids[0])["can_start_now"])
+        self.assertEqual((await self.core.activity_start_now(ids[0], self.state()["game_id"]))[0], "paused")
+        await self.enter_all()  # 정지 중에는 전원 입장해도 시작하지 않는다
+        self.assertIsNone(self.state()["start_at_ms"])
+        await self.resume(ids[2])
+        s = self.state()
+        self.assertEqual(s["start_at_ms"] - s["server_ms"], 5000)  # 재개하면 새 카운트다운
+
+    async def test_race_pause_first_then_countdown_timer_does_nothing(self):
+        await self.start()
+        ids = self.state()["pick_order"]
+        await self.enter_all()
+        await self.core.lock.acquire()
+        pause_task = asyncio.create_task(self.pause(ids[0]))
+        await settle()
+        await self.clock.advance(5)  # 카운트다운 타이머는 일시정지 뒤에 락을 얻는다
+        self.core.lock.release()
+        self.assertEqual((await pause_task)[0], "ok")
+        await settle()
+        self.assertEqual(self.state()["phase"], "starting")
+        self.assertEqual(self.state()["paused"]["remaining_ms"], 0)
+        await self.resume(ids[0])
+        await self.clock.advance(0)
+        self.assertEqual(self.state()["phase"], "picking")
+
+    async def test_new_game_clears_pause(self):
+        await self.start_picking()
+        await self.pause(self.picker_id())
+        async with self.core.lock:
+            self.core.new_game(self.people, "activity")  # /게임시작
+        self.assertIsNone(self.state()["paused"])
+
+
 class EmbedModeTest(RulesBase):
     pick_mode = "embed"
 
@@ -667,6 +810,7 @@ class PermissionTest(RulesBase):
         me = self.me("101")
         self.assertEqual(me, {
             "id": "101", "role": "spectator", "team": None, "can_start": True, "can_start_now": False,
+            "can_pause": False, "can_resume": False,
             "can_pick": False, "can_advantage": False, "can_report": False, "can_reverse": False,
         })
         await self.start_picking()
@@ -677,6 +821,7 @@ class PermissionTest(RulesBase):
         picker_team = next(p["team"] for p in s["players"] if p["id"] == picker)
         self.assertEqual(self.me(picker), {
             "id": picker, "role": "player", "team": picker_team, "can_start": False, "can_start_now": False,
+            "can_pause": True, "can_resume": False,
             "can_pick": True, "can_advantage": False, "can_report": False, "can_reverse": False,
         })
         self.assertFalse(self.me(other)["can_pick"])
@@ -717,7 +862,11 @@ class DevModeTest(RulesBase):
         self.assertEqual({p["id"] for p in self.state()["players"]}, {str(m.id) for m in self.dev_people})
         await self.clock.advance(15)
         me = self.me(tester)
-        self.assertEqual((me["role"], me["can_pick"]), ("spectator", True))
+        self.assertEqual((me["role"], me["can_pick"], me["can_pause"]), ("spectator", True, True))
+        gid = self.state()["game_id"]
+        self.assertEqual((await self.core.activity_pause(tester, gid))[0], "ok")
+        self.assertTrue(self.me(tester)["can_resume"])
+        self.assertEqual((await self.core.activity_resume(tester, gid))[0], "ok")
         for _ in range(6):
             self.assertEqual((await self.pick(user_id=tester))[0], "ok")
         gid = self.state()["game_id"]

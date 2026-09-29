@@ -299,6 +299,8 @@ class WebSocketMessageTest(ActivityTestBase):
                 "team": None,
                 "can_start": True,
                 "can_start_now": False,
+                "can_pause": False,
+                "can_resume": False,
                 "can_pick": False,
                 "can_advantage": False,
                 "can_report": False,

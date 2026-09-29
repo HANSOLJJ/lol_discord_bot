@@ -214,6 +214,26 @@ class AdvantagePhaseTest(AdvantageBase):
         self.assertEqual(s["advantage"]["status"], "chosen")
         self.assertEqual((s["phase"], s["current_index"]), ("picking", 0))
 
+    async def test_pause_rejects_advantage_and_resume_rearms_skip_timer(self):
+        await self.open_advantage()
+        team1 = self.ids("team1")
+        gid = self.state()["game_id"]
+        await self.clock.advance(5)
+        self.assertEqual((await self.core.activity_pause(self.ids("team2")[0], gid))[0], "ok")
+        s = self.state()
+        self.assertEqual((s["deadline_ms"], s["paused"]["remaining_ms"]), (None, 15000))
+        self.assertFalse(self.me(team1[0])["can_advantage"])
+        self.assertEqual((await self.advantage(team1[0], received_at=self.clock() + 1000))[0], "paused")
+        await self.clock.advance(100)
+        self.assertEqual(self.state()["phase"], "advantage")  # 정지 중에는 건너뛰지 않는다
+        await self.core.activity_resume(team1[1], gid)
+        s = self.state()
+        self.assertEqual(s["deadline_ms"] - s["server_ms"], 15000)
+        await self.clock.advance(16.9)
+        self.assertEqual(self.state()["phase"], "advantage")
+        await self.clock.advance(0.1)
+        self.assertEqual(self.state()["advantage"]["status"], "skipped")
+
     async def test_new_game_clears_advantage(self):
         await self.open_advantage()
         arrange(self.core, NO_ADVANTAGE)

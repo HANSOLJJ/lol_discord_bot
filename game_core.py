@@ -36,6 +36,7 @@ DEFAULT_PICK_GRACE_SECONDS = 2.0  # config.json에 pick_grace_seconds가 없을 
 DEFAULT_READY_COUNTDOWN_SECONDS = 5  # config.json에 ready_countdown_seconds가 없을 때 쓰는 폴백(초)
 TEAM_KEYS = ("team1", "team2")
 START_PHASES = ("none", "awaiting_result", "completed")  # 액티비티 start를 받는 phase
+PAUSE_PHASES = ("starting", "advantage", "picking")  # 액티비티 pause·resume을 받는 phase
 
 
 ##
@@ -165,6 +166,9 @@ class GameCore:
         self.start_at = None  # activity 모드 자동 시작 시각(단조 시계). 입장 대기 중이면 None
         self.start_forced = False  # 이번 카운트다운이 "지금 시작"으로 잡혔는가(누가 나가도 취소하지 않는다)
         self.deadline = None  # activity 모드 현재 차례(또는 어드밴티지 선택) 마감(단조 시계)
+        self.paused_by = None  # activity 모드 일시정지한 사람 ID 문자열. 정지가 아니면 None
+        # 일시정지 때 남은 시간(초). 입장 대기 중(카운트다운 없음)에 정지했으면 None
+        self.paused_remaining = None
         # activity 모드 5·6위 어드밴티지 {"kind", "team", "status", "champion"(한국어 이름)}. 없으면 None
         self.advantage = None
         # 액티비티에 입장한(ready를 보낸) 사용자 ID 문자열. 판과 무관하게 연결 기준으로 유지한다
@@ -284,6 +288,8 @@ class GameCore:
         self.start_at = None
         self.start_forced = False
         self.deadline = None
+        self.paused_by = None
+        self.paused_remaining = None
         self.advantage = None
 
         half = MAX_PLAYERS // 2
@@ -369,10 +375,15 @@ class GameCore:
 
     ##
     # @brief 입장 현황에 맞춰 starting 카운트다운을 걸거나 취소한다. 락 안에서 부른다.
-    # @details 운영(DEV 아님) activity 판의 starting에서, "지금 시작"이 아닐 때만 움직인다.
+    # @details 운영(DEV 아님) activity 판의 starting에서, 일시정지가 아니고 "지금 시작"이 아닐 때만 움직인다.
     #          전원 입장이면 카운트다운을 걸고, 카운트다운 중 누가 나가면 취소하고 입장 대기로 돌아간다.
     def _sync_countdown(self):
-        if self.dev_mode or self.visible_phase() != "starting" or self.start_forced:
+        if (
+            self.dev_mode
+            or self.visible_phase() != "starting"
+            or self.paused_by is not None
+            or self.start_forced
+        ):
             return
         ready = self._all_present()
         if ready and self.start_at is None:
@@ -849,6 +860,7 @@ class GameCore:
             "result": None,
             "advantage": None,
             "present": [],
+            "paused": None,
         }
         if phase == "none":
             return state
@@ -882,6 +894,12 @@ class GameCore:
             ],
         )
         state["present"] = [p["id"] for p in state["players"] if p["id"] in self.present]
+        if self.paused_by is not None:
+            remaining = self.paused_remaining
+            state["paused"] = {
+                "by": self.paused_by,
+                "remaining_ms": round(remaining * 1000) if remaining is not None else None,
+            }
         adv = self.advantage
         if adv is not None:
             state["advantage"] = {
@@ -890,14 +908,15 @@ class GameCore:
                 "status": adv["status"],
                 "champion_id": champ_ids.get(adv["champion"]) if adv["status"] == "chosen" else None,
             }
+        # 입장 대기 중에는 start_at이, 일시정지 중에는 start_at·deadline이 None이다
+        deadline_ms = at_ms(self.deadline) if self.deadline is not None else None
         if phase == "starting":
-            # 입장 대기 중에는 카운트다운이 없다
             state["start_at_ms"] = at_ms(self.start_at) if self.start_at is not None else None
         elif phase == "advantage":
-            state.update(deadline_ms=at_ms(self.deadline), grace_ms=round(self._grace() * 1000))
+            state.update(deadline_ms=deadline_ms, grace_ms=round(self._grace() * 1000))
         elif phase == "picking":
             state.update(
-                deadline_ms=at_ms(self.deadline),
+                deadline_ms=deadline_ms,
                 grace_ms=round(self._grace() * 1000),
                 turn_id=self.turn_id(),
                 current_index=self.current_pick_index,
@@ -923,14 +942,21 @@ class GameCore:
             snapshot["pick_order"][snapshot["current_index"]] if phase == "picking" else None
         )
         adv_team = snapshot["advantage"]["team"] if snapshot["advantage"] is not None else None
+        paused = snapshot["paused"] is not None
         return {
             "id": user_id,
             "role": "player" if player is not None else "spectator",
             "team": player["team"] if player is not None else None,
             "can_start": self.pick_mode() == "activity" and phase in START_PHASES,
-            "can_start_now": phase == "starting" and snapshot["start_at_ms"] is None and can_act,
-            "can_pick": phase == "picking" and (self.dev_mode or current == user_id),
+            "can_start_now": phase == "starting"
+            and snapshot["start_at_ms"] is None
+            and not paused
+            and can_act,
+            "can_pause": phase in PAUSE_PHASES and not paused and can_act,
+            "can_resume": phase in PAUSE_PHASES and paused and can_act,
+            "can_pick": phase == "picking" and not paused and (self.dev_mode or current == user_id),
             "can_advantage": phase == "advantage"
+            and not paused
             and (self.dev_mode or (player is not None and player["team"] == adv_team)),
             "can_report": phase == "awaiting_result" and can_act,
             "can_reverse": phase == "completed" and can_act,
@@ -989,12 +1015,83 @@ class GameCore:
                 return "wrong_phase", "지금은 시작할 수 없습니다."
             if not self.dev_mode and not self._is_player(user_id):
                 return "not_allowed", "이 판의 참가자만 시작할 수 있습니다."
+            if self.paused_by is not None:
+                return "paused", "일시정지 중입니다."
             if self.start_at is not None:
                 return "wrong_phase", "이미 시작 카운트다운 중입니다."
             self._start_countdown(forced=True)
             log.info("[GAME] 지금 시작 (game=%s, by=%s)", self.game_uid, user_id)
             self._emit()
         return "ok", f"{self.ready_countdown_seconds()}초 뒤 시작합니다."
+
+    ##
+    # @brief pause 요청. 남은 시간(시작 카운트다운 또는 현재 마감)을 저장하고 타이머를 멈춘다.
+    # @details start_at·deadline을 None으로 비워, 락을 기다리던 옛 타이머도 동등 비교 guard에서 걸러진다.
+    #          시간 제한이 없고 재개는 참가자 누구나 한다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @return (code, message).
+    async def activity_pause(self, user_id, game_id):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            phase = self.visible_phase()
+            if phase not in PAUSE_PHASES:
+                return "wrong_phase", "지금은 일시정지할 수 없습니다."
+            if not self.dev_mode and not self._is_player(user_id):
+                return "not_allowed", "이 판의 참가자만 일시정지할 수 있습니다."
+            if self.paused_by is not None:
+                return "already_paused", "이미 일시정지 중입니다."
+            if phase == "starting":
+                remaining = None if self.start_at is None else max(0.0, self.start_at - self.clock())
+            else:
+                remaining = self.deadline - self.clock()
+                if remaining <= 0:
+                    return "timeout", "마감이 지나 일시정지할 수 없습니다."
+            self.paused_by = user_id
+            self.paused_remaining = remaining
+            self.start_at = None
+            self.deadline = None
+            self._cancel_timer()
+            log.info("[GAME] 일시정지 (game=%s, by=%s, remaining=%s)", self.game_uid, user_id, remaining)
+            self._emit()
+        return "ok", "일시정지했습니다."
+
+    ##
+    # @brief resume 요청. 저장한 남은 시간으로 마감(또는 시작 시각)을 다시 잡고 phase에 맞는 타이머를 건다.
+    # @details 입장 대기 중에 정지했으면 입장 대기로 돌아가고, 그때 전원이 입장해 있으면 카운트다운을 새로 건다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @return (code, message).
+    async def activity_resume(self, user_id, game_id):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            phase = self.visible_phase()
+            if phase not in PAUSE_PHASES:
+                return "wrong_phase", "지금은 재개할 수 없습니다."
+            if not self.dev_mode and not self._is_player(user_id):
+                return "not_allowed", "이 판의 참가자만 재개할 수 있습니다."
+            if self.paused_by is None:
+                return "not_paused", "일시정지 중이 아닙니다."
+            remaining = self.paused_remaining
+            self.paused_by = None
+            self.paused_remaining = None
+            gen = self.current_game_id
+            if phase == "starting":
+                if remaining is not None:
+                    self.start_at = self.clock() + remaining
+                    self._set_timer(self._auto_start(gen, self.start_at))
+                self._sync_countdown()
+            elif phase == "advantage":
+                self.deadline = self.clock() + remaining
+                self._set_timer(self._expire_advantage(gen, self.deadline))
+            else:
+                self.deadline = self.clock() + remaining
+                self._set_timer(self._expire_turn(gen, self.current_pick_index, self.deadline))
+            log.info("[GAME] 재개 (game=%s, by=%s)", self.game_uid, user_id)
+            self._emit()
+        return "ok", "재개했습니다."
 
     ##
     # @brief pick 요청. 규격 9절 판정 순서대로 확인하고 확정하면 바로 다음 차례로 넘긴다.
@@ -1010,6 +1107,8 @@ class GameCore:
                 return "stale_game", "이미 끝났거나 바뀐 판입니다."
             if self.visible_phase() != "picking":
                 return "wrong_phase", "지금은 챔피언을 고를 수 없습니다."
+            if self.paused_by is not None:  # 정지 중에는 deadline이 None이라 마감 판정보다 먼저 거절한다
+                return "paused", "일시정지 중입니다."
             if turn_id != self.turn_id():
                 return "stale_turn", "이미 지나간 차례입니다."
             picker = self.pick_order[self.current_pick_index]
@@ -1066,6 +1165,8 @@ class GameCore:
                 return "stale_game", "이미 끝났거나 바뀐 판입니다."
             if self.visible_phase() != "advantage":
                 return "wrong_phase", "지금은 어드밴티지를 고를 수 없습니다."
+            if self.paused_by is not None:  # 정지 중에는 deadline이 None이라 마감 판정보다 먼저 거절한다
+                return "paused", "일시정지 중입니다."
             adv = self.advantage
             if not self.dev_mode and not any(
                 str(m.id) == user_id for m in self.teams.get(adv["team"], [])
