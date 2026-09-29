@@ -119,6 +119,8 @@ export function getChampionPicker(
 /** 챔피언 카드를 클릭하여 픽 또는 어드밴티지 선택을 할 수 있는지 여부를 판정한다. */
 export function canClickChampion(championId: string, state: StateMessage, isPending: boolean): boolean {
   if (isPending) return false
+  // 일시정지 중에는 서버가 pick·advantage를 paused로 거절한다.
+  if (state.paused !== null) return false
 
   // advantage 단계: me.can_advantage일 때 모든 후보 선택 가능
   if (state.phase === 'advantage') {

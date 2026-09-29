@@ -347,6 +347,14 @@ describe('입장 현황·일시정지 계산 함수 (view-logic)', () => {
     assert.equal(canResume(pickingOtherTurnState({ me: { ...pickingPausedState().me } }), false, true), false)
   })
 
+  it('일시정지 중에는 내 차례·어드밴티지여도 챔피언을 누를 수 없다', () => {
+    const paused = { by: SAMPLE_PLAYER_IDS[1], remaining_ms: 8000 }
+    assert.equal(canClickChampion('Annie', pickingMyTurnState(), false), true)
+    assert.equal(canClickChampion('Annie', pickingMyTurnState({ deadline_ms: null, paused }), false), false)
+    assert.equal(canClickChampion('Ahri', advantageBanPendingState(), false), true)
+    assert.equal(canClickChampion('Ahri', advantageBanPendingState({ deadline_ms: null, paused }), false), false)
+  })
+
   it('이탈 알림(getPresenceAlerts)은 다른 참가자가 나가면 띄우고, 나갔던 사람이 돌아오면 재입장을 띄운다', () => {
     const all = pickingOtherTurnState()
     const noJae = pickingOtherTurnState({ present: SAMPLE_PLAYER_IDS.filter((id) => id !== '555555555555555555') })
