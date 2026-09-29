@@ -10,7 +10,7 @@
   - [x] `web_server.py`: aiohttp 정적 웹 서버 구현 (경로 규칙, Host 분기, 캐시 헤더, 보안 검증, 쿼리 제외 로깅)
   - [x] `tests/test_web_server.py`: 정적 웹 서버 단위 테스트 작성 및 검증
   - [x] `ecosystem.config.cjs`: pm2 프로세스 설정 (`lol`, `lol-web`, `lol-dev`, `lol-dev-web`, `lol-health`, `lol-tunnel`)
-  - [ ] `scripts/deploy.sh`: 맥미니 배포 스크립트 작성
+  - [x] `scripts/deploy.sh`: 맥미니 배포 스크립트 작성
   - [ ] `scripts/healthcheck.py` 및 `tests/test_healthcheck.py`: 헬스체크 스크립트 및 테스트 작성
   - [ ] `docs/DEPLOY_MACMINI.md`: 맥미니 배포 문서 작성 및 보강
 - [ ] 워커 결과 검증 후 main 병합, push, 맥미니에 반영
