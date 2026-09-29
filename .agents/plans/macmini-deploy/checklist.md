@@ -18,14 +18,14 @@
 - [x] pm2 설정 파일로 `lol`, `lol-web`, `lol-dev`, `lol-dev-web`, `lol-health`, `lol-tunnel` 기동, `pm2 save` (2026-09-29)
 - [x] 인터넷 주소 확인: `lol.hansoljj.com/` 대시보드, `?frame_id=` 픽 화면, `/terms`, `/privacy`, `/history_data.json`(236판, no-cache), `/favicon.svg`, `lol-dev.hansoljj.com` Vite, finance 302
 - [x] 사용자가 맥미니 `.env`에 `DISCORD_TOKEN_DEV`, `DISCORD_CLIENT_ID_DEV`, `DISCORD_CLIENT_SECRET_DEV` 추가(2026-09-29, `DEV_MODE` 키는 삭제)
-- [ ] pm2로 `lol`, `lol-web`, `lol-dev`, `lol-dev-web` 기동, `pm2 save`, 로컬 주소 확인
+- [x] pm2로 `lol`, `lol-web`, `lol-dev`, `lol-dev-web` 기동, `pm2 save`, 로컬 주소 확인 (앱 이름이 `lol-bot`·`lol-bot-dev`·`lol-web-dev`로 바뀐 뒤 1cac568에서 확인)
 - [x] 사용자 확인 후 터널에 `lol-dev`·`arena`·`pick` 규칙 추가, `lol-dev` DNS 이전, cloudflared 재시작, finance 1초 만에 복귀 (2026-09-29)
 - [x] 롤 전용 터널 `lol` 생성, pm2 `lol-tunnel` 기동·`pm2 save`, `lol-dev`·`lol` DNS를 롤 터널로 연결, finance 설정을 원래대로 되돌리고 재시작(1초 만에 복귀)
 - [x] 워커 결과에 `lol-tunnel`을 ecosystem에 넣은 뒤, 수동으로 띄운 `lol-tunnel`을 ecosystem 기준으로 바꿔 띄우기
 - [x] `lol.hansoljj.com` 대시보드 확인 후 사용자가 Pages에서 `arena.hansoljj.com` 도메인 제거, 코디네이터가 arena DNS를 롤 터널로 연결하고 301 확인(2026-09-29, `/terms?x=1` → `lol.hansoljj.com/terms?x=1`)
 - [x] 사용자가 Zero Trust의 Windows 터널에서 `lol-dev` 공개 호스트 이름 삭제(DNS는 롤 터널을 그대로 가리킴)
 - [x] Windows dev 봇·Vite 종료
-- [ ] 디스코드에서 맥미니 dev 액티비티 확인
-- [ ] 사용자가 Cloudflare 대시보드의 Windows 대시보드 관리형 터널에서 `lol-dev` 공개 호스트 이름을 지우고, Windows cloudflared 서비스를 정리
-- [ ] 사용자 결정 후 arena.hansoljj.com을 Pages에서 맥미니(8791)로 전환
-- [ ] 재부팅 뒤 자동 기동 확인
+- [x] 디스코드에서 맥미니 dev 액티비티 확인 (어드밴티지 밴·강제픽 dev 확인에 포함, 사용자 확인 완료)
+- [ ] 사용자가 Cloudflare 대시보드의 Windows 대시보드 관리형 터널에서 `lol-dev` 공개 호스트 이름을 지우고, Windows cloudflared 서비스를 정리 (확인 필요: Windows cloudflared 서비스 잔존 여부와 정리 여부)
+- [x] 사용자 결정 후 arena.hansoljj.com을 Pages에서 맥미니(8791)로 전환 (759c833, Pages 도메인 제거·301 확인)
+- [x] 재부팅 뒤 자동 기동 확인 (ba0ae02 재부팅 리허설)
