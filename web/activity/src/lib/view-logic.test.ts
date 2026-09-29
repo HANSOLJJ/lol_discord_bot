@@ -180,11 +180,11 @@ describe('화면 계산 함수 (view-logic)', () => {
     assert.equal(canClickChampion('MonkeyKing', forcedForTeam1, false), true)
 
     // 이점 팀(team2) 선수 차례인 경우:
-    // current_index = 2 ('555555555555555555' 윤재철, team2)
+    // current_index = 3 ('444444444444444444' 보링, 강제픽 예시 배치에서 team2)
     const forcedForTeam2 = pickingForcedState({
-      current_index: 2,
+      current_index: 3,
       me: {
-        id: '555555555555555555',
+        id: '444444444444444444',
         role: 'player',
         team: 'team2',
         can_start: false,

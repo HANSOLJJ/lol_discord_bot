@@ -104,6 +104,8 @@ export function ChampionGrid({ state, isPending, isPc = false, onPick }: Props) 
           const banned = isChampionBanned(champion.id, state.advantage)
           const forced = isChampionForced(champion.id, state.advantage)
           const clickable = canClickChampion(champion.id, state, isPending)
+          // 내 차례인데 규칙(강제픽 마지막 차례 등) 때문에 못 고르는 카드는 흐리게 보여 준다.
+          const ruleBlocked = myTurn && !isPending && !clickable && !locked && !banned
           const pickerInfo = getChampionPicker(
             champion.id,
             state.selections,
@@ -155,10 +157,10 @@ export function ChampionGrid({ state, isPending, isPc = false, onPick }: Props) 
             nameColor = '#e6e9ef'
             ariaLabel = state.me.can_advantage ? `${champion.name} 선택하기` : champion.name
           } else {
-            borderColor = myTurn ? '#9aa4bb' : '#262b36'
+            borderColor = myTurn && !ruleBlocked ? '#9aa4bb' : '#262b36'
             tileBg = '#171a21'
             nameColor = '#e6e9ef'
-            ariaLabel = myTurn ? `${champion.name} 선택하기` : champion.name
+            ariaLabel = myTurn && !ruleBlocked ? `${champion.name} 선택하기` : champion.name
           }
 
           const cardClass = `${isPc ? styles.cardPc : styles.cardMobile} ${clickable ? styles.cardClickable : ''}`
@@ -175,6 +177,7 @@ export function ChampionGrid({ state, isPending, isPc = false, onPick }: Props) 
                 background: tileBg,
                 border: `2px solid ${borderColor}`,
                 cursor: clickable ? 'pointer' : 'default',
+                opacity: ruleBlocked ? 0.4 : 1,
               }}
             >
               <ChampionCardImage

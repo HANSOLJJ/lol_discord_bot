@@ -45,10 +45,12 @@ export function TurnCountdown({ state, anchor }: Props) {
     const kindText = state.advantage?.kind === 'ban' ? '밴할 챔피언 1개' : '상대 팀 강제픽 1개'
     title = (
       <>
-        <span style={{ color: teamColor }}>{teamLabel}</span> 어드밴티지 · {kindText}
+        <span style={{ color: teamColor }}>{teamLabel}</span> 어드밴티지
       </>
     )
-    hint = state.me.can_advantage ? '챔피언을 누르면 바로 확정됩니다' : `${teamLabel}가 고르는 중`
+    hint = state.me.can_advantage
+      ? `${kindText}를 고르세요 · 누르면 바로 확정`
+      : `${teamLabel}가 ${kindText}를 고르는 중`
   } else if (isPicking) {
     title = myTurn ? '내 차례입니다' : picker ? `${picker.name} 님이 고르는 중` : '선택 진행 중'
     hint = mustPickForced(state)

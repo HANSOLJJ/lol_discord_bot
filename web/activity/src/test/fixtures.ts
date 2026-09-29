@@ -335,6 +335,26 @@ export function samplePickingState(overrides: Record<string, unknown> = {}): Sta
   })
 }
 
+function playersWithTeam2(team2Ids: string[]) {
+  const withTeam = SAMPLE_PLAYERS.map((p) => ({
+    ...p,
+    team: team2Ids.includes(p.id) ? ('team2' as const) : ('team1' as const),
+  }))
+  return [...withTeam.filter((p) => p.team === 'team1'), ...withTeam.filter((p) => p.team === 'team2')]
+}
+
+// 픽 순서(승수) 기준 6위 청명사냥꾼과 5위 사무엘이 TEAM 2로 모인 배치이다. 나머지 한 명이 1위면 밴, 3위면 강제픽이다.
+export const ADVANTAGE_BAN_PLAYERS = playersWithTeam2([
+  '333333333333333333',
+  '111111111111111111',
+  '222222222222222222',
+])
+export const ADVANTAGE_FORCE_PLAYERS = playersWithTeam2([
+  '333333333333333333',
+  '111111111111111111',
+  '444444444444444444',
+])
+
 export function advantageBanPendingState(overrides: Record<string, unknown> = {}): StateMessage {
   return state({
     game_id: 'g-1790000000000',
@@ -349,7 +369,7 @@ export function advantageBanPendingState(overrides: Record<string, unknown> = {}
     turn_id: null,
     current_index: null,
     ddragon_version: '15.19.1',
-    players: SAMPLE_PLAYERS,
+    players: ADVANTAGE_BAN_PLAYERS,
     pick_order: SAMPLE_PICK_ORDER,
     champions: SAMPLE_CHAMPIONS,
     selections: {},
@@ -362,7 +382,7 @@ export function advantageBanPendingState(overrides: Record<string, unknown> = {}
     },
     result: null,
     me: {
-      id: '555555555555555555', // 윤재철 (team2)
+      id: '111111111111111111', // 사무엘 (team2, 5위)
       role: 'player',
       team: 'team2',
       can_start: false,
@@ -377,6 +397,7 @@ export function advantageBanPendingState(overrides: Record<string, unknown> = {}
 
 export function advantageForcePendingState(overrides: Record<string, unknown> = {}): StateMessage {
   return advantageBanPendingState({
+    players: ADVANTAGE_FORCE_PLAYERS,
     advantage: {
       kind: 'force',
       team: 'team2',
@@ -405,6 +426,7 @@ export function advantageWaitingState(overrides: Record<string, unknown> = {}): 
 
 export function pickingBannedState(overrides: Record<string, unknown> = {}): StateMessage {
   return pickingMyTurnState({
+    players: ADVANTAGE_BAN_PLAYERS,
     advantage: {
       kind: 'ban',
       team: 'team2',
@@ -417,6 +439,7 @@ export function pickingBannedState(overrides: Record<string, unknown> = {}): Sta
 
 export function pickingForcedState(overrides: Record<string, unknown> = {}): StateMessage {
   return pickingMyTurnState({
+    players: ADVANTAGE_FORCE_PLAYERS,
     advantage: {
       kind: 'force',
       team: 'team2',
@@ -442,7 +465,7 @@ export function pickingForcedLastState(overrides: Record<string, unknown> = {}):
     turn_id: 'g-1790000000000:5',
     current_index: 5,
     ddragon_version: '15.19.1',
-    players: SAMPLE_PLAYERS,
+    players: ADVANTAGE_FORCE_PLAYERS,
     pick_order: SAMPLE_PICK_ORDER,
     champions: SAMPLE_CHAMPIONS,
     selections: {
