@@ -12,3 +12,21 @@
   - 강제픽은 "상대 팀만 고를 수 있고, 상대 팀의 마지막 차례까지 남아 있으면 그 사람은 강제픽만 고를 수 있다"로 보장한다. 자동 배정도 같은 규칙을 따른다.
   - 밴하면 후보가 7개가 되어도 6명이 고를 수 있으므로 후보 수는 늘리지 않는다.
   - 이점이 확정된 판은 판 기록에 `advantage` 필드를 남긴다.
+
+## 2026-09-29 (agy 워커 기록)
+
+- 프론트엔드 규격 v3 업데이트:
+  - `PROTOCOL_VERSION = 3`.
+  - `PHASES`에 `'advantage'` 포함.
+  - `advantage` 상태 검증: `status === 'chosen'`일 때만 `champion_id`가 문자열이고, `pending`/`skipped`일 때는 `null`.
+  - 상대 팀 마지막 차례 판정: `pick_order`에서 `current_index` 이후 상대 팀 선수가 없고, 강제픽이 아직 선택되지 않았을 때 활성화.
+  - 카운트다운 컴포넌트: `advantage` 단계에서는 상단에 이점 팀 색상과 "TEAM X 어드밴티지 · 밴/강제픽 1개"를 표시하고, 내가 이점 팀이 아니면 "TEAM X가 고르는 중"을 안내.
+  - 강제픽 필수 선택 턴: 픽 차례 힌트에 "강제픽 챔피언을 골라야 합니다"를 명시하고 강제픽 카드만 누를 수 있도록 제한.
+  - PiP 화면: `advantage` 단계에서 "[TEAM X] 어드밴티지 선택 중"과 남은 시간을 표시.
+
+## 2026-09-29 (코디네이터 규격 보충 반영)
+
+- 규격 보충:
+  - 이점이 있는 판은 `starting` 단계부터 `state.advantage`가 `{kind, team, status: 'pending', champion_id: null}`로 전송됨.
+  - `chosen` 또는 `skipped` 이후에도 `awaiting_result`, `completed`까지 `advantage` 객체가 유지됨.
+  - 화면 처리: `phase === 'advantage'`일 때만 챔피언 고르기 UI를 열고, `starting`에서는 팀 구성 쪽에 "TEAM X 어드밴티지 예정 · 밴/강제픽"으로 요약 표시.
