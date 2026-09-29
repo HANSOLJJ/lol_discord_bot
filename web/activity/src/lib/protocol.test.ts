@@ -33,10 +33,85 @@ describe('parseServerMessage', () => {
     assert.deepEqual(parseServerMessage(completed), completed)
   })
 
-  it('protocol_version이 1이거나 다르면 거절한다', () => {
+  it('protocol_version이 3이 아니면 거절한다 (protocol_version 2 거절 포함)', () => {
     assert.equal(parseServerMessage(state({ protocol_version: 1 })), null)
-    assert.equal(parseServerMessage(state({ protocol_version: 3 })), null)
-    assert.equal(parseServerMessage(state({ protocol_version: '2' })), null)
+    assert.equal(parseServerMessage(state({ protocol_version: 2 })), null)
+    assert.equal(parseServerMessage(state({ protocol_version: 4 })), null)
+    assert.equal(parseServerMessage(state({ protocol_version: '3' })), null)
+  })
+
+  it('v3 advantage 필드와 상태를 정상 검증한다', () => {
+    // advantage 필드가 null(이점 없음)인 상태 허용
+    const noAdvantage = state({ advantage: null })
+    assert.deepEqual(parseServerMessage(noAdvantage), noAdvantage)
+
+    // ban pending
+    const banPending = state({
+      phase: 'advantage',
+      advantage: { kind: 'ban', team: 'team2', status: 'pending', champion_id: null },
+      me: { ...state().me, can_advantage: true },
+    })
+    assert.deepEqual(parseServerMessage(banPending), banPending)
+
+    // force chosen
+    const forceChosen = state({
+      advantage: { kind: 'force', team: 'team1', status: 'chosen', champion_id: 'Ahri' },
+    })
+    assert.deepEqual(parseServerMessage(forceChosen), forceChosen)
+
+    // skipped
+    const skipped = state({
+      advantage: { kind: 'ban', team: 'team2', status: 'skipped', champion_id: null },
+    })
+    assert.deepEqual(parseServerMessage(skipped), skipped)
+  })
+
+  it('잘못된 advantage kind와 status를 거부한다', () => {
+    // 잘못된 kind
+    assert.equal(
+      parseServerMessage(
+        state({
+          advantage: { kind: 'invalid', team: 'team1', status: 'pending', champion_id: null },
+        }),
+      ),
+      null,
+    )
+    // 잘못된 status
+    assert.equal(
+      parseServerMessage(
+        state({
+          advantage: { kind: 'ban', team: 'team1', status: 'invalid', champion_id: null },
+        }),
+      ),
+      null,
+    )
+    // chosen인데 champion_id가 null
+    assert.equal(
+      parseServerMessage(
+        state({
+          advantage: { kind: 'ban', team: 'team1', status: 'chosen', champion_id: null },
+        }),
+      ),
+      null,
+    )
+    // pending인데 champion_id가 문자열
+    assert.equal(
+      parseServerMessage(
+        state({
+          advantage: { kind: 'ban', team: 'team1', status: 'pending', champion_id: 'Zed' },
+        }),
+      ),
+      null,
+    )
+    // 잘못된 team
+    assert.equal(
+      parseServerMessage(
+        state({
+          advantage: { kind: 'ban', team: 'team3', status: 'pending', champion_id: null },
+        }),
+      ),
+      null,
+    )
   })
 
   it('모르는 추가 필드는 허용한다', () => {
@@ -59,6 +134,8 @@ describe('parseServerMessage', () => {
     assert.equal(parseServerMessage(noChampions), null)
     const { selections: _sel, ...noSelections } = state()
     assert.equal(parseServerMessage(noSelections), null)
+    const { advantage: _adv, ...noAdvantage } = state()
+    assert.equal(parseServerMessage(noAdvantage), null)
     // null로 보내야 하는 필드를 생략해도 거부한다.
     const { deadline_ms: _deadline, ...noDeadline } = state()
     assert.equal(parseServerMessage(noDeadline), null)
@@ -75,6 +152,7 @@ describe('parseServerMessage', () => {
     assert.equal(parseServerMessage(state({ champions: [{ id: '1' }] })), null)
     assert.equal(parseServerMessage(state({ me: { id: USER.id, role: 'admin' } })), null)
     assert.equal(parseServerMessage(state({ me: { ...state().me, can_pick: 'true' } })), null)
+    assert.equal(parseServerMessage(state({ me: { ...state().me, can_advantage: 'true' } })), null)
     assert.equal(
       parseServerMessage(
         state({
