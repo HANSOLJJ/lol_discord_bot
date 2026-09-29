@@ -5,7 +5,7 @@
   "pick_grace_seconds": 2,
   "countdown_step_seconds": 1.2,
   "champion_count": 8,
-  "pick_mode": "embed",
+  "pick_mode": "activity",
   "dev_pick_mode": "activity",
-  "channels": ["팀짜기", "TEAM1", "TEAM2"]
+  "channels": ["팀짜기"]
 }
