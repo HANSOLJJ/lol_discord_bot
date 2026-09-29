@@ -109,7 +109,8 @@ cloudflared tunnel route dns [--overwrite-dns] bdf8b12f-2d40-4c1e-8f6a-89e5d4350
 
 2026-09-29에 Cloudflare Pages 설정에서 `arena.hansoljj.com` 사용자 지정 도메인을 공식 분리하였습니다.
 
-- GitHub의 `lol_arena` 저장소와 연동된 Pages 프로젝트는 `*.pages.dev` 주소로 빌드 및 배포가 지속되지만, 실제 서비스 목적의 대시보드로는 사용하지 않습니다.
+- GitHub의 `lol_arena` 저장소와 연동된 Pages 프로젝트는 `*.pages.dev` 주소로 빌드 및 배포가 지속되지만, 실제 서비스 목적의 대시보드로는 사용하지 않습니다. Cloudflare의 Pages 프로젝트와 GitHub 앱 "Cloudflare Workers and Pages"는 삭제 대상입니다. finance도 Pages를 쓰지 않습니다(빌드 기록 없음).
+- `lol_arena` 저장소는 2026-09-29에 지원 중단(Deprecated)으로 표시했습니다(설명과 README). 봇의 전적 백업(`history_data.json`) 대상이라 저장소는 남겨 두며, **Archive하면 읽기 전용이 되어 백업이 실패하므로 하지 않습니다.**
 - 사용자가 `arena.hansoljj.com`으로 접근하면 `lol` 터널을 거쳐 맥미니 정적 웹 서버(8791)로 도달하고, 웹 서버의 `legacy_host_redirect` 미들웨어가 `https://lol.hansoljj.com`의 동일 경로 및 쿼리로 301 영구 리다이렉트합니다. 이를 통해 기존에 공유된 링크의 접근성을 완벽히 보존합니다.
 
 ---
@@ -143,8 +144,17 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 
 ### 6-2. 운영용 앱 (`롤랜덤챔프봇`)
 - **Application ID**: `1354988564458377216`
-- **현재 동작 방식**: 디스코드 채널 메시지 및 버튼 방식(`pick_mode: embed`)
-- 운영 서버에서는 아직 디스코드 액티비티가 활성화되지 않았으며, 추후 안정화 후 액티비티로 전환할 예정입니다.
+- **현재 동작 방식**: 디스코드 액티비티(`pick_mode: activity`, 2026-09-29 전환). 되돌릴 때는 `config.json`의 `pick_mode`를 `embed`로 바꾸고 `pm2 restart lol`을 합니다.
+- **Activities**: 켜짐. URL 매핑 `/` → `lol.hansoljj.com`, `/ddragon` → `ddragon.leagueoflegends.com`. Max Participants 6, Supported Platforms는 dev 앱과 같게 맞춤.
+- **OAuth2 Redirects**: `https://127.0.0.1`. 액티비티는 리디렉션을 실제로 쓰지 않지만, 하나도 없으면 디스코드가 로그인 승인(`authorize`)을 거절합니다.
+- **앱 인증**: 완료(2026-09-29, Stripe 신원 확인 자동 승인, `verification_state` 6). 인증된 앱은 "공개 봇" 설정을 끌 수 없습니다.
+- **App Testers**: 친구들을 테스터로 등록해서 씁니다. 아래 "앱 인증과 액티비티 공개는 별개" 참고.
+
+### 앱 인증과 액티비티 공개는 별개
+- 앱 인증을 마쳐도 액티비티는 여전히 **개발자 팀과 App Testers만** 실행할 수 있었습니다. 다른 사용자는 디스코드가 페이지를 불러오기 전에 "활동 실행 실패 / 활동 실행 불가능"으로 막습니다(우리 서버에 요청이 오지 않음).
+- 권한(활동 사용, 외부 앱 사용, 앱 명령, 메시지 보내기), 명령 권한, 플랫폼, 리디렉션을 모두 확인했지만 원인이 아니었고, 테스터로 추가하자마자 열렸습니다.
+- 모든 사용자에게 열려면 Discovery 활성화가 필요한지, 디스코드 내부 공개 단계 변경이 필요한지는 공식 문서가 모호해서 확정하지 못했습니다. Discovery를 켜면 앱 디렉터리에 공개되고, 봇 코드에 서버 제한이 없어 다른 서버의 `/승리`가 전적에 섞일 수 있으므로 켜기 전에 서버 제한을 먼저 넣어야 합니다.
+- **테스터 등록 방법**: 포털의 운영 앱 → App Testers에 친구의 사용자명(표시 이름 아님)을 추가합니다. 등록자와 디스코드 친구여야 하며, "대기 중인 초대" 상태에서도 바로 실행되는 것을 확인했습니다. 짧은 시간에 여러 번 시도하면 `The resource is being rate limited`가 뜨니 잠시 뒤 한 명씩 추가합니다. 테스터 규칙상 서버 인원이 25명 미만이어야 합니다(투기장 11명).
 
 ### 6-3. Cloudflare Access 및 URL 매핑 시 유의사항
 - **Cloudflare Access 미적용**: 디스코드 내장 브라우저 프록시가 `lol-dev.hansoljj.com` 및 `lol.hansoljj.com`으로 접근해야 하므로, Cloudflare Zero Trust Access 인증 정책을 걸지 않습니다. 적용 시 디스코드 액티비티가 로드되지 않습니다.
@@ -155,11 +165,12 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 
 ## 7. 운영 전환 체크리스트 (Embed → Activity)
 
-운영 환경의 픽 방식을 기존 텍스트 채널 임베드에서 디스코드 액티비티로 전환할 때는 아래 5단계를 순서대로 수행합니다.
+운영 환경의 픽 방식을 기존 텍스트 채널 임베드에서 디스코드 액티비티로 전환할 때는 아래 단계를 순서대로 수행합니다. **2026-09-29에 모든 단계를 마치고 전환했습니다.**
 
 1. **디스코드 개발자 포털 액티비티 활성화 및 URL 매핑 등록**
    - 개발자 포털의 운영 앱(`롤랜덤챔프봇`) 설정에서 `Activities`를 활성화합니다.
    - URL Mapping에 `/` → `lol.hansoljj.com` 및 `/ddragon` → `ddragon.leagueoflegends.com`을 등록합니다.
+   - OAuth2 → Redirects에 `https://127.0.0.1`을 넣습니다. 비어 있으면 로그인 승인이 실패합니다.
 2. **맥미니 `.env` 파일에 OAuth2 인증 키 주입**
    - 맥미니 저장소 루트의 `.env` 파일에 운영 앱의 `DISCORD_CLIENT_ID` 및 `DISCORD_CLIENT_SECRET`을 설정합니다.
    - 키가 주입되어야 운영 봇(pm2 `lol`)이 기동될 때 포트 8790에서 `/pick-api` 백엔드 서버를 함께 시작합니다.
@@ -171,8 +182,11 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 4. **봇 게임 모드 및 채널 설정 변경**
    - `config.json`에서 `pick_mode`를 `"activity"`로 변경합니다.
    - `channels` 설정을 `["팀짜기"]` 단일 채널로 단순화합니다 (액티비티 모드에서는 음성 채널별 개별 임베드 전송이 불필요합니다).
-5. **디스코드 앱 인증 또는 테스터 등록**
-   - 정식 서비스를 위해 디스코드 앱 인증을 신청하거나(서비스 약관: `https://lol.hansoljj.com/terms`, 개인정보 처리방침: `https://lol.hansoljj.com/privacy`), 대상 길드의 플레이어들을 개발자 포털의 앱 테스터로 등록합니다.
+5. **디스코드 앱 인증과 테스터 등록**
+   - 앱 인증 조건: 앱이 개발자 팀 소속, 약관 URL(`https://lol.hansoljj.com/terms`)과 개인정보 처리방침 URL(`https://lol.hansoljj.com/privacy`), 설치 링크, 팀 멤버 전원의 이메일 인증과 2단계 인증. 앱을 팀으로 옮기는 것은 되돌릴 수 없습니다.
+   - 인증만으로는 친구들이 실행하지 못했으므로(6-2절), 플레이어들을 App Testers로 등록합니다.
+6. **확인**
+   - 개발자 본인 계정은 항상 열리므로 확인에 쓰지 않습니다. **테스터로 등록한 친구 계정**으로, 음성 채널이나 `/실행`(Entry Point)으로 연 액티비티에 들어가지는지 확인합니다.
 
 ---
 
@@ -186,5 +200,7 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 | `arena.hansoljj.com` 서빙 | Cloudflare Pages 연동으로 배포 | 맥미니 정적 웹 서버(8791)로 인입 후 `https://lol.hansoljj.com`으로 301 리다이렉트 | 2026-09-29 Pages 사용자 지정 도메인 분리, 기존 공유 링크 보존 및 메인 도메인 통일 |
 | 액티비티 URL 매핑 | `/` → `arena.hansoljj.com/pick` 계획 | `/` → `lol.hansoljj.com` (개발은 `lol-dev.hansoljj.com`) | `?frame_id=` 쿼리 파라미터 기반으로 웹 서버 루트에서 대시보드와 픽 화면을 자동 분기 |
 | finance 터널 공용 사용 | 맥미니 기존 finance 터널에 롤 ingress 추가 계획 | 롤 전용 독립 터널 `lol` 생성 및 분리 | finance 서비스 중단 방지 및 설정 변경 시 상호 격리 보장 |
+| 운영 픽 방식 | 채널 버튼(`pick_mode: embed`), 3채널 전송 | 액티비티(`pick_mode: activity`), `channels: ["팀짜기"]` | 2026-09-29 운영 전환. 친구들은 App Testers로 등록 |
+| `lol_arena` 저장소 | 대시보드 원본과 Pages 배포 | 지원 중단 표시, 전적 백업 전용. 로컬 클론 삭제 | 2026-09-29 대시보드를 `lol_discord_bot/web/`으로 이전 완료 |
 | Windows 개발 환경 터널 | Windows 서비스로 등록된 대시보드 관리형 터널이 `lol-dev`를 처리 | 그 터널의 `lol-dev` 공개 호스트 이름을 지우고, `lol-dev` DNS를 맥미니 `lol` 터널로 옮김. Windows의 터널 자체와 cloudflared 서비스는 남아 있을 수 있으나 쓰지 않는다 | 2026-09-29 개발·운영 환경을 모두 맥미니로 단일화 |
 

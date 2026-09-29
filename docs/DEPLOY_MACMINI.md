@@ -20,7 +20,7 @@ Cloudflare 터널, DNS 설정, 캐시 규칙, 디스코드 개발자 포털 설�
 
 `ecosystem.config.cjs`에 정의된 6개 앱입니다.
 
-- `lol`: 운영 디스코드 봇 (`pick_mode: embed`, `DEV_MODE=false`). 운영 환경에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되면 포트 8790에서 `/pick-api` 액티비티 API 서버도 함께 시작합니다.
+- `lol`: 운영 디스코드 봇 (`pick_mode: activity`, `DEV_MODE=false`). 운영 환경에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되면 포트 8790에서 `/pick-api` 액티비티 API 서버도 함께 시작합니다.
 - `lol-web`: aiohttp 정적 웹 서버 (`WEB_PORT=8791`). 프론트엔드 빌드 결과물(`web/activity/dist/`)을 서빙하고 구 도메인 리다이렉트를 처리합니다.
 - `lol-dev`: 개발 디스코드 봇 (`DEV_MODE=true`, `ACTIVITY_PORT=8792`, `dev_pick_mode: activity`, `dev_auto_start_seconds: 0`).
 - `lol-dev-web`: 액티비티 Vite 개발 서버 (포트 5173, `ACTIVITY_PROXY_TARGET=http://127.0.0.1:8792`).
