@@ -394,7 +394,8 @@ class GameCore:
 
     ##
     # @brief 액티비티 입장 집합을 바꾼다. 액티비티 서버가 입장 사용자가 바뀔 때마다 부른다.
-    # @details 바뀌었으면 starting 카운트다운을 맞추고 state를 알린다.
+    # @details 바뀌었으면 starting 카운트다운을 맞추고 state를 알린다. user_ids는 락을 얻은 뒤에 읽으므로
+    #          호출부가 계속 갱신하는 컬렉션을 넘기면 반영 순서가 뒤바뀌어도 최신 값이 남는다.
     # @param user_ids 지금 입장한 사용자 ID 문자열들(관전자 포함, snapshot이 참가자만 거른다).
     async def set_present(self, user_ids):
         async with self.lock:

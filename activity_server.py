@@ -2,7 +2,7 @@
 # @file activity_server.py
 # @brief 디스코드 액티비티용 HTTP·WebSocket 서버 (토큰 교환, 세션, 상태 스냅샷, 게임 요청).
 # @details 봇 프로세스 안에서 aiohttp.web으로 127.0.0.1에만 바인딩한다. 메시지 형식의 기준은
-#          docs/ACTIVITY_PROTOCOL.md(protocol_version 3)이다. 봇 전역 상태를 import하지 않고 게임 객체
+#          docs/ACTIVITY_PROTOCOL.md(protocol_version 4)이다. 봇 전역 상태를 import하지 않고 게임 객체
 #          (game_core.GameCore와 같은 메서드를 가진 객체)와 설정을 생성자로 주입받는다. 이 모듈은 세션·연결·
 #          형식 검증·요청 멱등성·state 방송을 맡고, 게임 판정은 게임 객체가 한다.
 #          OAuth code, access token, client secret, 세션 토큰, WebSocket query는 로그에 남기지 않는다.
@@ -19,7 +19,7 @@ import aiohttp
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 DEFAULT_PORT = 8790
 BIND_HOST = "127.0.0.1"
 DISCORD_API_BASE = "https://discord.com/api"
@@ -32,6 +32,8 @@ WS_HARD_LIMIT_BYTES = 64 * 1024  # 이보다 큰 WS 메시지는 aiohttp가 1009
 MAX_REQUEST_ID_LENGTH = 64
 MAX_VIOLATIONS = 3  # 연속 규격 위반이 이 횟수에 닿으면 4400으로 닫는다
 SEND_TIMEOUT_SECONDS = 5  # 메시지 하나를 이 시간 안에 못 보내면 느린 연결로 보고 4408로 닫는다
+# WebSocket 프로토콜 ping 간격(초). pong이 간격의 절반 안에 없으면 aiohttp가 연결을 닫아 입장에서 빠진다
+HEARTBEAT_SECONDS = 10
 TOKEN_RATE_LIMIT = 30  # 토큰 엔드포인트 허용 횟수(서버 전체). 프록시 뒤라 IP 구분이 무의미하다
 TOKEN_RATE_WINDOW_SECONDS = 60
 MAX_FIELD_LENGTH = 128  # game_id·turn_id·champion_id 등 문자열 필드의 최대 길이
@@ -112,6 +114,9 @@ _REQUEST_FIELDS = {
         "game_id": lambda v: _is_field(v, nullable=True),
         "expected_winner": lambda v: v in TEAM_KEYS,
     },
+    "start_now": {"game_id": lambda v: _is_field(v, nullable=True)},
+    "pause": {"game_id": lambda v: _is_field(v, nullable=True)},
+    "resume": {"game_id": lambda v: _is_field(v, nullable=True)},
 }
 
 
@@ -175,7 +180,8 @@ class _Connection:
         self.ws = ws
         self.user_id = user_id
         self.violations = 0  # 연속 규격 위반 횟수
-        self.requests = set()  # 처리 중인 게임 요청 태스크
+        self.ready = False  # ready를 받았는가(화면이 첫 state를 그렸다 = 입장)
+        self.requests = set()  # 처리 중인 게임 요청·입장 반영 태스크
         self._send_timeout = send_timeout
         self._items = collections.deque()  # 보낼 순서대로 쌓인 [메시지] 칸
         self._state_item = None  # 아직 못 보낸 state 칸. 새 state는 이 칸을 덮어쓴다
@@ -254,12 +260,14 @@ class _Connection:
 class ActivityServer:
 
     ##
-    # @param game 게임 객체. snapshot(), me(), add_listener(), activity_start/pick/advantage/result/reverse()를 쓴다.
+    # @param game 게임 객체. snapshot(), me(), add_listener(), set_present(),
+    #             activity_start/start_now/pause/resume/pick/advantage/result/reverse()를 쓴다.
     # @param client_id Discord 앱 client ID.
     # @param client_secret Discord 앱 client secret. 로그에 남기지 않는다.
     # @param port 바인딩할 포트(주소는 항상 127.0.0.1).
     # @param discord_api_base Discord API 기본 URL. 테스트에서 가짜 서버로 바꾼다.
     # @param session_ttl 세션 수명(초).
+    # @param heartbeat WebSocket 프로토콜 ping 간격(초).
     # @param clock 요청 접수 시각을 잡는 단조 시계. 게임 객체의 마감 판정과 같은 시계여야 한다.
     def __init__(
         self,
@@ -270,6 +278,7 @@ class ActivityServer:
         port=DEFAULT_PORT,
         discord_api_base=DISCORD_API_BASE,
         session_ttl=SESSION_TTL_SECONDS,
+        heartbeat=HEARTBEAT_SECONDS,
         clock=time.monotonic,
     ):
         self._game = game
@@ -279,9 +288,12 @@ class ActivityServer:
         self._port = port
         self._api_base = discord_api_base.rstrip("/")
         self._session_ttl = session_ttl
+        self._heartbeat = heartbeat
         self.server_epoch = str(uuid.uuid4())  # 프로세스(서버 객체)마다 새로 만든다
         self._sessions = {}  # {세션 토큰: _Session}
         self._connections = set()  # 열린 _Connection
+        # {사용자 ID: ready를 보낸 열린 연결 수}. 한 사람의 여러 연결(PC·휴대폰)은 한 명으로 센다
+        self._ready_counts = collections.Counter()
         self._token_requests = collections.deque()  # 빈도 제한 창 안의 토큰 요청 시각(단조 시계)
         self._state_version = 0
         # {(사용자, game_id, 요청 id): (요청 내용, reply Future)} - 같은 요청 재전송에 같은 reply를 돌려준다.
@@ -446,7 +458,9 @@ class ActivityServer:
     # @param request 요청.
     # @return WebSocketResponse.
     async def _handle_ws(self, request):
-        ws = web.WebSocketResponse(max_msg_size=WS_HARD_LIMIT_BYTES, timeout=SEND_TIMEOUT_SECONDS)
+        ws = web.WebSocketResponse(
+            max_msg_size=WS_HARD_LIMIT_BYTES, timeout=SEND_TIMEOUT_SECONDS, heartbeat=self._heartbeat
+        )
         await ws.prepare(request)
         session = self._find_session(request.query.get("session"))
         if session is None:
@@ -463,6 +477,8 @@ class ActivityServer:
         finally:
             self._connections.discard(conn)
             await asyncio.gather(*conn.requests, return_exceptions=True)
+            if conn.ready:
+                await self._leave(conn)
             conn.request_close(CLOSE_NORMAL)
             await conn.task
             log.info("[ACTIVITY] WS 종료 (user=%s, code=%s)", conn.user_id, ws.close_code)
@@ -507,6 +523,10 @@ class ActivityServer:
         except ValueError:
             self._reject(conn, None)
             return
+        if isinstance(data, dict) and data.get("t") == "ready":  # id가 없고 응답하지 않는다
+            conn.violations = 0
+            self._enter(conn)
+            return
         request_id = data.get("id") if isinstance(data, dict) else None
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= MAX_REQUEST_ID_LENGTH:
             self._reject(conn, None)
@@ -537,7 +557,7 @@ class ActivityServer:
     # @brief 게임 요청 하나를 처리하고 reply를 보낸다. 같은 사용자·판·요청 ID의 재전송에는 처음 reply를 돌려준다.
     # @details 상태가 바뀌면 게임 객체의 변경 알림으로 모든 소켓에 state가 먼저 쌓이고, reply는 그 뒤에 쌓인다.
     # @param conn 연결.
-    # @param kind "start" | "pick" | "advantage" | "result" | "reverse".
+    # @param kind _REQUEST_FIELDS의 요청 종류.
     # @param data 형식 검증을 통과한 요청.
     # @param received_at 접수 단조 시각.
     async def _process_request(self, conn, kind, data, received_at):
@@ -583,7 +603,43 @@ class ActivityServer:
             )
         if kind == "result":
             return await game.activity_result(user_id, data["game_id"], data["winner"])
+        if kind == "start_now":
+            return await game.activity_start_now(user_id, data["game_id"])
+        if kind == "pause":
+            return await game.activity_pause(user_id, data["game_id"])
+        if kind == "resume":
+            return await game.activity_resume(user_id, data["game_id"])
         return await game.activity_reverse(user_id, data["game_id"], data["expected_winner"])
+
+    # === 입장 ===
+
+    ##
+    # @brief ready를 받은 연결을 입장시킨다. 연결마다 한 번만 센다. 그 사용자의 첫 입장이면 게임에 알린다.
+    # @details 게임 반영은 락을 기다리므로 태스크로 넘기고, 연결이 닫힐 때 _leave보다 먼저 끝나도록 요청 태스크와
+    #          함께 모은다. 목록을 복사하지 않고 _ready_counts를 넘겨, 반영 순서가 뒤바뀌어도 게임이 락을 얻은
+    #          시점의 최신 입장 사용자를 읽는다.
+    # @param conn 연결.
+    def _enter(self, conn):
+        if conn.ready:
+            return
+        conn.ready = True
+        self._ready_counts[conn.user_id] += 1
+        if self._ready_counts[conn.user_id] == 1:
+            log.info("[ACTIVITY] 입장 (user=%s)", conn.user_id)
+            task = asyncio.create_task(self._game.set_present(self._ready_counts))
+            conn.requests.add(task)
+            task.add_done_callback(conn.requests.discard)
+
+    ##
+    # @brief 닫힌 연결을 입장에서 뺀다. 그 사용자의 ready 연결이 모두 끊겼으면 게임에 알린다.
+    # @param conn ready를 보낸 연결.
+    async def _leave(self, conn):
+        self._ready_counts[conn.user_id] -= 1
+        if self._ready_counts[conn.user_id] > 0:
+            return
+        del self._ready_counts[conn.user_id]
+        log.info("[ACTIVITY] 퇴장 (user=%s)", conn.user_id)
+        await self._game.set_present(self._ready_counts)
 
     ##
     # @brief 규격 위반 메시지에 reply bad_request를 보내고 연속 위반 횟수를 올린다.
