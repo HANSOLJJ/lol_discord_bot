@@ -298,6 +298,7 @@ class WebSocketMessageTest(ActivityTestBase):
                 "role": "spectator",
                 "team": None,
                 "can_start": True,
+                "can_start_now": False,
                 "can_pick": False,
                 "can_advantage": False,
                 "can_report": False,
@@ -653,7 +654,9 @@ class ProdPermissionTest(GameSocketBase):
         me = state["me"]
         self.assertEqual(me["role"], "player")
         self.assertIn(me["team"], ("team1", "team2"))
-        await self.clock.advance(15)
+        await self.game.set_present(state["pick_order"])  # 참가자 전원 입장 → 5초 카운트다운
+        await self.recv_type(ws, "state")
+        await self.clock.advance(5)
         picking = await self.recv_type(ws, "state")
         mine = picking["pick_order"][0] == DISCORD_USER["id"]
         self.assertEqual(picking["me"]["can_pick"], mine)

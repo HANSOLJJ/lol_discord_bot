@@ -32,6 +32,8 @@ DEFAULT_AUTO_START_SECONDS = (
 # "1초"를 보고 눌러도 손해 보지 않게 하려는 것이다. 픽은 자기 차례만 할 수 있고 순서대로라서 이 여유가
 # 다른 선수에게 손해가 되지 않는다. 1초로는 빠듯했다(2026-09-09 실측).
 DEFAULT_PICK_GRACE_SECONDS = 2.0  # config.json에 pick_grace_seconds가 없을 때 쓰는 폴백(초)
+# activity 모드에서 참가자 전원이 입장하거나 "지금 시작"을 누른 뒤 픽이 시작되기까지의 시간.
+DEFAULT_READY_COUNTDOWN_SECONDS = 5  # config.json에 ready_countdown_seconds가 없을 때 쓰는 폴백(초)
 TEAM_KEYS = ("team1", "team2")
 START_PHASES = ("none", "awaiting_result", "completed")  # 액티비티 start를 받는 phase
 
@@ -160,10 +162,13 @@ class GameCore:
         self.game_round = None  # 이 판이 기록될 라운드
         self.game_season = None  # 이 판이 기록될 시즌
         self.result = None  # {"winner", "recorded_ms", "corrected", "history_recorded"}
-        self.start_at = None  # activity 모드 자동 시작 시각(단조 시계)
+        self.start_at = None  # activity 모드 자동 시작 시각(단조 시계). 입장 대기 중이면 None
+        self.start_forced = False  # 이번 카운트다운이 "지금 시작"으로 잡혔는가(누가 나가도 취소하지 않는다)
         self.deadline = None  # activity 모드 현재 차례(또는 어드밴티지 선택) 마감(단조 시계)
         # activity 모드 5·6위 어드밴티지 {"kind", "team", "status", "champion"(한국어 이름)}. 없으면 None
         self.advantage = None
+        # 액티비티에 입장한(ready를 보낸) 사용자 ID 문자열. 판과 무관하게 연결 기준으로 유지한다
+        self.present = set()
         self._last_uid_ms = 0
         self._listeners = []
         self._timer = None  # activity 모드 자동 시작·차례 마감 타이머
@@ -188,6 +193,12 @@ class GameCore:
         if self.dev_mode and "dev_auto_start_seconds" in self.config:
             return self.config["dev_auto_start_seconds"]
         return self.config.get("auto_start_seconds", DEFAULT_AUTO_START_SECONDS)
+
+    ##
+    # @brief activity 모드에서 전원 입장(또는 지금 시작) 뒤 픽이 시작되기까지의 시간(초).
+    # @return 초(0 이상).
+    def ready_countdown_seconds(self):
+        return self.config.get("ready_countdown_seconds", DEFAULT_READY_COUNTDOWN_SECONDS)
 
     # === 변경 알림 ===
 
@@ -271,6 +282,7 @@ class GameCore:
         self.game_uid = None
         self.result = None
         self.start_at = None
+        self.start_forced = False
         self.deadline = None
         self.advantage = None
 
@@ -326,17 +338,61 @@ class GameCore:
         return f"g-{ms}"
 
     ##
-    # @brief new_game()이 판을 만든 직후 부른다. activity 모드면 어드밴티지를 정하고, 자동 시작 시각과
-    #        서버 타이머를 건다.
-    # @details embed 모드의 자동 시작 카운트다운은 got_champe가 채널 메시지로 센다. embed 모드에는 어드밴티지가 없다.
+    # @brief new_game()이 판을 만든 직후 부른다. activity 모드면 어드밴티지를 정하고 입장 대기를 시작한다.
+    # @details 참가자 전원이 이미 입장해 있으면 바로 카운트다운을 건다. DEV_MODE는 참가자가 가상 유저라 입장이
+    #          성립하지 않으므로 예전처럼 auto_start_seconds 뒤 고정 자동 시작한다. embed 모드의 자동 시작
+    #          카운트다운은 got_champe가 채널 메시지로 센다. embed 모드에는 어드밴티지가 없다.
     def _on_new_game(self):
         if self.mode != "activity":
             return
         advantage = advantage_of(self.pick_order, self.teams)
         if advantage is not None:
             self.advantage = {**advantage, "status": "pending", "champion": None}
-        self.start_at = self.clock() + self.auto_start_seconds()
+        if self.dev_mode:
+            self.start_at = self.clock() + self.auto_start_seconds()
+            self._set_timer(self._auto_start(self.current_game_id, self.start_at))
+        else:
+            self._sync_countdown()
+
+    ##
+    # @brief 참가자 전원(이번 판 pick_order 전체)이 입장해 있는가.
+    def _all_present(self):
+        return all(str(m.id) in self.present for m in self.pick_order)
+
+    ##
+    # @brief 입장 대기 카운트다운을 건다. 락 안에서 부른다.
+    # @param forced "지금 시작"으로 잡은 카운트다운이면 True(누가 나가도 취소하지 않는다).
+    def _start_countdown(self, forced):
+        self.start_at = self.clock() + self.ready_countdown_seconds()
+        self.start_forced = forced
         self._set_timer(self._auto_start(self.current_game_id, self.start_at))
+
+    ##
+    # @brief 입장 현황에 맞춰 starting 카운트다운을 걸거나 취소한다. 락 안에서 부른다.
+    # @details 운영(DEV 아님) activity 판의 starting에서, "지금 시작"이 아닐 때만 움직인다.
+    #          전원 입장이면 카운트다운을 걸고, 카운트다운 중 누가 나가면 취소하고 입장 대기로 돌아간다.
+    def _sync_countdown(self):
+        if self.dev_mode or self.visible_phase() != "starting" or self.start_forced:
+            return
+        ready = self._all_present()
+        if ready and self.start_at is None:
+            self._start_countdown(forced=False)
+        elif not ready and self.start_at is not None:
+            self.start_at = None
+            self._cancel_timer()
+
+    ##
+    # @brief 액티비티 입장 집합을 바꾼다. 액티비티 서버가 입장 사용자가 바뀔 때마다 부른다.
+    # @details 바뀌었으면 starting 카운트다운을 맞추고 state를 알린다.
+    # @param user_ids 지금 입장한 사용자 ID 문자열들(관전자 포함, snapshot이 참가자만 거른다).
+    async def set_present(self, user_ids):
+        async with self.lock:
+            present = set(user_ids)
+            if present == self.present:
+                return
+            self.present = present
+            self._sync_countdown()
+            self._emit()
 
     ##
     # @brief activity 모드 판 타이머(자동 시작 또는 현재 차례 마감)를 새로 건다. 이전 타이머는 멈춘다.
@@ -616,12 +672,13 @@ class GameCore:
     ##
     # @brief 자동 시작 시각이 되면 어드밴티지 선택(있을 때) 또는 픽을 시작한다. 락 안에서 세대와 시작 여부를
     #        다시 확인한다.
+    # @details 그 사이 카운트다운이 취소되거나 다시 잡혔으면(start_at이 달라졌으면) 아무것도 하지 않는다.
     # @param game_id 타이머를 건 판의 세대 번호.
     # @param start_at 자동 시작 단조 시각.
     async def _auto_start(self, game_id, start_at):
         await self._sleep_until(start_at)
         async with self.lock:
-            if game_id != self.current_game_id or self.game_started:
+            if game_id != self.current_game_id or self.game_started or self.start_at != start_at:
                 return
             self.game_started = True
             self.start_at = None
@@ -791,6 +848,7 @@ class GameCore:
             "auto_assigned": [],
             "result": None,
             "advantage": None,
+            "present": [],
         }
         if phase == "none":
             return state
@@ -823,6 +881,7 @@ class GameCore:
                 str(m.id) for m in self.pick_order if m.id in self.auto_assigned_users
             ],
         )
+        state["present"] = [p["id"] for p in state["players"] if p["id"] in self.present]
         adv = self.advantage
         if adv is not None:
             state["advantage"] = {
@@ -832,7 +891,8 @@ class GameCore:
                 "champion_id": champ_ids.get(adv["champion"]) if adv["status"] == "chosen" else None,
             }
         if phase == "starting":
-            state["start_at_ms"] = at_ms(self.start_at)
+            # 입장 대기 중에는 카운트다운이 없다
+            state["start_at_ms"] = at_ms(self.start_at) if self.start_at is not None else None
         elif phase == "advantage":
             state.update(deadline_ms=at_ms(self.deadline), grace_ms=round(self._grace() * 1000))
         elif phase == "picking":
@@ -868,6 +928,7 @@ class GameCore:
             "role": "player" if player is not None else "spectator",
             "team": player["team"] if player is not None else None,
             "can_start": self.pick_mode() == "activity" and phase in START_PHASES,
+            "can_start_now": phase == "starting" and snapshot["start_at_ms"] is None and can_act,
             "can_pick": phase == "picking" and (self.dev_mode or current == user_id),
             "can_advantage": phase == "advantage"
             and (self.dev_mode or (player is not None and player["team"] == adv_team)),
@@ -913,6 +974,27 @@ class GameCore:
             message = f"ROUND {self.game_round} 게임을 시작했습니다."
         self._run_effect("game_started", guild_id, result)
         return "ok", message
+
+    ##
+    # @brief start_now 요청. 입장 대기 중에 참가자 전원을 기다리지 않고 카운트다운을 강제로 건다.
+    # @details 이렇게 잡은 카운트다운은 누가 나가도 취소하지 않는다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @return (code, message).
+    async def activity_start_now(self, user_id, game_id):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            if self.visible_phase() != "starting":
+                return "wrong_phase", "지금은 시작할 수 없습니다."
+            if not self.dev_mode and not self._is_player(user_id):
+                return "not_allowed", "이 판의 참가자만 시작할 수 있습니다."
+            if self.start_at is not None:
+                return "wrong_phase", "이미 시작 카운트다운 중입니다."
+            self._start_countdown(forced=True)
+            log.info("[GAME] 지금 시작 (game=%s, by=%s)", self.game_uid, user_id)
+            self._emit()
+        return "ok", f"{self.ready_countdown_seconds()}초 뒤 시작합니다."
 
     ##
     # @brief pick 요청. 규격 9절 판정 순서대로 확인하고 확정하면 바로 다음 차례로 넘긴다.

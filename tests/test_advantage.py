@@ -98,7 +98,7 @@ class AdvantageBase(RulesBase):
     async def open_advantage(self):
         code, _ = await self.start()
         self.assertEqual(code, "ok")
-        await self.clock.advance(15)
+        await self.begin()
         self.assertEqual(self.state()["phase"], "advantage")
 
     async def advantage(self, user_id, champion_id=None, game_id=None, received_at=None):
@@ -129,7 +129,7 @@ class AdvantagePhaseTest(AdvantageBase):
             s["advantage"], {"kind": "ban", "team": "team1", "status": "pending", "champion_id": None}
         )
         self.assertFalse(self.me(self.ids("team1")[0])["can_advantage"])
-        await self.clock.advance(15)
+        await self.begin()
         s = self.state()
         self.assertEqual(s["phase"], "advantage")
         self.assertEqual(s["deadline_ms"] - s["server_ms"], 20000)
@@ -152,7 +152,7 @@ class AdvantagePhaseTest(AdvantageBase):
         team1, team2 = self.ids("team1"), self.ids("team2")
         self.assertEqual((await self.advantage(team1[0], game_id="g-old"))[0], "stale_game")
         self.assertEqual((await self.advantage(team1[0]))[0], "wrong_phase")  # starting
-        await self.clock.advance(15)
+        await self.begin()
         limit = self.core.deadline + 2
         cases = [
             (dict(user_id=team2[0], game_id="g-old", champion_id="Nope"), "stale_game"),
@@ -220,7 +220,7 @@ class AdvantagePhaseTest(AdvantageBase):
         async with self.core.lock:
             self.core.new_game(self.people, "activity")  # /게임시작
         self.assertIsNone(self.state()["advantage"])
-        await self.clock.advance(15)
+        await self.begin()
         self.assertEqual(self.state()["phase"], "picking")
 
 
@@ -252,7 +252,7 @@ class BanPickTest(AdvantageBase):
                 gid = self.state()["game_id"]
                 self.assertEqual((await self.start(game_id=gid))[0], "ok")
                 self.core.rng.seed(seed)
-                await self.clock.advance(15)
+                await self.begin()
                 banned = await self.choose(seed)
                 for _ in range(6):
                     await self.clock.advance(22)
@@ -331,7 +331,7 @@ class ForcePickTest(AdvantageBase):
                 if seed:
                     gid = self.state()["game_id"]
                     self.assertEqual((await self.start(game_id=gid))[0], "ok")
-                    await self.clock.advance(15)
+                    await self.begin()
                     self.forced = await self.choose(seed % 8)
                 self.core.rng.seed(seed)
                 for _ in range(6):
