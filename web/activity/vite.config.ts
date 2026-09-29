@@ -23,7 +23,7 @@ export default defineConfig({
         ws: true,
       },
       '/history_data.json': {
-        target: 'https://arena.hansoljj.com',
+        target: 'https://lol.hansoljj.com',
         changeOrigin: true,
       },
       '/ddragon': {

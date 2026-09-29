@@ -49,35 +49,34 @@ class WebServerTest(AioHTTPTestCase):
         await super().tearDownAsync()
         self.tmp_dir.cleanup()
 
-    async def test_root_route_by_host(self):
-        """Host 헤더에 따라 첫 화면이 액티비티(index.html) 또는 대시보드(dashboard.html)로 분기된다."""
-        # 1. lol.hansoljj.com -> index.html (액티비티)
-        resp = await self.client.get("/", headers={"Host": "lol.hansoljj.com"})
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
-        text = await resp.text()
-        self.assertIn("액티비티", text)
+    async def test_root_route_by_frame_id(self):
+        """디스코드가 붙이는 frame_id가 있으면 액티비티, 없으면 대시보드를 내준다."""
+        cases = [
+            ({"Host": "lol.hansoljj.com"}, "/?frame_id=abc&instance_id=i-1", "액티비티"),
+            ({"Host": "LOL.hansoljj.com:443"}, "/?frame_id=abc", "액티비티"),
+            ({"Host": "lol.hansoljj.com"}, "/", "대시보드"),
+            ({}, "/", "대시보드"),
+            ({"Host": "lol.hansoljj.com"}, "/?instance_id=i-1", "대시보드"),
+        ]
+        for headers, path, expected in cases:
+            resp = await self.client.get(path, headers=headers)
+            self.assertEqual(resp.status, 200, path)
+            self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
+            self.assertIn(expected, await resp.text(), path)
 
-        # 2. LOL.hansoljj.com:443 -> index.html (포트 제거 및 소문자 정규화)
-        resp = await self.client.get("/", headers={"Host": "LOL.hansoljj.com:443"})
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
-        text = await resp.text()
-        self.assertIn("액티비티", text)
-
-        # 3. arena.hansoljj.com -> dashboard.html (대시보드)
-        resp = await self.client.get("/", headers={"Host": "arena.hansoljj.com"})
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
-        text = await resp.text()
-        self.assertIn("대시보드", text)
-
-        # 4. Host 헤더 없음 -> dashboard.html
-        resp = await self.client.get("/", headers={})
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
-        text = await resp.text()
-        self.assertIn("대시보드", text)
+    async def test_legacy_host_redirects_to_canonical(self):
+        """arena.hansoljj.com으로 온 요청은 경로와 query를 유지한 채 lol.hansoljj.com으로 301 된다."""
+        cases = [
+            ("/", "https://lol.hansoljj.com/"),
+            ("/terms", "https://lol.hansoljj.com/terms"),
+            ("/?a=1&b=2", "https://lol.hansoljj.com/?a=1&b=2"),
+            ("/없는경로", "https://lol.hansoljj.com/%EC%97%86%EB%8A%94%EA%B2%BD%EB%A1%9C"),
+        ]
+        for path, location in cases:
+            for host in ("arena.hansoljj.com", "ARENA.hansoljj.com:443"):
+                resp = await self.client.get(path, headers={"Host": host}, allow_redirects=False)
+                self.assertEqual(resp.status, 301, (host, path))
+                self.assertEqual(resp.headers.get("Location"), location, (host, path))
 
     async def test_dashboard_route(self):
         """/dashboard.html은 항상 dashboard.html을 반환한다."""

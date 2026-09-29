@@ -8,8 +8,8 @@
 | 외부 도메인 / 경로 | 대상 로컬 주소 | 설명 |
 |---|---|---|
 | `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` | 운영 봇 액티비티 API 및 웹소켓 |
-| `lol.hansoljj.com` (기타 경로) | `http://127.0.0.1:8791` | 정적 웹 서버 (액티비티 `index.html` 및 자산 서빙) |
-| `arena.hansoljj.com` | `http://127.0.0.1:8791` | 정적 웹 서버 (전적 대시보드 `dashboard.html` 및 자산 서빙) |
+| `lol.hansoljj.com` (기타 경로) | `http://127.0.0.1:8791` | 정적 웹 서버. `/`는 브라우저면 전적 대시보드, 디스코드 액티비티(`?frame_id=` 있음)면 픽 화면 |
+| `arena.hansoljj.com` | `http://127.0.0.1:8791` | 옛 주소. 웹 서버가 `https://lol.hansoljj.com` + 같은 경로로 301 리다이렉트 |
 | `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 개발 액티비티 Vite 개발 서버 |
 
 ## 2. pm2 프로세스 목록

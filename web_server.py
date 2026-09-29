@@ -8,6 +8,21 @@ from aiohttp import web
 DIST_MISSING_MSG = "웹 빌드가 없습니다"
 CACHE_NO_CACHE = "no-cache"
 CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
+# 옛 전적 사이트 주소. 들어온 요청을 모두 새 주소의 같은 경로로 넘겨 옛 링크를 살린다.
+LEGACY_HOST = "arena.hansoljj.com"
+CANONICAL_ORIGIN = "https://lol.hansoljj.com"
+
+
+def request_host(request: web.BaseRequest) -> str:
+    """Host 헤더에서 포트를 떼고 소문자로 돌려준다."""
+    return (request.headers.get("Host") or "").split(":")[0].strip().lower()
+
+
+@web.middleware
+async def legacy_host_redirect(request: web.Request, handler):
+    if request_host(request) == LEGACY_HOST:
+        raise web.HTTPMovedPermanently(CANONICAL_ORIGIN + str(request.rel_url))
+    return await handler(request)
 
 
 class PathOnlyAccessLogger(aiohttp.web_log.AccessLogger):
@@ -48,7 +63,7 @@ def create_app(root_dir: Path | str | None = None) -> web.Application:
     web_dir = (root_path / "web").resolve()
     data_file = (root_path / "data" / "history_data.json").resolve()
 
-    app = web.Application()
+    app = web.Application(middlewares=[legacy_host_redirect])
 
     def check_dist() -> web.Response | None:
         if not dist_dir.is_dir():
@@ -68,18 +83,14 @@ def create_app(root_dir: Path | str | None = None) -> web.Application:
             headers["Cache-Control"] = CACHE_NO_CACHE
         return web.FileResponse(file_path, headers=headers)
 
-    # 1. 루트 경로 (Host 헤더에 따라 액티비티 또는 대시보드 분기)
+    # 1. 루트 경로 (디스코드 액티비티면 픽 화면, 브라우저면 대시보드)
     async def handle_root(request: web.Request) -> web.StreamResponse:
         err = check_dist()
         if err is not None:
             return err
 
-        host_header = request.headers.get("Host") or ""
-        host_name = host_header.split(":")[0].strip().lower()
-        raw_hosts = os.environ.get("ACTIVITY_ROOT_HOSTS", "lol.hansoljj.com")
-        activity_hosts = {h.strip().lower() for h in raw_hosts.split(",") if h.strip()}
-
-        if host_name in activity_hosts:
+        # 디스코드는 액티비티를 열 때 항상 frame_id를 붙이고, SDK도 이것 없이는 동작하지 않는다.
+        if "frame_id" in request.query:
             target = dist_dir / "index.html"
         else:
             target = dist_dir / "dashboard.html"
