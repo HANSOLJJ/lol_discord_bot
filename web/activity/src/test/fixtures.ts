@@ -1,4 +1,4 @@
-// 테스트에서 쓰는 규격 예시 메시지 생성기 (ACTIVITY_PROTOCOL.md protocol_version 2)
+// 테스트에서 쓰는 규격 예시 메시지 생성기 (ACTIVITY_PROTOCOL.md protocol_version 3)
 import type { HelloMessage, StateMessage } from '../lib/protocol.ts'
 
 export const USER = { id: '365414320332472332', username: 'hansol', global_name: '정한솔', avatar: 'a1b2c3' }
@@ -35,7 +35,7 @@ export const SAMPLE_CHAMPIONS = [
 export function hello(overrides: Record<string, unknown> = {}): HelloMessage {
   return {
     t: 'hello',
-    protocol_version: 2,
+    protocol_version: 3,
     server_epoch: 'epoch-a',
     server_ms: 1790000000000,
     user: USER,
@@ -46,7 +46,7 @@ export function hello(overrides: Record<string, unknown> = {}): HelloMessage {
 export function state(overrides: Record<string, unknown> = {}): StateMessage {
   return {
     t: 'state',
-    protocol_version: 2,
+    protocol_version: 3,
     server_epoch: 'epoch-a',
     game_id: null,
     state_version: 0,
@@ -65,6 +65,7 @@ export function state(overrides: Record<string, unknown> = {}): StateMessage {
     champions: [],
     selections: {},
     auto_assigned: [],
+    advantage: null,
     result: null,
     me: {
       id: USER.id,
@@ -74,6 +75,7 @@ export function state(overrides: Record<string, unknown> = {}): StateMessage {
       can_pick: false,
       can_report: false,
       can_reverse: false,
+      can_advantage: false,
     },
     ...overrides,
   } as StateMessage
@@ -327,6 +329,146 @@ export function samplePickingState(overrides: Record<string, unknown> = {}): Sta
       can_pick: true,
       can_report: false,
       can_reverse: false,
+      can_advantage: false,
+    },
+    ...overrides,
+  })
+}
+
+export function advantageBanPendingState(overrides: Record<string, unknown> = {}): StateMessage {
+  return state({
+    game_id: 'g-1790000000000',
+    state_version: 20,
+    phase: 'advantage',
+    round: 87,
+    season: 2,
+    server_ms: 1790000005000,
+    start_at_ms: null,
+    deadline_ms: 1790000025000,
+    grace_ms: 2000,
+    turn_id: null,
+    current_index: null,
+    ddragon_version: '15.19.1',
+    players: SAMPLE_PLAYERS,
+    pick_order: SAMPLE_PICK_ORDER,
+    champions: SAMPLE_CHAMPIONS,
+    selections: {},
+    auto_assigned: [],
+    advantage: {
+      kind: 'ban',
+      team: 'team2',
+      status: 'pending',
+      champion_id: null,
+    },
+    result: null,
+    me: {
+      id: '555555555555555555', // 윤재철 (team2)
+      role: 'player',
+      team: 'team2',
+      can_start: false,
+      can_pick: false,
+      can_report: false,
+      can_reverse: false,
+      can_advantage: true,
+    },
+    ...overrides,
+  })
+}
+
+export function advantageForcePendingState(overrides: Record<string, unknown> = {}): StateMessage {
+  return advantageBanPendingState({
+    advantage: {
+      kind: 'force',
+      team: 'team2',
+      status: 'pending',
+      champion_id: null,
+    },
+    ...overrides,
+  })
+}
+
+export function advantageWaitingState(overrides: Record<string, unknown> = {}): StateMessage {
+  return advantageBanPendingState({
+    me: {
+      id: SAMPLE_PLAYERS[0].id, // 정한솔 (team1, 이점 팀 아님)
+      role: 'player',
+      team: 'team1',
+      can_start: false,
+      can_pick: false,
+      can_report: false,
+      can_reverse: false,
+      can_advantage: false,
+    },
+    ...overrides,
+  })
+}
+
+export function pickingBannedState(overrides: Record<string, unknown> = {}): StateMessage {
+  return pickingMyTurnState({
+    advantage: {
+      kind: 'ban',
+      team: 'team2',
+      status: 'chosen',
+      champion_id: 'Zed',
+    },
+    ...overrides,
+  })
+}
+
+export function pickingForcedState(overrides: Record<string, unknown> = {}): StateMessage {
+  return pickingMyTurnState({
+    advantage: {
+      kind: 'force',
+      team: 'team2',
+      status: 'chosen',
+      champion_id: 'Garen',
+    },
+    ...overrides,
+  })
+}
+
+export function pickingForcedLastState(overrides: Record<string, unknown> = {}): StateMessage {
+  // 상대 팀(team1)의 마지막 차례 (current_index = 5, 유성호)
+  return state({
+    game_id: 'g-1790000000000',
+    state_version: 45,
+    phase: 'picking',
+    round: 87,
+    season: 2,
+    server_ms: 1790000045000,
+    start_at_ms: null,
+    deadline_ms: 1790000055000,
+    grace_ms: 2000,
+    turn_id: 'g-1790000000000:5',
+    current_index: 5,
+    ddragon_version: '15.19.1',
+    players: SAMPLE_PLAYERS,
+    pick_order: SAMPLE_PICK_ORDER,
+    champions: SAMPLE_CHAMPIONS,
+    selections: {
+      '333333333333333333': 'Zed',
+      '111111111111111111': 'Sona',
+      '555555555555555555': 'MonkeyKing',
+      '444444444444444444': 'Leona',
+      '365414320332472332': 'Annie',
+    },
+    auto_assigned: [],
+    advantage: {
+      kind: 'force',
+      team: 'team2',
+      status: 'chosen',
+      champion_id: 'Garen',
+    },
+    result: null,
+    me: {
+      id: '222222222222222222', // 유성호 (team1 마지막 픽 차례)
+      role: 'player',
+      team: 'team1',
+      can_start: false,
+      can_pick: true,
+      can_report: false,
+      can_reverse: false,
+      can_advantage: false,
     },
     ...overrides,
   })

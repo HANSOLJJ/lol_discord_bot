@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { browserConnectionOptions, Connection, type ConnectionSnapshot } from '../lib/connection.ts'
 import { authenticate, getGuildId, LoginRequiredError } from '../lib/discord.ts'
 import { getPreviewState } from '../lib/preview.ts'
-import type { DiscordUser, ReplyMessage, StateMessage, Team } from '../lib/protocol.ts'
+import { getReplyMessage, type DiscordUser, type ReplyMessage, type StateMessage, type Team } from '../lib/protocol.ts'
 import { USER } from '../test/fixtures.ts'
 
 export type AuthState =
@@ -20,6 +20,7 @@ export interface Activity {
   login: () => void
   showToast: (msg: string) => void
   start: (game_id: string | null) => Promise<ReplyMessage>
+  advantage: (game_id: string, champion_id: string) => Promise<ReplyMessage>
   pick: (game_id: string, turn_id: string, champion_id: string) => Promise<ReplyMessage>
   result: (game_id: string, winner: Team) => Promise<ReplyMessage>
   reverse: (game_id: string, expected_winner: Team) => Promise<ReplyMessage>
@@ -122,8 +123,8 @@ export function useActivity(previewPhase?: string | null): Activity {
 
       return fn()
         .then((reply) => {
-          if (!reply.ok && reply.message) {
-            showToast(reply.message)
+          if (!reply.ok) {
+            showToast(getReplyMessage(reply))
           }
           return reply
         })
@@ -158,6 +159,29 @@ export function useActivity(previewPhase?: string | null): Activity {
       )
     },
     [wrapAction],
+  )
+
+  const advantageAction = useCallback(
+    (game_id: string, champion_id: string) => {
+      return wrapAction(
+        () => {
+          const conn = connRef.current!
+          return conn.advantage(game_id, champion_id)
+        },
+        () => {
+          showToast(`${champion_id} 선택 완료`)
+          return {
+            t: 'reply',
+            id: 'preview-advantage',
+            ok: true,
+            code: 'ok',
+            message: null,
+            state_version: 1,
+          }
+        },
+      )
+    },
+    [wrapAction, showToast],
   )
 
   const pick = useCallback(
@@ -238,6 +262,7 @@ export function useActivity(previewPhase?: string | null): Activity {
     login,
     showToast,
     start,
+    advantage: advantageAction,
     pick,
     result: resultAction,
     reverse: reverseAction,

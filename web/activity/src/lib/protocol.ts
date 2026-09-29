@@ -1,12 +1,22 @@
-// 액티비티 서버와 주고받는 메시지 타입과 수신 JSON 런타임 검증 (ACTIVITY_PROTOCOL.md protocol_version 2)
+// 액티비티 서버와 주고받는 메시지 타입과 수신 JSON 런타임 검증 (ACTIVITY_PROTOCOL.md protocol_version 3)
 
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
-export const PHASES = ['none', 'starting', 'picking', 'awaiting_result', 'completed', 'aborted'] as const
+export const PHASES = ['none', 'starting', 'advantage', 'picking', 'awaiting_result', 'completed', 'aborted'] as const
 export type Phase = (typeof PHASES)[number]
 
 export type Role = 'player' | 'spectator'
 export type Team = 'team1' | 'team2'
+
+export type AdvantageKind = 'ban' | 'force'
+export type AdvantageStatus = 'pending' | 'chosen' | 'skipped'
+
+export interface AdvantageState {
+  kind: AdvantageKind
+  team: Team
+  status: AdvantageStatus
+  champion_id: string | null
+}
 
 export interface DiscordUser {
   id: string
@@ -46,6 +56,7 @@ export interface Me {
   can_pick: boolean
   can_report: boolean
   can_reverse: boolean
+  can_advantage: boolean
 }
 
 export interface HelloMessage {
@@ -84,6 +95,7 @@ export interface StateMessage {
   champions: Champion[]
   selections: Record<string, string>
   auto_assigned: string[]
+  advantage: AdvantageState | null
   result: GameResult | null
   me: Me
 }
@@ -104,6 +116,7 @@ export type ClientMessage =
   | { t: 'ping'; id: string; c: number }
   | { t: 'sync'; id: string }
   | { t: 'start'; id: string; game_id: string | null; guild_id: string | null }
+  | { t: 'advantage'; id: string; game_id: string; champion_id: string }
   | { t: 'pick'; id: string; game_id: string; turn_id: string; champion_id: string }
   | { t: 'result'; id: string; game_id: string; winner: Team }
   | { t: 'reverse'; id: string; game_id: string; expected_winner: Team }
@@ -172,6 +185,19 @@ function isGameResult(v: unknown): v is GameResult {
   )
 }
 
+function isAdvantage(v: unknown): v is AdvantageState {
+  if (!isObj(v)) return false
+  if (v.kind !== 'ban' && v.kind !== 'force') return false
+  if (v.team !== 'team1' && v.team !== 'team2') return false
+  if (v.status === 'chosen') {
+    return isStr(v.champion_id)
+  }
+  if (v.status === 'pending' || v.status === 'skipped') {
+    return v.champion_id === null
+  }
+  return false
+}
+
 function isMe(v: unknown): v is Me {
   return (
     isObj(v) &&
@@ -181,7 +207,8 @@ function isMe(v: unknown): v is Me {
     isBool(v.can_start) &&
     isBool(v.can_pick) &&
     isBool(v.can_report) &&
-    isBool(v.can_reverse)
+    isBool(v.can_reverse) &&
+    isBool(v.can_advantage)
   )
 }
 
@@ -213,6 +240,7 @@ function isState(m: Obj): boolean {
     Object.values(m.selections).every(isStr) &&
     isArr(m.auto_assigned) &&
     m.auto_assigned.every(isStr) &&
+    orNull(isAdvantage)(m.advantage) &&
     orNull(isGameResult)(m.result) &&
     isMe(me)
   )
@@ -263,4 +291,33 @@ export function parseTokenResponse(raw: unknown): TokenResponse | null {
     return raw as unknown as TokenResponse
   }
   return null
+}
+
+/** Reply 메시지의 한국어 안내 문구를 돌려준다. 서버 message가 없으면 code별 기본 한국어 문구를 제공한다. */
+export function getReplyMessage(reply: ReplyMessage): string {
+  if (reply.message) return reply.message
+  switch (reply.code) {
+    case 'champion_banned':
+      return '이번 판에서 밴된 챔피언입니다.'
+    case 'champion_reserved':
+      return '상대 팀만 고를 수 있는 강제픽 챔피언입니다.'
+    case 'must_pick_forced':
+      return '강제픽 챔피언을 골라야 합니다.'
+    case 'stale_game':
+      return '이미 끝났거나 바뀐 판입니다.'
+    case 'wrong_phase':
+      return '지금 단계에서 할 수 없는 요청입니다.'
+    case 'not_your_turn':
+      return '내 차례가 아닙니다.'
+    case 'timeout':
+      return '마감 시간이 지났습니다.'
+    case 'not_candidate':
+      return '이번 판 후보가 아닌 챔피언입니다.'
+    case 'champion_taken':
+      return '이미 뽑힌 챔피언입니다.'
+    case 'not_allowed':
+      return '권한이 없습니다.'
+    default:
+      return '요청 처리에 실패했습니다.'
+  }
 }

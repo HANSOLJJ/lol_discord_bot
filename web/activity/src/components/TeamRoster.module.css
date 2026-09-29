@@ -84,3 +84,23 @@
   color: #facc15;
   border-bottom: 2px solid #facc15;
 }
+
+.advantageRowMobile {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid #262b36;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9aa4bb;
+}
+
+.advantageRowPc {
+  grid-column: 1 / -1;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #171a21;
+  border: 1px solid #262b36;
+  font-size: 13px;
+  font-weight: 600;
+  color: #9aa4bb;
+}

@@ -185,6 +185,19 @@ export class Connection {
     })
   }
 
+  advantage(game_id: string, champion_id: string): Promise<ReplyMessage> {
+    return this.requestAdvantage(game_id, champion_id)
+  }
+
+  requestAdvantage(game_id: string, champion_id: string): Promise<ReplyMessage> {
+    if (!this.#open) return Promise.reject(new Error('연결되어 있지 않습니다.'))
+    const id = this.#nextId('a')
+    return new Promise((resolve, reject) => {
+      this.#pendingRequests.set(id, { resolve, reject })
+      this.#send({ t: 'advantage', id, game_id, champion_id })
+    })
+  }
+
   pick(game_id: string, turn_id: string, champion_id: string): Promise<ReplyMessage> {
     return this.requestPick(game_id, turn_id, champion_id)
   }
