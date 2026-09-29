@@ -186,5 +186,5 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 | `arena.hansoljj.com` 서빙 | Cloudflare Pages 연동으로 배포 | 맥미니 정적 웹 서버(8791)로 인입 후 `https://lol.hansoljj.com`으로 301 리다이렉트 | 2026-09-29 Pages 사용자 지정 도메인 분리, 기존 공유 링크 보존 및 메인 도메인 통일 |
 | 액티비티 URL 매핑 | `/` → `arena.hansoljj.com/pick` 계획 | `/` → `lol.hansoljj.com` (개발은 `lol-dev.hansoljj.com`) | `?frame_id=` 쿼리 파라미터 기반으로 웹 서버 루트에서 대시보드와 픽 화면을 자동 분기 |
 | finance 터널 공용 사용 | 맥미니 기존 finance 터널에 롤 ingress 추가 계획 | 롤 전용 독립 터널 `lol` 생성 및 분리 | finance 서비스 중단 방지 및 설정 변경 시 상호 격리 보장 |
-| Windows 개발 환경 터널 | Windows 서비스로 등록된 `lol-dev` 대시보드 관리형 터널 | Windows 터널 삭제 및 맥미니 로컬 관리형 터널로 통합 | 2026-09-29 개발·운영 환경을 모두 맥미니로 단일화하여 Windows 환경 완전 배제 |
+| Windows 개발 환경 터널 | Windows 서비스로 등록된 대시보드 관리형 터널이 `lol-dev`를 처리 | 그 터널의 `lol-dev` 공개 호스트 이름을 지우고, `lol-dev` DNS를 맥미니 `lol` 터널로 옮김. Windows의 터널 자체와 cloudflared 서비스는 남아 있을 수 있으나 쓰지 않는다 | 2026-09-29 개발·운영 환경을 모두 맥미니로 단일화 |
 
