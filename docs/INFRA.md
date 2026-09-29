@@ -145,6 +145,11 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 - **현재 동작 방식**: 디스코드 채널 메시지 및 버튼 방식(`pick_mode: embed`)
 - 운영 서버에서는 아직 디스코드 액티비티가 활성화되지 않았으며, 추후 안정화 후 액티비티로 전환할 예정입니다.
 
+### 6-3. Cloudflare Access 및 URL 매핑 시 유의사항
+- **Cloudflare Access 미적용**: 디스코드 내장 브라우저 프록시가 `lol-dev.hansoljj.com` 및 `lol.hansoljj.com`으로 접근해야 하므로, Cloudflare Zero Trust Access 인증 정책을 걸지 않습니다. 적용 시 디스코드 액티비티가 로드되지 않습니다.
+- **URL 매핑 등록 형식**: 디스코드 개발자 포털의 target에는 프로토콜(`https://`)이나 파일 경로(`index.html`)를 넣지 않고 순수 호스트 이름만 등록합니다.
+- **API 경로 라우팅**: `/pick-api` 경로는 개발자 포털 URL 매핑에 등록하지 않습니다. 개발 환경은 Vite 내부 프록시가 백엔드로 전달하며, 운영 환경은 Cloudflare 터널 ingress의 `path: ^/pick-api` 규칙이 8790 포트로 직접 라우팅합니다.
+
 ---
 
 ## 7. 운영 전환 체크리스트 (Embed → Activity)
@@ -168,3 +173,18 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
    - `channels` 설정을 `["팀짜기"]` 단일 채널로 단순화합니다 (액티비티 모드에서는 음성 채널별 개별 임베드 전송이 불필요합니다).
 5. **디스코드 앱 인증 또는 테스터 등록**
    - 정식 서비스를 위해 디스코드 앱 인증을 신청하거나(서비스 약관: `https://lol.hansoljj.com/terms`, 개인정보 처리방침: `https://lol.hansoljj.com/privacy`), 대상 길드의 플레이어들을 개발자 포털의 앱 테스터로 등록합니다.
+
+---
+
+## 8. 인프라 변경 이력
+
+과거 기획 및 과도기 구성에서 현재 설정으로 변경된 주요 내역입니다.
+
+| 항목 | 과거 계획 / 과도기 상태 | 현재 확정 상태 | 변경 사유 |
+|---|---|---|---|
+| `pick.hansoljj.com` | 봇 액티비티 API 전용 도메인으로 계획 | 미사용 폐기 | `lol.hansoljj.com/pick-api` 경로 라우팅으로 일원화하여 도메인 관리 단순화 |
+| `arena.hansoljj.com` 서빙 | Cloudflare Pages 연동으로 배포 | 맥미니 정적 웹 서버(8791)로 인입 후 `https://lol.hansoljj.com`으로 301 리다이렉트 | 2026-09-29 Pages 사용자 지정 도메인 분리, 기존 공유 링크 보존 및 메인 도메인 통일 |
+| 액티비티 URL 매핑 | `/` → `arena.hansoljj.com/pick` 계획 | `/` → `lol.hansoljj.com` (개발은 `lol-dev.hansoljj.com`) | `?frame_id=` 쿼리 파라미터 기반으로 웹 서버 루트에서 대시보드와 픽 화면을 자동 분기 |
+| finance 터널 공용 사용 | 맥미니 기존 finance 터널에 롤 ingress 추가 계획 | 롤 전용 독립 터널 `lol` 생성 및 분리 | finance 서비스 중단 방지 및 설정 변경 시 상호 격리 보장 |
+| Windows 개발 환경 터널 | Windows 서비스로 등록된 `lol-dev` 대시보드 관리형 터널 | Windows 터널 삭제 및 맥미니 로컬 관리형 터널로 통합 | 2026-09-29 개발·운영 환경을 모두 맥미니로 단일화하여 Windows 환경 완전 배제 |
+
