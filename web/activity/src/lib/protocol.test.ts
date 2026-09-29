@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { hello, state, USER } from '../test/fixtures.ts'
-import { decodeServerMessage, parseServerMessage, parseTokenResponse } from './protocol.ts'
+import { decodeServerMessage, getReplyMessage, parseServerMessage, parseTokenResponse } from './protocol.ts'
 
 describe('parseServerMessage', () => {
   it('규격 예시 메시지를 받아들인다', () => {
@@ -190,5 +190,27 @@ describe('parseTokenResponse', () => {
     assert.equal(parseTokenResponse(ok), ok)
     assert.equal(parseTokenResponse({ ...ok, session: null }), null)
     assert.equal(parseTokenResponse({ error: 'oauth_failed' }), null)
+  })
+})
+
+describe('getReplyMessage', () => {
+  it('서버 message가 있으면 그대로 돌려준다', () => {
+    const reply = { t: 'reply' as const, id: '1', ok: false, code: 'custom_error', message: '커스텀 메시지', state_version: 1 }
+    assert.equal(getReplyMessage(reply), '커스텀 메시지')
+  })
+
+  it('새 reply 코드(champion_banned, champion_reserved, must_pick_forced)에 대한 기본 안내 문구를 반환한다', () => {
+    assert.equal(
+      getReplyMessage({ t: 'reply', id: '1', ok: false, code: 'champion_banned', message: null, state_version: 1 }),
+      '이번 판에서 밴된 챔피언입니다.',
+    )
+    assert.equal(
+      getReplyMessage({ t: 'reply', id: '1', ok: false, code: 'champion_reserved', message: null, state_version: 1 }),
+      '상대 팀만 고를 수 있는 강제픽 챔피언입니다.',
+    )
+    assert.equal(
+      getReplyMessage({ t: 'reply', id: '1', ok: false, code: 'must_pick_forced', message: null, state_version: 1 }),
+      '강제픽 챔피언을 골라야 합니다.',
+    )
   })
 })

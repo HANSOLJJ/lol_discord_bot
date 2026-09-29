@@ -240,6 +240,14 @@ describe('Connection 요청 ID', () => {
     const resStart = await pStart
     assert.equal(resStart.ok, true)
 
+    // advantage
+    const pAdvantage = conn.advantage('g-1', 'Zed')
+    const reqAdvantage = s1.sentOf('advantage')[0]
+    assert.deepEqual(reqAdvantage, { t: 'advantage', id: reqAdvantage.id, game_id: 'g-1', champion_id: 'Zed' })
+    s1.receive({ t: 'reply', id: reqAdvantage.id, ok: true, code: 'ok', message: null, state_version: 10 })
+    const resAdvantage = await pAdvantage
+    assert.equal(resAdvantage.ok, true)
+
     // pick
     const pPick = conn.pick('g-1', 'turn-1', 'Ahri')
     const reqPick = s1.sentOf('pick')[0]

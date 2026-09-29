@@ -292,3 +292,32 @@ export function parseTokenResponse(raw: unknown): TokenResponse | null {
   }
   return null
 }
+
+/** Reply 메시지의 한국어 안내 문구를 돌려준다. 서버 message가 없으면 code별 기본 한국어 문구를 제공한다. */
+export function getReplyMessage(reply: ReplyMessage): string {
+  if (reply.message) return reply.message
+  switch (reply.code) {
+    case 'champion_banned':
+      return '이번 판에서 밴된 챔피언입니다.'
+    case 'champion_reserved':
+      return '상대 팀만 고를 수 있는 강제픽 챔피언입니다.'
+    case 'must_pick_forced':
+      return '강제픽 챔피언을 골라야 합니다.'
+    case 'stale_game':
+      return '이미 끝났거나 바뀐 판입니다.'
+    case 'wrong_phase':
+      return '지금 단계에서 할 수 없는 요청입니다.'
+    case 'not_your_turn':
+      return '내 차례가 아닙니다.'
+    case 'timeout':
+      return '마감 시간이 지났습니다.'
+    case 'not_candidate':
+      return '이번 판 후보가 아닌 챔피언입니다.'
+    case 'champion_taken':
+      return '이미 뽑힌 챔피언입니다.'
+    case 'not_allowed':
+      return '권한이 없습니다.'
+    default:
+      return '요청 처리에 실패했습니다.'
+  }
+}
