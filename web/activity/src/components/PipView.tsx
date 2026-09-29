@@ -42,11 +42,12 @@ function PipSlotImage({ champion, ddragonVersion }: { champion: Champion; ddrago
 
 export function PipView({ state, anchor }: Props) {
   const isStarting = state?.phase === 'starting'
+  const isAdvantage = state?.phase === 'advantage'
   const isPicking = state?.phase === 'picking'
-  const deadlineMs = isPicking ? state?.deadline_ms ?? null : isStarting ? state?.start_at_ms ?? null : null
+  const deadlineMs = isPicking || isAdvantage ? state?.deadline_ms ?? null : isStarting ? state?.start_at_ms ?? null : null
   const seconds = useRemainingSeconds(deadlineMs, anchor)
 
-  const myTurn = state ? isMyTurn(state) : false
+  const myTurn = isAdvantage ? state?.me.can_advantage ?? false : state ? isMyTurn(state) : false
   const picker = state ? getCurrentPicker(state) : null
 
   const warning = isWarningSeconds(seconds)
@@ -59,6 +60,10 @@ export function PipView({ state, anchor }: Props) {
   if (state?.phase === 'starting') {
     title = '게임 시작 준비 중'
     hint = '곧 픽이 시작됩니다'
+  } else if (state?.phase === 'advantage') {
+    const teamLabel = state.advantage?.team === 'team1' ? 'TEAM 1' : 'TEAM 2'
+    title = `${teamLabel} 어드밴티지 선택 중`
+    hint = myTurn ? '창을 눌러 크게 열고 고르세요' : `${teamLabel}가 고르는 중`
   } else if (state?.phase === 'picking') {
     title = myTurn ? '내 차례입니다!' : picker ? `${picker.name} 님이 고르는 중` : '선택 진행 중'
     hint = myTurn ? '창을 눌러 크게 열고 고르세요' : '내 차례가 오면 여기에 표시됩니다'
@@ -97,28 +102,30 @@ export function PipView({ state, anchor }: Props) {
       </div>
 
       <div className={styles.bottomCol}>
-        <div className={styles.slotsRow}>
-          {pickOrder.map((userId, idx) => {
-            const player = state?.players.find((p) => p.id === userId)
-            const teamColor = player?.team === 'team1' ? COLOR_TEAM1 : COLOR_TEAM2
-            const isCurrent = idx === currentIndex
-            const ring = isCurrent ? COLOR_YELLOW : teamColor
-            const champId = state?.selections[userId]
-            const champ = champId ? state?.champions.find((c) => c.id === champId) : null
+        {!isAdvantage && (
+          <div className={styles.slotsRow}>
+            {pickOrder.map((userId, idx) => {
+              const player = state?.players.find((p) => p.id === userId)
+              const teamColor = player?.team === 'team1' ? COLOR_TEAM1 : COLOR_TEAM2
+              const isCurrent = idx === currentIndex
+              const ring = isCurrent ? COLOR_YELLOW : teamColor
+              const champId = state?.selections[userId]
+              const champ = champId ? state?.champions.find((c) => c.id === champId) : null
 
-            return (
-              <div key={userId} className={styles.slot} style={{ border: `2px solid ${ring}` }}>
-                {champ ? (
-                  <PipSlotImage champion={champ} ddragonVersion={state?.ddragon_version ?? null} />
-                ) : (
-                  <span className={styles.slotNum} style={{ color: ring }}>
-                    {idx + 1}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
+              return (
+                <div key={userId} className={styles.slot} style={{ border: `2px solid ${ring}` }}>
+                  {champ ? (
+                    <PipSlotImage champion={champ} ddragonVersion={state?.ddragon_version ?? null} />
+                  ) : (
+                    <span className={styles.slotNum} style={{ color: ring }}>
+                      {idx + 1}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className={styles.progressBarBg}>
           <div

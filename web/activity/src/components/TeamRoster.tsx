@@ -1,6 +1,6 @@
 // 픽 화면의 팀 구성(TEAM 1, TEAM 2 명단 및 현재 턴 강조) 컴포넌트
 import type { Player, StateMessage } from '../lib/protocol.ts'
-import { getCurrentPicker } from '../lib/view-logic.ts'
+import { getAdvantageSummary, getCurrentPicker } from '../lib/view-logic.ts'
 import styles from './TeamRoster.module.css'
 
 interface Props {
@@ -16,6 +16,7 @@ export function TeamRoster({ state, isPc = false }: Props) {
 
   const team1 = state.players.filter((p) => p.team === 'team1')
   const team2 = state.players.filter((p) => p.team === 'team2')
+  const advantageSummary = getAdvantageSummary(state.advantage, state.champions, state.phase)
 
   const renderNames = (players: Player[], isPcView: boolean) => (
     <div className={styles.namesWrap}>
@@ -42,6 +43,9 @@ export function TeamRoster({ state, isPc = false }: Props) {
           <span className={styles.labelTeam2}>TEAM 2</span>
           {renderNames(team2, true)}
         </div>
+        {advantageSummary && (
+          <div className={styles.advantageRowPc}>{advantageSummary}</div>
+        )}
       </section>
     )
   }
@@ -56,6 +60,9 @@ export function TeamRoster({ state, isPc = false }: Props) {
         <span className={styles.labelTeam2}>TEAM 2</span>
         {renderNames(team2, false)}
       </div>
+      {advantageSummary && (
+        <div className={styles.advantageRowMobile}>{advantageSummary}</div>
+      )}
     </section>
   )
 }

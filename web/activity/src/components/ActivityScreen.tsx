@@ -16,7 +16,7 @@ interface Props {
 }
 
 export function ActivityScreen({ previewPhase }: Props) {
-  const { auth, snapshot, state, isPending, toast, login, start, pick, result, reverse } = useActivity(previewPhase)
+  const { auth, snapshot, state, isPending, toast, login, start, advantage, pick, result, reverse } = useActivity(previewPhase)
   const layoutMode = useLayoutMode()
 
   // 인증 필요 화면
@@ -58,12 +58,18 @@ export function ActivityScreen({ previewPhase }: Props) {
 
   const isConnected = snapshot?.status === 'connected'
   const isPc = layoutMode === 'pc'
-  const isTurnPhase = state?.phase === 'starting' || state?.phase === 'picking'
+  const isTurnPhase = state?.phase === 'starting' || state?.phase === 'advantage' || state?.phase === 'picking'
   const user = snapshot?.user ?? (auth.kind === 'ok' ? auth.user : null)
 
   const handlePick = (championId: string) => {
-    if (!state || !state.game_id || !state.turn_id) return
-    pick(state.game_id, state.turn_id, championId)
+    if (!state || !state.game_id) return
+    if (state.phase === 'advantage') {
+      advantage(state.game_id, championId)
+      return
+    }
+    if (state.phase === 'picking' && state.turn_id) {
+      pick(state.game_id, state.turn_id, championId)
+    }
   }
 
   if (isPc) {
