@@ -4,13 +4,20 @@ import { useRemainingSeconds } from '../hooks/useRemainingSeconds.ts'
 import type { ClockAnchor } from '../lib/clock.ts'
 import type { Champion, StateMessage } from '../lib/protocol.ts'
 import {
+  COLOR_MUTED,
   COLOR_TEAM1,
   COLOR_TEAM2,
   COLOR_WARNING_RED,
   COLOR_YELLOW,
   getChampionPortraitUrl,
+  getCountdownDeadline,
+  getCountdownMaxSeconds,
   getCurrentPicker,
+  getPauseBanner,
+  getPausedSeconds,
+  getPresence,
   isMyTurn,
+  isWaitingForPlayers,
   isWarningSeconds,
 } from '../lib/view-logic.ts'
 import styles from './PipView.module.css'
@@ -41,25 +48,31 @@ function PipSlotImage({ champion, ddragonVersion }: { champion: Champion; ddrago
 }
 
 export function PipView({ state, anchor }: Props) {
-  const isStarting = state?.phase === 'starting'
   const isAdvantage = state?.phase === 'advantage'
-  const isPicking = state?.phase === 'picking'
-  const deadlineMs = isPicking || isAdvantage ? state?.deadline_ms ?? null : isStarting ? state?.start_at_ms ?? null : null
-  const seconds = useRemainingSeconds(deadlineMs, anchor)
+  const liveSeconds = useRemainingSeconds(getCountdownDeadline(state), anchor)
+  const paused = Boolean(state?.paused)
+  // 정지 중에는 서버가 저장한 남은 시간으로 숫자를 고정한다.
+  const seconds = paused ? getPausedSeconds(state) : liveSeconds
 
-  const myTurn = isAdvantage ? state?.me.can_advantage ?? false : state ? isMyTurn(state) : false
+  const myTurn = !paused && (isAdvantage ? state?.me.can_advantage ?? false : state ? isMyTurn(state) : false)
   const picker = state ? getCurrentPicker(state) : null
 
   const warning = isWarningSeconds(seconds)
-  const color = warning ? COLOR_WARNING_RED : COLOR_YELLOW
+  const color = paused ? COLOR_MUTED : warning ? COLOR_WARNING_RED : COLOR_YELLOW
   const frameBorder = myTurn ? COLOR_YELLOW : '#262b36'
 
   let title = '대기 중'
   let hint = '게임이 시작되면 여기에 표시됩니다'
 
   if (state?.phase === 'starting') {
-    title = '게임 시작 준비 중'
-    hint = '곧 픽이 시작됩니다'
+    const presence = getPresence(state)
+    if (isWaitingForPlayers(state) || state.paused?.remaining_ms === null) {
+      title = `참가자 입장 대기 ${presence?.present ?? 0}/${presence?.total ?? 0}`
+      hint = '모두 들어오면 5초 뒤 시작합니다'
+    } else {
+      title = '게임 시작 준비 중'
+      hint = '곧 픽이 시작됩니다'
+    }
   } else if (state?.phase === 'advantage') {
     const teamLabel = state.advantage?.team === 'team1' ? 'TEAM 1' : 'TEAM 2'
     title = `${teamLabel} 어드밴티지 선택 중`
@@ -76,7 +89,11 @@ export function PipView({ state, anchor }: Props) {
     hint = state.result?.corrected ? '결과 번복됨' : '전적에 반영됨'
   }
 
-  const maxSeconds = isStarting ? 15 : 20
+  // 정지 중에는 누가 멈췄는지를 안내 줄에 보여 준다.
+  const pauseBanner = getPauseBanner(state)
+  if (pauseBanner) hint = pauseBanner
+
+  const maxSeconds = getCountdownMaxSeconds(state?.phase)
   const currentSeconds = seconds ?? 0
   const progressPercent = Math.min(100, Math.max(0, Math.round((currentSeconds / maxSeconds) * 100)))
 
@@ -87,7 +104,7 @@ export function PipView({ state, anchor }: Props) {
     <div className={styles.pipBox} style={{ border: `2px solid ${frameBorder}` }}>
       <div className={styles.topRow}>
         <div className={styles.countNum} style={{ color }}>
-          {seconds !== null && seconds > 0 ? (
+          {seconds !== null && (seconds > 0 || paused) ? (
             seconds
           ) : seconds === 0 ? (
             <span className={styles.countClosing}>마감 확인 중…</span>
