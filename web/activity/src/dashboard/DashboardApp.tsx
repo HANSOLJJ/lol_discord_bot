@@ -161,11 +161,7 @@ export function DashboardApp() {
 
   return (
     <div className={styles.wrap}>
-      <DashboardHeader
-        lastUpdated={lastUpdated}
-        loading={loading}
-        onRefresh={refresh}
-      />
+      <DashboardHeader lastUpdated={lastUpdated} />
 
       <DashboardTabs activeTab={activeTab} onTabChange={handleTabChange} />
 
