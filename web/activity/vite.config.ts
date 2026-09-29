@@ -18,7 +18,10 @@ export default defineConfig({
     hmr: { clientPort: 443 },
     // 봇의 액티비티 서버(127.0.0.1:8790)로 HTTP와 WebSocket을 함께 넘긴다.
     proxy: {
-      '/pick-api': { target: 'http://127.0.0.1:8790', ws: true },
+      '/pick-api': {
+        target: process.env.ACTIVITY_PROXY_TARGET || 'http://127.0.0.1:8790',
+        ws: true,
+      },
       '/history_data.json': {
         target: 'https://arena.hansoljj.com',
         changeOrigin: true,
