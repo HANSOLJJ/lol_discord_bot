@@ -493,7 +493,7 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 | `pause` | `{ "t": "pause", "id": "u-1", "game_id": "g-1790000000000" }` | 기존 `reply` |
 | `resume` | `{ "t": "resume", "id": "u-2", "game_id": "g-1790000000000" }` | 기존 `reply` |
 
-- `ready`에는 `id`가 없고 응답도 없다. 연결마다 첫 `state`를 화면에 그린 뒤 한 번 보낸다. 재연결하면 다시 보낸다.
+- `ready`에는 `id`가 없어도 되고, 있어도 무시하고 받는다. 응답은 없다. 연결마다 첫 `state`를 화면에 그린 뒤 한 번 보낸다. 재연결하면 다시 보낸다.
 - `start_now`·`pause`·`resume`의 `game_id`는 화면에 지금 떠 있는 판의 ID이다.
 
 ### 15-2. "입장"의 뜻과 끊김 감지
@@ -514,11 +514,11 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 ```
 
 - `present`: 이번 판 참가자(`players`) 가운데 지금 입장한 사람의 ID 목록이다. 관전자는 넣지 않는다. 게임이 없으면(`none`) `[]`이다.
-- `paused`: `null` 또는 `{"by": "<user id>", "remaining_ms": <int>}`이다. `by`는 멈춘 사람, `remaining_ms`는 멈췄을 때 남은 시간이다.
+- `paused`: `null` 또는 `{"by": "<user id>", "remaining_ms": <int> | null}`이다. `by`는 멈춘 사람, `remaining_ms`는 멈췄을 때 남은 시간이다. `starting` 입장 대기 중(카운트다운 없음)에 정지하면 `remaining_ms`는 `null`이고, 재개하면 다시 입장 대기로 돌아간다(그때 전원 입장 상태면 카운트다운을 새로 시작한다).
 - `starting` phase의 의미 변경: **입장 대기**이다. 참가자 전원(= `players` 길이, 곧 `MAX_PLAYERS`)이 입장하면 `ready_countdown_seconds`(config, 없으면 기본 5초) 카운트다운을 시작하고, 끝나면 기존처럼 `advantage` 또는 `picking`으로 간다.
   - 대기 중에는 `start_at_ms`가 `null`이고, 카운트다운 중에만 숫자이다.
   - 카운트다운 중 누가 나가서 전원이 아니게 되면 카운트다운을 취소하고 대기로 돌아간다(`start_at_ms: null`). 단 `start_now`로 잡힌 카운트다운은 취소하지 않는다.
-- 일시정지 중에는 `deadline_ms`와 `start_at_ms`가 `null`이고 `paused.remaining_ms`가 남은 시간이다. `grace_ms`는 그대로 둔다.
+- 일시정지 중에는 `deadline_ms`와 `start_at_ms`가 `null`이고 `paused.remaining_ms`가 남은 시간이다. 단 `starting` 대기 중 정지이면 `remaining_ms`도 `null`이다. `grace_ms`는 그대로 둔다.
 - `me`에 세 필드가 더해진다. 클라이언트는 버튼 활성화를 `me`로만 정한다.
 
 | 필드 | 뜻 |
@@ -532,8 +532,8 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 공통: `game_id`가 보이는 판과 다르면 `stale_game`.
 
 - `start_now`: `phase`가 `starting`이 아니면 `wrong_phase` → 참가자가 아니면 `not_allowed` → 정지 중이면 `paused` → 이미 카운트다운 중이면 `wrong_phase` → 강제 카운트다운 시작, `ok`.
-- `pause`: `phase`가 `starting`·`advantage`·`picking`이 아니면 `wrong_phase` → 참가자가 아니면 `not_allowed` → 이미 정지면 `already_paused` → `advantage`·`picking`에서 마감이 지나 유예 중이면(남은 시간 ≤ 0) `timeout` → 남은 시간을 저장하고 타이머를 취소, `ok`.
-- `resume`: `phase` 조건은 `pause`와 같다 → 참가자가 아니면 `not_allowed` → 정지가 아니면 `not_paused` → 남은 시간으로 마감을 다시 잡고 타이머를 재장전, `ok`.
+- `pause`: `phase`가 `starting`·`advantage`·`picking`이 아니면 `wrong_phase` → 참가자가 아니면 `not_allowed` → 이미 정지면 `already_paused` → `advantage`·`picking`에서 마감이 지나 유예 중이면(남은 시간 ≤ 0) `timeout` → 남은 시간을 저장하고(`starting` 대기 중이면 `remaining_ms: null`) 타이머를 취소, `ok`.
+- `resume`: `phase` 조건은 `pause`와 같다 → 참가자가 아니면 `not_allowed` → 정지가 아니면 `not_paused` → 남은 시간으로 마감을 다시 잡고 타이머를 재장전(`remaining_ms`가 `null`이면 다시 입장 대기로), `ok`.
 - 정지 중 `pick`·`advantage`·`start_now` 요청은 `paused`로 거절한다(마감 계산보다 먼저 판정).
 
 | 새 `code` | 뜻 |
@@ -551,6 +551,6 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 ### 15-6. 설정과 화면 (참고)
 
 - config에 `"ready_countdown_seconds": 5`를 둔다. 없으면 기본 5초이다. `auto_start_seconds`·`dev_auto_start_seconds`는 embed 모드와 DEV_MODE용으로 남긴다.
-- 화면(13절)에 더할 것: 팀 칸 이름 옆 점(입장 초록, 미입장 회색)과 상단 "입장 n/6". `starting` 대기 중에는 "참가자 입장 대기 n/6"과 "지금 시작" 버튼(`me.can_start_now`), 카운트다운 중에는 5초 표시. 일시정지/재개 버튼(`me.can_pause`·`me.can_resume`)과 "⏸ X님이 일시정지함" 배너. 정지 중에는 카운트다운을 `paused.remaining_ms`로 고정한 초로 보여 준다.
+- 화면(13절)에 더할 것: 팀 칸 이름 옆 점(입장 초록, 미입장 회색)과 상단 "입장 n/6". `starting` 대기 중에는 "참가자 입장 대기 n/6"과 "지금 시작" 버튼(`me.can_start_now`), 카운트다운 중에는 5초 표시. 일시정지/재개 버튼(`me.can_pause`·`me.can_resume`)과 "⏸ X님이 일시정지함" 배너. 정지 중에는 카운트다운을 `paused.remaining_ms`로 고정한 초로 보여 준다. `remaining_ms`가 `null`이면 초를 표시하지 않고 "입장 대기 중 일시정지"로 보여 준다.
 - 이탈 알림: `starting`·`advantage`·`picking` 중에 참가자가 입장 → 미입장으로 바뀌면 "⚠ X님 연결 끊김 — 필요하면 일시정지하세요" 토스트를, 다시 들어오면 "X님 다시 입장" 토스트를 띄운다. 자동 일시정지는 하지 않는다.
 - 채널 버튼 방식(`pick_mode: embed`)에는 이 규칙을 넣지 않는다.
