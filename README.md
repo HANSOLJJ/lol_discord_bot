@@ -104,7 +104,30 @@ lol_discord_bot/
 
 맥미니 환경에서의 배포, 프로세스 점검 및 인게임 슬래시 커맨드 요약입니다. 세부 운영 절차는 [맥미니 배포 및 운영 가이드 (docs/DEPLOY_MACMINI.md)](docs/DEPLOY_MACMINI.md)를 참고합니다.
 
-### 1. 배포 및 프로세스 관리
+### 1. 게임하는 날 봇 켜고 끄기
+
+평소에는 대시보드용 `lol-web`·`lol-tunnel`·`lol-health`만 켜 두고, 봇(`lol-bot`)은 게임할 때만 켭니다. 봇이 꺼져 있으면 디스코드에서 봇이 오프라인으로 보이고 슬래시 커맨드와 픽 화면(액티비티)이 동작하지 않지만, 대시보드(`lol.hansoljj.com`)는 그대로 열립니다.
+
+맥미니 터미널(직접 또는 SSH)에서 실행합니다.
+
+```bash
+# 게임 시작 전: 운영 봇 켜기 (몇 초 안에 디스코드에 온라인으로 뜸)
+pm2 start lol-bot
+
+# 켜졌는지 확인 (lol-bot이 online이면 정상)
+pm2 status
+pm2 logs lol-bot --lines 20   # "Bot logged in", "액티비티 서버 시작"이 보이면 정상
+
+# 게임 끝난 뒤: 운영 봇 끄기
+pm2 stop lol-bot
+```
+
+- 봇을 켜면 챔피언 제외 목록이 비워진 새 상태로 시작합니다.
+- **봇을 켜 둔 채 `pm2 save`를 하지 마세요.** `pm2 save`는 지금 켜짐·꺼짐 상태를 저장해서 재부팅 때 그대로 되살립니다. 실수로 저장했다면 `pm2 stop lol-bot` 뒤 `pm2 save`를 다시 하면 됩니다.
+- `pm2` 명령을 찾지 못하면 `export PATH=/opt/homebrew/bin:$PATH`를 먼저 실행합니다.
+- 테스트 서버(TEST2)용 dev 봇은 `pm2 start lol-bot-dev lol-web-dev`로 켜고, 끝나면 `pm2 stop lol-bot-dev lol-web-dev`로 끕니다.
+
+### 2. 배포 및 프로세스 관리
 ```bash
 # 배포 (git pull, uv sync, npm build 후 lol-web 재시작, lol-bot은 켜져 있을 때만 재시작)
 bash scripts/deploy.sh
@@ -123,9 +146,9 @@ pm2 logs lol-bot
 pm2 logs lol-web
 ```
 
-### 2. 디스코드 슬래시 커맨드
+### 3. 디스코드 슬래시 커맨드
 ```
-/게임시작          # 팀 편성 및 챔피언 후보 제시 (액티비티 또는 임베드 시작)
+/게임시작          # 팀 편성 및 챔피언 후보 제시 (팀짜기 채널에 현황판과 "픽 화면 열기" 버튼)
 /승리              # 경기 승리 팀 확정 및 전적/히스토리 갱신
 /번복 [라운드]     # 직전 또는 특정 라운드 승패 정정 (확인 버튼 필요)
 /누적결과          # 전체 누적 전적 및 랭킹 조회
