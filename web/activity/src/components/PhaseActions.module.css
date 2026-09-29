@@ -77,35 +77,53 @@
   gap: 10px;
 }
 
-.btnWinnerTeam1 {
-  height: 48px;
+.btnWinnerTeam1,
+.btnWinnerTeam2 {
+  height: 52px;
   border-radius: 10px;
-  border: 2px solid #5b8cff;
-  background: rgba(91, 140, 255, 0.16);
-  color: #5b8cff;
+  border: none;
+  color: #0f1115;
   font: inherit;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 800;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+
+.btnWinnerTeam1 {
+  background: #5b8cff;
+  box-shadow: 0 4px 14px rgba(91, 140, 255, 0.35);
 }
 
 .btnWinnerTeam2 {
-  height: 48px;
-  border-radius: 10px;
-  border: 2px solid #ff6b5e;
-  background: rgba(255, 107, 94, 0.16);
-  color: #ff6b5e;
-  font: inherit;
-  font-size: 16px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.2s;
+  background: #ff6b5e;
+  box-shadow: 0 4px 14px rgba(255, 107, 94, 0.35);
+}
+
+.btnWinnerTeam1:hover:not(:disabled),
+.btnWinnerTeam2:hover:not(:disabled),
+.btnNextGame:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.btnWinnerTeam1:active:not(:disabled),
+.btnWinnerTeam2:active:not(:disabled),
+.btnNextGame:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.btnWinnerTeam1:focus-visible,
+.btnWinnerTeam2:focus-visible,
+.btnNextGame:focus-visible {
+  outline: 2px solid #e6e9ef;
+  outline-offset: 2px;
 }
 
 .btnWinnerTeam1:disabled,
 .btnWinnerTeam2:disabled {
   opacity: 0.4;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -192,16 +210,18 @@
 }
 
 .btnNextGame {
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 8px;
-  border: 1px solid #5b8cff;
-  background: rgba(91, 140, 255, 0.16);
-  color: #5b8cff;
+  height: 44px;
+  padding: 0 22px;
+  border-radius: 10px;
+  border: none;
+  background: #5b8cff;
+  color: #0f1115;
   font: inherit;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 800;
   cursor: pointer;
+  box-shadow: 0 4px 14px rgba(91, 140, 255, 0.35);
+  transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 
 .btnNextGame:disabled {
