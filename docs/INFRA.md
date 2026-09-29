@@ -142,6 +142,7 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
   - `/ddragon` → `ddragon.leagueoflegends.com` (리그 오브 레전드 Data Dragon CDN 자산 프록시)
 
 ### 6-2. 운영용 앱 (`롤랜덤챔프봇`)
+- **Application ID**: `1354988564458377216`
 - **현재 동작 방식**: 디스코드 채널 메시지 및 버튼 방식(`pick_mode: embed`)
 - 운영 서버에서는 아직 디스코드 액티비티가 활성화되지 않았으며, 추후 안정화 후 액티비티로 전환할 예정입니다.
 
@@ -162,12 +163,11 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 2. **맥미니 `.env` 파일에 OAuth2 인증 키 주입**
    - 맥미니 저장소 루트의 `.env` 파일에 운영 앱의 `DISCORD_CLIENT_ID` 및 `DISCORD_CLIENT_SECRET`을 설정합니다.
    - 키가 주입되어야 운영 봇(pm2 `lol`)이 기동될 때 포트 8790에서 `/pick-api` 백엔드 서버를 함께 시작합니다.
-3. **운영용 액티비티 프론트엔드 환경변수 설정 및 재빌드**
-   - `web/activity/.env.production` 파일을 생성하고 운영 Application ID를 지정합니다.
-     ```env
-     VITE_DISCORD_CLIENT_ID=<운영 Application ID>
-     ```
-   - 프론트엔드를 빌드하여 운영 번들에 앱 ID가 주입되도록 합니다 (`npm run build`). 현재 운영 빌드는 앱 ID가 비어 있습니다.
+   - 완료(2026-09-29). 키는 봇이 시작할 때만 읽으므로, 전환할 때 `pm2 restart lol`로 반영합니다.
+3. **픽 화면(프론트엔드)에 운영 앱 번호 넣기**
+   - 픽 화면은 켜질 때 디스코드 SDK에 자기 앱 번호(Application ID)를 알려야 하고, 번호가 없으면 디스코드 로그인에서 실패합니다.
+   - 브라우저 코드는 맥미니 `.env`를 읽지 못하므로, Vite가 빌드할 때 파일에서 번호를 읽어 JS에 넣습니다. `npm run dev`(lol-dev)는 `web/activity/.env.development`(dev 앱 번호)를, `npm run build`(운영)는 `web/activity/.env.production`(운영 앱 번호)을 읽습니다.
+   - 완료(2026-09-29). `web/activity/.env.production`에 `VITE_DISCORD_CLIENT_ID=1354988564458377216`을 커밋했습니다. 앱 번호는 공개 값이라 git에 올려도 됩니다.
 4. **봇 게임 모드 및 채널 설정 변경**
    - `config.json`에서 `pick_mode`를 `"activity"`로 변경합니다.
    - `channels` 설정을 `["팀짜기"]` 단일 채널로 단순화합니다 (액티비티 모드에서는 음성 채널별 개별 임베드 전송이 불필요합니다).
