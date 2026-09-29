@@ -421,7 +421,7 @@ export function pickingForcedState(overrides: Record<string, unknown> = {}): Sta
       kind: 'force',
       team: 'team2',
       status: 'chosen',
-      champion_id: 'Ahri',
+      champion_id: 'Garen',
     },
     ...overrides,
   })
@@ -457,7 +457,7 @@ export function pickingForcedLastState(overrides: Record<string, unknown> = {}):
       kind: 'force',
       team: 'team2',
       status: 'chosen',
-      champion_id: 'Ahri',
+      champion_id: 'Garen',
     },
     result: null,
     me: {
