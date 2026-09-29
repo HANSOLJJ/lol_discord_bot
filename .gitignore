@@ -41,3 +41,6 @@ CLAUDE.md
 # OS
 .DS_Store
 Thumbs.db
+
+# 스트레스 테스트 실행 결과
+tools/stress/out/
