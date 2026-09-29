@@ -33,11 +33,39 @@ describe('parseServerMessage', () => {
     assert.deepEqual(parseServerMessage(completed), completed)
   })
 
-  it('protocol_version이 3이 아니면 거절한다 (protocol_version 2 거절 포함)', () => {
-    assert.equal(parseServerMessage(state({ protocol_version: 1 })), null)
+  it('protocol_version이 4가 아니면 거절한다 (protocol_version 3 거절 포함)', () => {
     assert.equal(parseServerMessage(state({ protocol_version: 2 })), null)
-    assert.equal(parseServerMessage(state({ protocol_version: 4 })), null)
-    assert.equal(parseServerMessage(state({ protocol_version: '3' })), null)
+    assert.equal(parseServerMessage(state({ protocol_version: 3 })), null)
+    assert.equal(parseServerMessage(state({ protocol_version: 5 })), null)
+    assert.equal(parseServerMessage(state({ protocol_version: '4' })), null)
+  })
+
+  it('v4 present·paused·me 권한 필드를 검증한다', () => {
+    const waitingPaused = state({
+      phase: 'starting',
+      present: ['1', '2'],
+      paused: { by: '1', remaining_ms: null },
+      me: { ...state().me, can_resume: true },
+    })
+    assert.deepEqual(parseServerMessage(waitingPaused), waitingPaused)
+    const pickingPaused = state({ phase: 'picking', paused: { by: '1', remaining_ms: 12300 } })
+    assert.deepEqual(parseServerMessage(pickingPaused), pickingPaused)
+
+    // v3 서버처럼 새 필드가 없으면 거부한다.
+    const { present: _present, ...noPresent } = state()
+    assert.equal(parseServerMessage(noPresent), null)
+    const { paused: _paused, ...noPaused } = state()
+    assert.equal(parseServerMessage(noPaused), null)
+    const { can_start_now: _sn, ...meNoStartNow } = state().me
+    assert.equal(parseServerMessage(state({ me: meNoStartNow })), null)
+
+    assert.equal(parseServerMessage(state({ present: [123] })), null)
+    assert.equal(parseServerMessage(state({ present: null })), null)
+    assert.equal(parseServerMessage(state({ paused: { by: '1' } })), null)
+    assert.equal(parseServerMessage(state({ paused: { by: 1, remaining_ms: 100 } })), null)
+    assert.equal(parseServerMessage(state({ paused: { by: '1', remaining_ms: 1.5 } })), null)
+    assert.equal(parseServerMessage(state({ me: { ...state().me, can_pause: 'true' } })), null)
+    assert.equal(parseServerMessage(state({ me: { ...state().me, can_resume: null } })), null)
   })
 
   it('v3 advantage 필드와 상태를 정상 검증한다', () => {
@@ -212,5 +240,12 @@ describe('getReplyMessage', () => {
       getReplyMessage({ t: 'reply', id: '1', ok: false, code: 'must_pick_forced', message: null, state_version: 1 }),
       '강제픽 챔피언을 골라야 합니다.',
     )
+  })
+
+  it('일시정지 reply 코드(paused, already_paused, not_paused)에 대한 기본 안내 문구를 반환한다', () => {
+    const reply = (code: string) => ({ t: 'reply' as const, id: '1', ok: false, code, message: null, state_version: 1 })
+    assert.equal(getReplyMessage(reply('paused')), '일시정지 중에는 할 수 없습니다.')
+    assert.equal(getReplyMessage(reply('already_paused')), '이미 일시정지되어 있습니다.')
+    assert.equal(getReplyMessage(reply('not_paused')), '일시정지 상태가 아닙니다.')
   })
 })

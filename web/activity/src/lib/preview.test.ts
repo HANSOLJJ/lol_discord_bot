@@ -58,4 +58,13 @@ describe('getPreviewState', () => {
     assert.equal(getPreviewState('awaiting_result')?.phase, 'awaiting_result')
     assert.equal(getPreviewState('completed')?.phase, 'completed')
   })
+
+  it('입장 대기·카운트다운·일시정지 미리보기 키를 지원한다', () => {
+    const waiting = getPreviewState('starting')
+    assert.equal(waiting?.start_at_ms, null)
+    assert.equal(waiting?.me.can_start_now, true)
+    assert.equal(typeof getPreviewState('starting_countdown')?.start_at_ms, 'number')
+    assert.equal(getPreviewState('starting_paused')?.paused?.remaining_ms, null)
+    assert.equal(getPreviewState('picking_paused')?.paused?.remaining_ms, 12300)
+  })
 })
