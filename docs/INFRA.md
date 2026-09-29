@@ -12,7 +12,7 @@
 | 도메인 / 경로 | 프록시 대상 로컬 주소 | 처리 주체 및 역할 |
 |---|---|---|
 | `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` | 운영 디스코드 봇(pm2 `lol-bot`) 액티비티 API 및 WebSocket 서버. 운영 봇에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되어야 기동됩니다. |
-| `lol.hansoljj.com` (기타 경로) | `http://127.0.0.1:8791` | aiohttp 정적 웹 서버(pm2 `lol-web`). `/` 접근 시 디스코드 액티비티(`?frame_id=`)면 픽 화면, 일반 브라우저면 전적 대시보드를 서빙합니다. `/terms`, `/privacy`, `/history_data.json`, `/legacy.html`, `/favicon.svg` 등을 처리합니다. |
+| `lol.hansoljj.com` (기타 경로) | `http://127.0.0.1:8791` | aiohttp 정적 웹 서버(pm2 `lol-web`). `/` 접근 시 디스코드 액티비티(`?frame_id=`)면 픽 화면, 일반 브라우저면 전적 대시보드를 서빙합니다. `/terms`, `/privacy`, `/history_data.json`, `/favicon.svg` 등을 처리합니다. 옛 대시보드(`/legacy.html`)는 2026-09-29에 지웠고, 필요하면 git 태그 `embed-mode-last`에서 꺼낼 수 있습니다. |
 | `arena.hansoljj.com` | `http://127.0.0.1:8791` | 과거 서비스 주소입니다. 정적 웹 서버가 `https://lol.hansoljj.com`과 동일한 경로 및 쿼리로 301 영구 리다이렉트합니다. |
 | `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 개발용 액티비티 프론트엔드(pm2 `lol-web-dev`, Vite 개발 서버). `/pick-api` 요청은 Vite 내부 프록시를 통해 개발 봇(`http://127.0.0.1:8792`)으로 전달됩니다. |
 | `fin.hansoljj.com` | `finance` 터널 | 롤 봇 프로젝트와 무관한 독립 서비스입니다. 롤 관련 작업에서 절대 변경하지 않습니다. |

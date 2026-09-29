@@ -132,14 +132,13 @@ class WebServerTest(AioHTTPTestCase):
         data = await resp.json()
         self.assertEqual(data, {"games": []})
 
-    async def test_terms_privacy_legacy(self):
-        """/terms, /terms.html, /privacy, /privacy.html, /legacy.html 경로가 정상 서빙된다."""
+    async def test_terms_privacy(self):
+        """/terms, /terms.html, /privacy, /privacy.html 경로가 정상 서빙된다."""
         for path, keyword in [
             ("/terms", "이용약관"),
             ("/terms.html", "이용약관"),
             ("/privacy", "개인정보처리방침"),
             ("/privacy.html", "개인정보처리방침"),
-            ("/legacy.html", "옛 대시보드"),
         ]:
             resp = await self.client.get(path)
             self.assertEqual(resp.status, 200, f"Failed on path {path}")
@@ -149,7 +148,7 @@ class WebServerTest(AioHTTPTestCase):
 
     async def test_404_routes(self):
         """정의되지 않은 경로는 404를 반환한다."""
-        for path in ["/unknown", "/api/data", "/pick", "/terms/extra", "/assets/nonexistent.js"]:
+        for path in ["/unknown", "/api/data", "/pick", "/terms/extra", "/assets/nonexistent.js", "/legacy.html"]:
             resp = await self.client.get(path)
             self.assertEqual(resp.status, 404, f"Path {path} did not return 404")
 

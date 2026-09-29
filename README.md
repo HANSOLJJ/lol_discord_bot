@@ -73,7 +73,6 @@ lol_discord_bot/
 ├── ecosystem.config.cjs   # 맥미니 pm2 6개 프로세스 관리 설정
 ├── pyproject.toml         # 파이썬 의존성 정의 (uv)
 ├── web/                   # 웹 자산 및 정책 문서
-│   ├── index.html         #   구 전적 대시보드
 │   ├── terms.html         #   디스코드 액티비티 서비스 약관
 │   ├── privacy.html       #   디스코드 액티비티 개인정보 처리방침
 │   └── activity/          # 디스코드 액티비티 및 모던 대시보드 프론트엔드 (React + TS + Vite)

@@ -194,13 +194,6 @@ def create_app(root_dir: Path | str | None = None) -> web.Application:
             return web.Response(status=404, text="Not Found")
         return make_file_response(target, cache_control=CACHE_NO_CACHE)
 
-    # 10. /legacy.html
-    async def handle_legacy(request: web.Request) -> web.StreamResponse:
-        target = (web_dir / "index.html").resolve()
-        if not target.is_file():
-            return web.Response(status=404, text="Not Found")
-        return make_file_response(target, cache_control=CACHE_NO_CACHE)
-
     app.router.add_get("/", handle_root)
     app.router.add_get("/dashboard.html", handle_dashboard)
     app.router.add_get("/pick/", handle_pick_root)
@@ -213,7 +206,6 @@ def create_app(root_dir: Path | str | None = None) -> web.Application:
     app.router.add_get("/terms.html", handle_terms)
     app.router.add_get("/privacy", handle_privacy)
     app.router.add_get("/privacy.html", handle_privacy)
-    app.router.add_get("/legacy.html", handle_legacy)
 
     return app
 
