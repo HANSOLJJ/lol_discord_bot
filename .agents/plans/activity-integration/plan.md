@@ -266,6 +266,8 @@ Data Dragon 이미지는 `/ddragon/...`으로 요청한다. 전적 화면의 외
 
 ### 11-2. URL Mapping
 
+> 현재 설정은 docs/INFRA.md가 기준이다. 이 절은 당시 계획 기록이다.
+
 긴 prefix를 앞에 두고 `/`를 마지막에 둔다. target에는 프로토콜과 `index.html`을 넣지 않는다.
 
 | prefix | 운영 target | 개발 target |
@@ -317,6 +319,8 @@ module.exports = {
 정적 웹 서버는 같은 ecosystem 파일에 별도 앱(예: `lol-web`, 127.0.0.1:8791)으로 등록한다. finance와 같은 초소형 Node 서버 또는 동등한 정적 파일 서버를 사용하며, 저장소 통합 단계(9-2절)에서 추가하고 재시작·재부팅 복귀 검증에 포함한다. 배포는 git pull → 필요 시 빌드 → pm2 restart를 한 스크립트로 묶는다. 운영 전환 후에는 상태 확인 실패 시 Discord webhook으로 알리는 간단한 감시를 맥미니에 등록한다(2026-09-28 확정).
 
 ### 12-2. 터널과 운영 공개
+
+> 현재 설정은 docs/INFRA.md가 기준이다. 이 절은 당시 계획 기록이다.
 
 `~/.cloudflared/config.yml`의 마지막 404 규칙 앞에 다음 ingress를 추가한다.
 
