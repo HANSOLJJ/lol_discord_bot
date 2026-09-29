@@ -7,6 +7,13 @@ export const COLOR_YELLOW = '#facc15'
 export const COLOR_WARNING_RED = '#ff3b3b'
 export const COLOR_MUTED = '#8b93a7'
 export const COLOR_BORDER_DEFAULT = '#262b36'
+export const COLOR_PRESENT = '#3fb950'
+
+// 진행 막대의 전체 길이(초). 서버 config의 ready_countdown_seconds·pick_timeout과 같게 둔다.
+export const READY_COUNTDOWN_SECONDS = 5
+export const TURN_SECONDS = 20
+
+const TURN_PHASES: readonly Phase[] = ['starting', 'advantage', 'picking']
 
 export function getTeamColor(team: Team): string {
   return team === 'team1' ? COLOR_TEAM1 : COLOR_TEAM2
@@ -212,6 +219,103 @@ export function canReportWinner(state: StateMessage, isPending: boolean, isConne
 export function canReverseGame(state: StateMessage, isPending: boolean, isConnected: boolean): boolean {
   if (!isConnected || isPending) return false
   return state.phase === 'completed' && state.me.can_reverse
+}
+
+/** 이번 판 참가자 가운데 입장한 사람 수와 전체 참가자 수를 구한다. 게임이 없으면 null이다. */
+export function getPresence(state: StateMessage | null): { present: number; total: number } | null {
+  if (!state || state.players.length === 0) return null
+  const present = state.players.filter((p) => state.present.includes(p.id)).length
+  return { present, total: state.players.length }
+}
+
+/** 참가자가 지금 입장해 있는지 확인한다. */
+export function isPlayerPresent(state: StateMessage, userId: string): boolean {
+  return state.present.includes(userId)
+}
+
+/** starting에서 카운트다운 없이 참가자 입장을 기다리는 중인지 판정한다. 정지 중이면 false다. */
+export function isWaitingForPlayers(state: StateMessage): boolean {
+  return state.phase === 'starting' && state.start_at_ms === null && state.paused === null
+}
+
+/** 카운트다운에 쓸 서버 마감 시각을 구한다. 정지 중이면 흐르지 않도록 null이다. */
+export function getCountdownDeadline(state: StateMessage | null): number | null {
+  if (!state || state.paused !== null) return null
+  if (state.phase === 'advantage' || state.phase === 'picking') return state.deadline_ms
+  if (state.phase === 'starting') return state.start_at_ms
+  return null
+}
+
+/** 진행 막대의 전체 길이(초)를 구한다. starting은 전원 입장 뒤 카운트다운 길이다. */
+export function getCountdownMaxSeconds(phase: Phase | undefined): number {
+  return phase === 'starting' ? READY_COUNTDOWN_SECONDS : TURN_SECONDS
+}
+
+/** 정지 중에 고정해 보여 줄 남은 초를 구한다. 정지가 아니거나 입장 대기 중 정지면 null이다. */
+export function getPausedSeconds(state: StateMessage | null): number | null {
+  const remaining = state?.paused?.remaining_ms
+  if (remaining === null || remaining === undefined) return null
+  return Math.max(0, Math.ceil(remaining / 1000))
+}
+
+/** 정지한 사람을 알리는 배너 문구를 반환한다. 정지가 아니면 null이다. */
+export function getPauseBanner(state: StateMessage | null): string | null {
+  if (!state?.paused) return null
+  const by = state.paused.by
+  const name = state.players.find((p) => p.id === by)?.name ?? '누군가'
+  return `⏸ ${name}님이 일시정지함`
+}
+
+/** 지금 시작 버튼을 누를 수 있는지 판정한다. */
+export function canStartNow(state: StateMessage, isPending: boolean, isConnected: boolean): boolean {
+  if (!isConnected || isPending) return false
+  return state.phase === 'starting' && state.me.can_start_now
+}
+
+/** 일시정지 버튼을 누를 수 있는지 판정한다. */
+export function canPause(state: StateMessage, isPending: boolean, isConnected: boolean): boolean {
+  if (!isConnected || isPending) return false
+  return TURN_PHASES.includes(state.phase) && state.me.can_pause
+}
+
+/** 재개 버튼을 누를 수 있는지 판정한다. */
+export function canResume(state: StateMessage, isPending: boolean, isConnected: boolean): boolean {
+  if (!isConnected || isPending) return false
+  return state.paused !== null && state.me.can_resume
+}
+
+export interface PresenceAlerts {
+  messages: string[]
+  // 이번 판에서 나갔다가 아직 돌아오지 않은 참가자 ID. 다음 호출에 그대로 넘긴다.
+  departed: string[]
+}
+
+/**
+ * 이전·현재 state의 present 차이로 이탈·재입장 알림 문구를 만든다.
+ * 알림은 starting·advantage·picking에서만 띄우고, 내 입장 변화와 처음 입장은 알리지 않는다.
+ */
+export function getPresenceAlerts(
+  prev: StateMessage | null,
+  next: StateMessage,
+  departed: readonly string[],
+): PresenceAlerts {
+  if (!prev || next.game_id === null || prev.game_id !== next.game_id) return { messages: [], departed: [] }
+  const showAlerts = TURN_PHASES.includes(next.phase)
+  const messages: string[] = []
+  const stillDeparted = new Set(departed)
+  for (const p of next.players) {
+    if (p.id === next.me.id) continue
+    const wasPresent = prev.present.includes(p.id)
+    const isPresent = next.present.includes(p.id)
+    if (wasPresent && !isPresent) {
+      stillDeparted.add(p.id)
+      if (showAlerts) messages.push(`⚠ ${p.name}님 연결 끊김 — 필요하면 일시정지하세요`)
+    } else if (!wasPresent && isPresent && stillDeparted.has(p.id)) {
+      stillDeparted.delete(p.id)
+      if (showAlerts) messages.push(`${p.name}님 다시 입장`)
+    }
+  }
+  return { messages, departed: [...stillDeparted] }
 }
 
 /** Data Dragon 초상화 이미지 URL을 생성한다. */
