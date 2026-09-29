@@ -25,4 +25,4 @@
 ## 문서
 
 - 전체 안내는 [README.md](README.md)에, 터널·DNS·포털 설정은 [인프라 가이드](docs/INFRA.md)에, pm2 운영·배포·환경변수는 [맥미니 배포 가이드](docs/DEPLOY_MACMINI.md)에, 액티비티 통신 규격은 [액티비티 통신 규격](docs/ACTIVITY_PROTOCOL.md)에 있다.
-- 문서만 고치는 작업에서는 코드, `config.json`, `.env`, `docs/COUNTDOWN_ANALYSIS.md`를 건드리지 않는다.
+- 문서만 고치는 작업에서는 코드, `config.json`, `.env`를 건드리지 않는다.

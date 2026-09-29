@@ -224,7 +224,7 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
   cd ../..
   ```
 3. 저장소 루트에 `.env`를 만든다. 필요한 키 목록은 [맥미니 배포 가이드](DEPLOY_MACMINI.md) 6절에 있다.
-4. Cloudflare 터널을 준비한다. 먼저 `cloudflared tunnel login`으로 인증한다. 기존 터널 인증 파일(`~/.cloudflared/<터널ID>.json`)이 있으면 그대로 쓰고, 없으면 새 터널을 만든다.
+4. Cloudflare 터널을 준비한다. 먼저 `cloudflared tunnel login`으로 인증한다. 기존 터널 인증 파일(`~/.cloudflared/<터널ID>.json`)이 있으면 그대로 쓰고, 없으면 새 터널을 만든다. 같은 이름의 터널이 Cloudflare에 남아 있으면 `create`가 실패하므로, 옛 터널을 `cloudflared tunnel delete lol`로 지우거나 다른 이름을 쓴다.
   ```bash
   cloudflared tunnel login
   cloudflared tunnel create lol
@@ -243,7 +243,7 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
   pm2 save
   ```
 8. 재부팅 뒤 자동 기동을 설정한다. `pm2 startup` 또는 LaunchAgent(`pm2.hansol.plist`)를 쓰고, 시스템 설정에서 자동 로그인을 켠다.
-9. 전적 데이터를 가져온다. `data/history_data.json`과 `data/wins.json`은 `lol_arena` 저장소의 백업(`history_data.json`)에서 가져와 `data/`에 둔다.
+9. 전적 데이터를 가져온다. `data/history_data.json`은 `lol_arena` 저장소의 백업(`history_data.json`)에서 가져와 `data/`에 둔다. `data/wins.json`(현재 시즌 누적 승수)은 백업되지 않으므로, 옛 맥미니 디스크에서 꺼내거나 `history_data.json`의 현재 시즌 판으로 승수를 다시 계산해 만들어야 한다.
 
 새 터널을 만들면 터널 ID가 바뀌므로 이 문서 2절과 2-4절의 터널 ID와 CNAME 대상도 새 ID로 갱신해야 한다.
 
