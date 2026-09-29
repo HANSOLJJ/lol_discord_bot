@@ -102,6 +102,15 @@ class WebServerTest(AioHTTPTestCase):
         text = await resp.text()
         self.assertIn("console.log", text)
 
+    async def test_favicon(self):
+        """빌드 결과 최상위의 favicon.svg를 내주고, 없으면 404이다."""
+        resp = await self.client.get("/favicon.svg")
+        self.assertEqual(resp.status, 404)
+        (self.dist_dir / "favicon.svg").write_text("<svg/>", encoding="utf-8")
+        resp = await self.client.get("/favicon.svg")
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(await resp.text(), "<svg/>")
+
     async def test_assets_and_fonts(self):
         """/assets/* 및 /fonts/* 경로가 올바른 헤더와 함께 서빙된다."""
         # /assets/app-12345.js

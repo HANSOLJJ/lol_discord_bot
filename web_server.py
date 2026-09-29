@@ -164,6 +164,16 @@ def create_app(root_dir: Path | str | None = None) -> web.Application:
             return web.Response(status=404, text="Not Found")
         return make_file_response(target)
 
+    # 6-1. /favicon.svg (빌드 결과 최상위의 사이트 아이콘)
+    async def handle_favicon(request: web.Request) -> web.StreamResponse:
+        err = check_dist()
+        if err is not None:
+            return err
+        target = safe_resolve_child(dist_dir, "favicon.svg")
+        if target is None:
+            return web.Response(status=404, text="Not Found")
+        return make_file_response(target)
+
     # 7. /history_data.json
     async def handle_history_data(request: web.Request) -> web.StreamResponse:
         if not data_file.is_file():
@@ -197,6 +207,7 @@ def create_app(root_dir: Path | str | None = None) -> web.Application:
     app.router.add_get("/pick/{tail:.*}", handle_pick_tail)
     app.router.add_get("/assets/{tail:.*}", handle_assets)
     app.router.add_get("/fonts/{tail:.*}", handle_fonts)
+    app.router.add_get("/favicon.svg", handle_favicon)
     app.router.add_get("/history_data.json", handle_history_data)
     app.router.add_get("/terms", handle_terms)
     app.router.add_get("/terms.html", handle_terms)
