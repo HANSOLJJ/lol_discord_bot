@@ -116,7 +116,10 @@ pm2 start lol-bot
 
 # 켜졌는지 확인 (lol-bot이 online이면 정상)
 pm2 status
-pm2 logs lol-bot --lines 20   # "Bot logged in", "액티비티 서버 시작"이 보이면 정상
+# 최근 기록 20줄을 보고 바로 끝낸다(--nostream 없이 치면 계속 기다리므로 Ctrl+C로 빠져나온다).
+# "[OK] Bot logged in"(디스코드 로그인)과 "[ACTIVITY] 액티비티 서버 시작"(픽 화면 서버)이 보이면 정상이다.
+# "[WARN] DISCORD_CLIENT_ID/DISCORD_CLIENT_SECRET가 없어"가 보이면 .env 키를 확인한다.
+pm2 logs lol-bot --lines 20 --nostream
 
 # 게임 끝난 뒤: 운영 봇 끄기
 pm2 stop lol-bot
