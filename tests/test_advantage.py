@@ -98,7 +98,7 @@ class AdvantageBase(RulesBase):
     async def open_advantage(self):
         code, _ = await self.start()
         self.assertEqual(code, "ok")
-        await self.clock.advance(15)
+        await self.begin()
         self.assertEqual(self.state()["phase"], "advantage")
 
     async def advantage(self, user_id, champion_id=None, game_id=None, received_at=None):
@@ -129,7 +129,7 @@ class AdvantagePhaseTest(AdvantageBase):
             s["advantage"], {"kind": "ban", "team": "team1", "status": "pending", "champion_id": None}
         )
         self.assertFalse(self.me(self.ids("team1")[0])["can_advantage"])
-        await self.clock.advance(15)
+        await self.begin()
         s = self.state()
         self.assertEqual(s["phase"], "advantage")
         self.assertEqual(s["deadline_ms"] - s["server_ms"], 20000)
@@ -152,7 +152,7 @@ class AdvantagePhaseTest(AdvantageBase):
         team1, team2 = self.ids("team1"), self.ids("team2")
         self.assertEqual((await self.advantage(team1[0], game_id="g-old"))[0], "stale_game")
         self.assertEqual((await self.advantage(team1[0]))[0], "wrong_phase")  # starting
-        await self.clock.advance(15)
+        await self.begin()
         limit = self.core.deadline + 2
         cases = [
             (dict(user_id=team2[0], game_id="g-old", champion_id="Nope"), "stale_game"),
@@ -214,13 +214,33 @@ class AdvantagePhaseTest(AdvantageBase):
         self.assertEqual(s["advantage"]["status"], "chosen")
         self.assertEqual((s["phase"], s["current_index"]), ("picking", 0))
 
+    async def test_pause_rejects_advantage_and_resume_rearms_skip_timer(self):
+        await self.open_advantage()
+        team1 = self.ids("team1")
+        gid = self.state()["game_id"]
+        await self.clock.advance(5)
+        self.assertEqual((await self.core.activity_pause(self.ids("team2")[0], gid))[0], "ok")
+        s = self.state()
+        self.assertEqual((s["deadline_ms"], s["paused"]["remaining_ms"]), (None, 15000))
+        self.assertFalse(self.me(team1[0])["can_advantage"])
+        self.assertEqual((await self.advantage(team1[0], received_at=self.clock() + 1000))[0], "paused")
+        await self.clock.advance(100)
+        self.assertEqual(self.state()["phase"], "advantage")  # 정지 중에는 건너뛰지 않는다
+        await self.core.activity_resume(team1[1], gid)
+        s = self.state()
+        self.assertEqual(s["deadline_ms"] - s["server_ms"], 15000)
+        await self.clock.advance(16.9)
+        self.assertEqual(self.state()["phase"], "advantage")
+        await self.clock.advance(0.1)
+        self.assertEqual(self.state()["advantage"]["status"], "skipped")
+
     async def test_new_game_clears_advantage(self):
         await self.open_advantage()
         arrange(self.core, NO_ADVANTAGE)
         async with self.core.lock:
             self.core.new_game(self.people, "activity")  # /게임시작
         self.assertIsNone(self.state()["advantage"])
-        await self.clock.advance(15)
+        await self.begin()
         self.assertEqual(self.state()["phase"], "picking")
 
 
@@ -252,7 +272,7 @@ class BanPickTest(AdvantageBase):
                 gid = self.state()["game_id"]
                 self.assertEqual((await self.start(game_id=gid))[0], "ok")
                 self.core.rng.seed(seed)
-                await self.clock.advance(15)
+                await self.begin()
                 banned = await self.choose(seed)
                 for _ in range(6):
                     await self.clock.advance(22)
@@ -331,7 +351,7 @@ class ForcePickTest(AdvantageBase):
                 if seed:
                     gid = self.state()["game_id"]
                     self.assertEqual((await self.start(game_id=gid))[0], "ok")
-                    await self.clock.advance(15)
+                    await self.begin()
                     self.forced = await self.choose(seed % 8)
                 self.core.rng.seed(seed)
                 for _ in range(6):

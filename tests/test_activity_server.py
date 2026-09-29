@@ -1,6 +1,6 @@
 ##
 # @file test_activity_server.py
-# @brief activity_server의 토큰 교환·세션·WebSocket 규격(docs/ACTIVITY_PROTOCOL.md, protocol_version 3) 테스트.
+# @brief activity_server의 토큰 교환·세션·WebSocket 규격(docs/ACTIVITY_PROTOCOL.md, protocol_version 4) 테스트.
 # @details 가짜 Discord API를 aiohttp 테스트 서버로 띄워 discord_api_base로 주입한다. 게임은 game_core.GameCore에
 #          가짜 저장소·가짜 시계를 넣어 쓴다. 실제 Discord나 봇(got_champe)은 쓰지 않는다.
 #          실행: uv run python -m unittest discover -s tests -t . -v
@@ -75,6 +75,7 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
     dev_mode = True
     pick_mode = "activity"
     session_ttl = activity_server.SESSION_TTL_SECONDS
+    heartbeat = activity_server.HEARTBEAT_SECONDS
 
     async def asyncSetUp(self):
         self.discord_requests = []  # 가짜 Discord가 받은 (경로, 본문 또는 헤더)
@@ -97,6 +98,7 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
             client_secret=CLIENT_SECRET,
             discord_api_base=str(self.fake_discord.make_url("")),
             session_ttl=self.session_ttl,
+            heartbeat=self.heartbeat,
             clock=self.clock,
         )
         self.client = TestClient(TestServer(self.server.app))
@@ -271,7 +273,7 @@ class WebSocketMessageTest(ActivityTestBase):
         state = await self.recv(ws)
 
         self.assertEqual(hello["t"], "hello")
-        self.assertEqual(hello["protocol_version"], 3)
+        self.assertEqual(hello["protocol_version"], 4)
         self.assertEqual(hello["server_epoch"], self.server.server_epoch)
         self.assertIsInstance(hello["server_ms"], int)
         self.assertAlmostEqual(hello["server_ms"], before, delta=5000)
@@ -279,16 +281,16 @@ class WebSocketMessageTest(ActivityTestBase):
         self.assertEqual(hello["user"]["username"], "hansol")
 
         self.assertEqual(state["t"], "state")
-        self.assertEqual(state["protocol_version"], 3)
+        self.assertEqual(state["protocol_version"], 4)
         self.assertEqual(state["server_epoch"], self.server.server_epoch)
         self.assertEqual(state["state_version"], 0)
         self.assertEqual(state["phase"], "none")
         self.assertIsInstance(state["server_ms"], int)
         for key in ("game_id", "round", "season", "start_at_ms", "deadline_ms", "grace_ms",
-                    "turn_id", "current_index", "ddragon_version", "result", "advantage"):
+                    "turn_id", "current_index", "ddragon_version", "result", "advantage", "paused"):
             self.assertIn(key, state)
             self.assertIsNone(state[key], key)
-        for key in ("players", "pick_order", "champions", "auto_assigned"):
+        for key in ("players", "pick_order", "champions", "auto_assigned", "present"):
             self.assertEqual(state[key], [], key)
         self.assertEqual(state["selections"], {})
         self.assertEqual(
@@ -298,6 +300,9 @@ class WebSocketMessageTest(ActivityTestBase):
                 "role": "spectator",
                 "team": None,
                 "can_start": True,
+                "can_start_now": False,
+                "can_pause": False,
+                "can_resume": False,
                 "can_pick": False,
                 "can_advantage": False,
                 "can_report": False,
@@ -359,6 +364,9 @@ class WebSocketMessageTest(ActivityTestBase):
             {"t": "pick", "id": "k", "game_id": 1, "turn_id": "g-1:0", "champion_id": "Ahri"},
             {"t": "result", "id": "r", "game_id": "g-1", "winner": 1},
             {"t": "reverse", "id": "v", "game_id": "g-1", "expected_winner": "team3"},
+            {"t": "start_now", "id": "n"},  # game_id 없음
+            {"t": "pause", "id": "p", "game_id": 5},
+            {"t": "resume", "id": "r", "game_id": ""},
         ]
         for message in cases:
             with self.subTest(message=message):
@@ -412,6 +420,14 @@ class GameSocketBase(ActivityTestBase):
         self.assertEqual(msg["t"], kind, msg)
         return msg
 
+    async def until(self, predicate):
+        """서버 태스크가 입장 등을 반영할 때까지 최대 2초 기다린다."""
+        for _ in range(200):
+            if predicate():
+                return
+            await asyncio.sleep(0.01)
+        self.fail("조건이 끝내 참이 되지 않았습니다")
+
 
 class GameRoundTripTest(GameSocketBase):
     """DEV_MODE activity: 연결 → hello/state → start → state 변화 → pick → reply."""
@@ -420,7 +436,7 @@ class GameRoundTripTest(GameSocketBase):
         ws = await self.connect()
         hello = await self.recv_type(ws, "hello")
         first = await self.recv_type(ws, "state")
-        self.assertEqual((hello["protocol_version"], first["phase"]), (3, "none"))
+        self.assertEqual((hello["protocol_version"], first["phase"]), (4, "none"))
         other = await self.connect_ready()  # 다른 연결도 같은 state를 받는다
 
         await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
@@ -653,10 +669,117 @@ class ProdPermissionTest(GameSocketBase):
         me = state["me"]
         self.assertEqual(me["role"], "player")
         self.assertIn(me["team"], ("team1", "team2"))
-        await self.clock.advance(15)
+        await self.game.set_present(state["pick_order"])  # 참가자 전원 입장 → 5초 카운트다운
+        await self.recv_type(ws, "state")
+        await self.clock.advance(5)
         picking = await self.recv_type(ws, "state")
         mine = picking["pick_order"][0] == DISCORD_USER["id"]
         self.assertEqual(picking["me"]["can_pick"], mine)
+
+
+class PresenceSocketTest(GameSocketBase):
+    """운영 activity: ready로 입장 → 참가자 전원 입장 시 카운트다운 → 이탈 시 취소, start_now·pause·resume 왕복."""
+    dev_mode = False
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.people[0] = Member(int(DISCORD_USER["id"]), "정한솔")
+
+    async def connect_as(self, user_id):
+        """user_id로 세션을 받아 연결하고 hello·state를 받은 소켓을 돌려준다."""
+        self.me_body["id"] = user_id
+        return await self.connect_ready()
+
+    async def recv_reply(self, ws):
+        """state를 건너뛰고 다음 reply를 돌려준다."""
+        while (msg := await self.recv(ws))["t"] != "reply":
+            self.assertEqual(msg["t"], "state", msg)
+        return msg
+
+    async def test_ready_once_per_connection_and_same_user_counts_once(self):
+        me = DISCORD_USER["id"]
+        ws1 = await self.connect_ready()
+        await self.send(ws1, {"t": "ready"})
+        await self.send(ws1, {"t": "ready", "id": "x"})  # 두 번째 ready는 무시하고 id가 있어도 받는다
+        await self.until(lambda: me in self.game.present)
+        await self.send(ws1, {"t": "ping", "id": "p", "c": 1})
+        while (msg := await self.recv(ws1))["t"] != "pong":
+            self.assertEqual(msg["t"], "state")  # ready에는 reply가 없다
+        self.assertEqual(self.server._ready_counts[me], 1)
+        ws2 = await self.connect_ready()  # 같은 사람의 두 번째 연결(휴대폰 등)
+        await self.send(ws2, {"t": "ready"})
+        await self.until(lambda: self.server._ready_counts[me] == 2)
+        await ws1.close()
+        await self.until(lambda: self.server._ready_counts[me] == 1)
+        self.assertIn(me, self.game.present)  # 다른 연결이 남아 있어 입장 유지
+        await ws2.close()
+        await self.until(lambda: me not in self.game.present)
+        self.assertNotIn(me, self.server._ready_counts)
+
+    async def test_connection_without_ready_is_not_present(self):
+        ws = await self.connect_ready()
+        await ws.close()
+        await asyncio.sleep(0.05)
+        self.assertEqual((self.game.present, dict(self.server._ready_counts)), (set(), {}))
+
+    async def test_all_ready_counts_down_and_leaving_cancels(self):
+        ws = await self.connect_ready()
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        self.assertEqual((await self.recv_reply(ws))["code"], "ok")
+        ids = self.game.snapshot()["pick_order"]
+        sockets = {}
+        for uid in ids + ["777"]:  # 777은 관전자
+            sockets[uid] = await self.connect_as(uid)
+            await self.send(sockets[uid], {"t": "ready"})
+        await self.until(lambda: self.game.start_at is not None)
+        s = self.game.snapshot()
+        self.assertEqual(s["present"], [p["id"] for p in s["players"]])  # 관전자는 빠진다
+        self.assertEqual(s["start_at_ms"] - s["server_ms"], 5000)
+
+        await sockets[ids[2]].close()
+        await self.until(lambda: self.game.start_at is None)
+        self.assertEqual(len(self.game.snapshot()["present"]), 5)
+        self.assertEqual(self.game.visible_phase(), "starting")
+
+        gid = s["game_id"]
+        ws_a = sockets[ids[0]]
+        await self.send(ws_a, {"t": "start_now", "id": "n-1", "game_id": gid})
+        reply = await self.recv_reply(ws_a)
+        self.assertEqual((reply["code"], reply["ok"]), ("ok", True))
+        await self.send(ws_a, {"t": "pause", "id": "p-1", "game_id": gid})
+        self.assertEqual((await self.recv_reply(ws_a))["code"], "ok")
+        await self.send(ws_a, {"t": "pause", "id": "p-2", "game_id": gid})
+        self.assertEqual((await self.recv_reply(ws_a))["code"], "already_paused")
+        await self.send(ws_a, {"t": "resume", "id": "r-1", "game_id": gid})
+        self.assertEqual((await self.recv_reply(ws_a))["code"], "ok")
+        await self.send(ws_a, {"t": "resume", "id": "r-2", "game_id": gid})
+        self.assertEqual((await self.recv_reply(ws_a))["code"], "not_paused")
+        await self.clock.advance(5)
+        self.assertEqual(self.game.visible_phase(), "picking")
+
+
+class HeartbeatTest(GameSocketBase):
+    """WebSocket 프로토콜 ping에 pong이 없으면 서버가 연결을 닫고 입장에서 뺀다."""
+    heartbeat = 0.2
+
+    async def test_missing_pong_drops_presence(self):
+        me = DISCORD_USER["id"]
+        alive = await self.connect_ready()
+        await self.send(alive, {"t": "ready"})
+        reader = asyncio.create_task(self.drain(alive))  # 받는 동안 ping에 자동으로 pong을 돌려준다
+        self.me_body["id"] = "888"
+        session = await self.get_session()
+        silent = await self.client.ws_connect("/pick-api/ws", params={"session": session}, autoping=False)
+        await self.send(silent, {"t": "ready"})
+        await self.until(lambda: self.game.present == {me, "888"})
+        await self.until(lambda: self.game.present == {me})  # pong이 없으면 약 0.3초 뒤 닫힌다
+        await asyncio.sleep(0.6)  # ping을 몇 번 더 주고받아도
+        self.assertEqual(self.game.present, {me})  # pong을 돌려준 연결은 그대로다
+        reader.cancel()
+
+    async def drain(self, ws):
+        async for _ in ws:
+            pass
 
 
 class EmbedModeSocketTest(GameSocketBase):
