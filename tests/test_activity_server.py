@@ -16,7 +16,7 @@ from aiohttp.test_utils import TestClient, TestServer
 import activity_server
 from activity_server import ActivityServer, _Connection
 from game_core import GameCore
-from tests.test_activity_rules import FakeClock, FakeEffects, arrange
+from tests.test_activity_rules import BAN_TEAM1, FakeClock, FakeEffects, arrange
 from tests.test_game_core import CHAMPIONS, FakeStore, Member
 
 CLIENT_ID = "test-client-id"
@@ -509,6 +509,70 @@ class GameRoundTripTest(GameSocketBase):
         self.assertEqual(synced["state_version"], picking["state_version"])
         self.assertEqual(synced["deadline_ms"], picking["deadline_ms"])
         self.assertEqual(synced["deadline_ms"] - synced["server_ms"], 15000)
+
+
+class AdvantageRoundTripTest(GameSocketBase):
+    """DEV_MODE activity 어드밴티지 판: start → advantage phase → advantage(밴) → picking → pick."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        arrange(self.game, BAN_TEAM1)
+
+    async def test_start_advantage_pick_round_trip(self):
+        ws = await self.connect_ready()
+        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        starting = await self.recv_type(ws, "state")
+        await self.recv_type(ws, "reply")
+        self.assertEqual(starting["advantage"]["status"], "pending")
+
+        await self.clock.advance(15)
+        adv = await self.recv_type(ws, "state")
+        self.assertEqual(adv["phase"], "advantage")
+        self.assertEqual(
+            adv["advantage"], {"kind": "ban", "team": "team1", "status": "pending", "champion_id": None}
+        )
+        self.assertEqual(adv["deadline_ms"] - adv["server_ms"], 20000)
+        self.assertTrue(adv["me"]["can_advantage"])
+        self.assertFalse(adv["me"]["can_pick"])
+
+        banned = adv["champions"][0]["id"]
+        request = {"t": "advantage", "id": "a-1", "game_id": adv["game_id"], "champion_id": banned}
+        await self.send(ws, request)
+        picking = await self.recv_type(ws, "state")  # state가 reply보다 먼저 온다
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual(picking["phase"], "picking")
+        self.assertEqual(picking["advantage"]["champion_id"], banned)
+        self.assertFalse(picking["me"]["can_advantage"])
+        self.assertEqual((reply["id"], reply["code"]), ("a-1", "ok"))
+        self.assertEqual(reply["state_version"], picking["state_version"])
+        await self.send(ws, request)  # 재전송에는 처음 reply를 그대로 돌려준다
+        self.assertEqual(await self.recv_type(ws, "reply"), reply)
+
+        pick = {
+            "t": "pick", "id": "k-1", "game_id": picking["game_id"],
+            "turn_id": picking["turn_id"], "champion_id": banned,
+        }
+        await self.send(ws, pick)
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual((reply["code"], reply["ok"]), ("champion_banned", False))
+        await self.send(ws, dict(pick, id="k-2", champion_id=picking["champions"][1]["id"]))
+        picked = await self.recv_type(ws, "state")
+        reply = await self.recv_type(ws, "reply")
+        self.assertEqual(reply["code"], "ok")
+        self.assertEqual(picked["current_index"], 1)
+
+    async def test_advantage_field_violations_get_bad_request(self):
+        ws = await self.connect_ready()
+        for bad in (
+            {"t": "advantage", "id": "a-1", "game_id": None},
+            {"t": "advantage", "id": "a-2", "game_id": None, "champion_id": 3},
+            {"t": "advantage", "id": "a-3", "champion_id": "Zed"},
+        ):
+            await self.send(ws, bad)
+            reply = await self.recv_type(ws, "reply")
+            self.assertEqual((reply["id"], reply["code"]), (bad["id"], "bad_request"))
+            await self.send(ws, {"t": "ping", "id": "p", "c": 1})  # 연속 위반 횟수를 비운다
+            await self.recv_type(ws, "pong")
 
 
 class IdempotencyTest(GameSocketBase):
