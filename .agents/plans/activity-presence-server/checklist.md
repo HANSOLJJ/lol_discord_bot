@@ -7,4 +7,4 @@
 - [x] game_core.reset_champion_pool + /챔피언리셋 (+ 테스트)
 - [x] config.json ready_countdown_seconds
 - [x] 전체 테스트 통과 (173개)
-- [ ] 완료 보고(worker_done)
+- [x] 완료 보고(worker_done) (2026-09-29 코디네이터 검토·병합 완료)
