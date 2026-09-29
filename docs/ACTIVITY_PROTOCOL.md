@@ -437,7 +437,7 @@ DEV_MODE에서는 권한이 넓어진다(11절). 클라이언트는 버튼 활�
 }
 ```
 
-- `advantage`는 이점이 없는 판이면 `null`이다.
+- `advantage`는 이점이 없는 판이면 `null`이다. 이점이 있는 판은 `starting`부터 `status: "pending"`으로 보내고, `chosen`·`skipped`가 된 뒤에도 `awaiting_result`·`completed`까지 그대로 둔다. 화면은 `phase`가 `advantage`일 때만 고르기 화면을 열고, `starting`에서는 요약만 보여 준다.
 - `kind`: `ban` 또는 `force`. `team`: 이점 팀(`team1`·`team2`). `status`: `pending`(고르는 중), `chosen`(확정), `skipped`(시간 초과로 없음). `champion_id`: `chosen`일 때만 채우고 그 밖에는 `null`.
 - `me.can_advantage`: `advantage` phase이고 내가 이점 팀일 때 참이다. DEV_MODE에서는 11절처럼 접속한 누구나 참이다.
 - `hello`와 `state`의 `protocol_version`은 3이다.
@@ -460,6 +460,8 @@ DEV_MODE에서는 권한이 넓어진다(11절). 클라이언트는 버튼 활�
 - 밴된 챔피언이다 → `champion_banned`
 - 강제픽 챔피언인데 보낸 사람이 상대 팀(이점 팀의 반대)이 아니다 → `champion_reserved`
 - 보낸 사람이 상대 팀의 마지막 차례이고 강제픽 챔피언이 아직 안 뽑혔는데 다른 챔피언을 골랐다 → `must_pick_forced`
+
+DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 팀"을 지금 차례인 사람의 팀으로 본다.
 
 자동 배정도 같은 규칙을 따른다. 밴된 챔피언은 고르지 않고, 강제픽 챔피언은 상대 팀에게만 주며, 상대 팀의 마지막 차례에 강제픽 챔피언이 남아 있으면 반드시 그것을 준다.
 
