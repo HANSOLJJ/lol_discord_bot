@@ -273,6 +273,31 @@ describe('Connection 요청 ID', () => {
     assert.equal(resReverse.ok, true)
   })
 
+  it('start_now, pause, resume 요청이 규격대로 만들어지고 reply를 같은 id의 요청에 대응시킨다', async () => {
+    const { env, conn } = setup()
+    const s1 = env.last()
+    handshake(env, s1)
+
+    const pStartNow = conn.requestStartNow('g-1')
+    const pPause = conn.requestPause('g-1')
+    const pResume = conn.requestResume('g-1')
+    const reqStartNow = s1.sentOf('start_now')[0]
+    const reqPause = s1.sentOf('pause')[0]
+    const reqResume = s1.sentOf('resume')[0]
+    assert.deepEqual(reqStartNow, { t: 'start_now', id: reqStartNow.id, game_id: 'g-1' })
+    assert.deepEqual(reqPause, { t: 'pause', id: reqPause.id, game_id: 'g-1' })
+    assert.deepEqual(reqResume, { t: 'resume', id: reqResume.id, game_id: 'g-1' })
+    assert.equal(new Set([reqStartNow.id, reqPause.id, reqResume.id]).size, 3)
+
+    // 응답 순서가 달라도 id로 대응시킨다.
+    s1.receive({ t: 'reply', id: reqResume.id, ok: false, code: 'not_paused', message: null, state_version: 3 })
+    s1.receive({ t: 'reply', id: reqStartNow.id, ok: true, code: 'ok', message: null, state_version: 1 })
+    s1.receive({ t: 'reply', id: reqPause.id, ok: true, code: 'ok', message: null, state_version: 2 })
+    assert.equal((await pStartNow).state_version, 1)
+    assert.equal((await pPause).state_version, 2)
+    assert.equal((await pResume).code, 'not_paused')
+  })
+
   it('연결이 끊기면 대기 중인 요청을 거부한다', async () => {
     const { env, conn } = setup()
     handshake(env, env.last())
@@ -280,6 +305,56 @@ describe('Connection 요청 ID', () => {
     env.last().serverClose(1006)
     await assert.rejects(pending)
     await assert.rejects(conn.pick('g-1', 't-1', 'Ahri'))
+  })
+})
+
+describe('Connection ready', () => {
+  it('hello와 state를 받기 전에는 보내지 않고, 받은 뒤에는 연결마다 한 번만 보낸다', () => {
+    const { env, conn } = setup()
+    const s1 = env.last()
+    conn.notifyRendered()
+    s1.open()
+    conn.notifyRendered()
+    s1.receive(hello())
+    conn.notifyRendered()
+    assert.equal(s1.sentOf('ready').length, 0)
+
+    s1.receive(state())
+    conn.notifyRendered()
+    assert.deepEqual(s1.sentOf('ready'), [{ t: 'ready' }])
+
+    // 새 state를 그리거나 sync로 같은 버전을 다시 받아도 다시 보내지 않는다.
+    s1.receive(state({ state_version: 1 }))
+    conn.notifyRendered()
+    env.visibility.set(false)
+    env.visibility.set(true)
+    s1.receive(state({ state_version: 1 }))
+    conn.notifyRendered()
+    assert.equal(s1.sentOf('ready').length, 1)
+  })
+
+  it('재연결하면 이전 연결의 state가 남아 있어도 새 연결의 state를 받은 뒤 다시 보낸다', () => {
+    const { env, conn } = setup()
+    const s1 = env.last()
+    handshake(env, s1, 'epoch-a', 3)
+    conn.notifyRendered()
+    assert.equal(s1.sentOf('ready').length, 1)
+
+    s1.serverClose(1006)
+    env.timers.fire(500)
+    const s2 = env.last()
+    s2.open()
+    s2.receive(hello())
+    // 스냅샷에는 이전 연결의 state가 남아 있지만 새 연결의 state는 아직 받지 않았다.
+    assert.equal(conn.getSnapshot().state?.state_version, 3)
+    conn.notifyRendered()
+    assert.equal(s2.sentOf('ready').length, 0)
+
+    s2.receive(state({ state_version: 3 }))
+    conn.notifyRendered()
+    conn.notifyRendered()
+    assert.deepEqual(s2.sentOf('ready'), [{ t: 'ready' }])
+    assert.equal(s1.sentOf('ready').length, 1)
   })
 })
 

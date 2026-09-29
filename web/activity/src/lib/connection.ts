@@ -124,6 +124,7 @@ export class Connection {
   #gotHello = false
   #gotState = false
   #clockSynced = false
+  #readySent = false
 
   // 요청 ID
   #seq = 0
@@ -237,6 +238,40 @@ export class Connection {
     })
   }
 
+  requestStartNow(game_id: string): Promise<ReplyMessage> {
+    if (!this.#open) return Promise.reject(new Error('연결되어 있지 않습니다.'))
+    const id = this.#nextId('n')
+    return new Promise((resolve, reject) => {
+      this.#pendingRequests.set(id, { resolve, reject })
+      this.#send({ t: 'start_now', id, game_id })
+    })
+  }
+
+  requestPause(game_id: string): Promise<ReplyMessage> {
+    if (!this.#open) return Promise.reject(new Error('연결되어 있지 않습니다.'))
+    const id = this.#nextId('ps')
+    return new Promise((resolve, reject) => {
+      this.#pendingRequests.set(id, { resolve, reject })
+      this.#send({ t: 'pause', id, game_id })
+    })
+  }
+
+  requestResume(game_id: string): Promise<ReplyMessage> {
+    if (!this.#open) return Promise.reject(new Error('연결되어 있지 않습니다.'))
+    const id = this.#nextId('rs')
+    return new Promise((resolve, reject) => {
+      this.#pendingRequests.set(id, { resolve, reject })
+      this.#send({ t: 'resume', id, game_id })
+    })
+  }
+
+  /** 화면이 이번 연결의 state를 그린 뒤 부른다. 연결마다 한 번만 ready를 보내 서버가 입장으로 센다. */
+  notifyRendered(): void {
+    if (!this.#open || !this.#gotHello || !this.#gotState || this.#readySent) return
+    this.#readySent = true
+    this.#send({ t: 'ready' })
+  }
+
   /** 소켓·타이머·리스너를 모두 정리한다. 이후에는 다시 쓸 수 없다. */
   dispose(): void {
     if (this.#disposed) return
@@ -255,6 +290,7 @@ export class Connection {
     this.#gotHello = false
     this.#gotState = false
     this.#clockSynced = false
+    this.#readySent = false
     this.#update({ status: 'connecting' })
 
     const socket = this.#opts.createSocket(this.#opts.socketUrl(this.#session))
