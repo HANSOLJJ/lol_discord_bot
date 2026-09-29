@@ -320,20 +320,40 @@ def start_countdown_description(remaining):
 
 
 ##
+# @brief activity 모드 현황판에 넣을 5·6위 어드밴티지 한 줄(예: "TEAM 2 어드밴티지: 밴(제드)").
+# @return 줄바꿈으로 끝나는 문자열. 어드밴티지가 없는 판이면 빈 문자열.
+def advantage_board_line():
+    adv = game.advantage
+    if adv is None:
+        return ""
+    label = "밴" if adv["kind"] == "ban" else "강제픽"
+    detail = {"pending": "선택 대기", "chosen": adv["champion"], "skipped": "시간 초과로 없음"}[adv["status"]]
+    return f"**TEAM {adv['team'][-1]} 어드밴티지: {label}({detail})**\n"
+
+
+##
 # @brief activity 모드 현황판의 안내 문구를 만든다. 남은 시간은 넣지 않는다(매초 편집하지 않는다).
 # @return embed description 문자열.
 def activity_board_description():
     guide = "아래 **픽 화면 열기** 버튼으로 액티비티에서 챔피언을 고르세요."
     phase = game.visible_phase()
+    advantage = advantage_board_line()
     if phase == "starting":
         return (
             f"## 🚀 준비 완료!\n"
-            f"**{game.pick_order[0].mention} 님부터 시작합니다.**\n\n{guide}"
+            f"**{game.pick_order[0].mention} 님부터 시작합니다.**\n\n{advantage}{guide}"
+        )
+    if phase == "advantage":
+        team = game.advantage["team"][-1]
+        label = "밴" if game.advantage["kind"] == "ban" else "강제픽"
+        return (
+            f"## ⚡ TEAM {team} 어드밴티지 - {label}할 챔피언을 고르는 중입니다!\n\n"
+            f"아래 **픽 화면 열기** 버튼으로 액티비티에서 고르세요."
         )
     if phase == "picking":
         picker = game.pick_order[game.current_pick_index]
-        return f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n{guide}"
-    return "## ✅ 모든 선택 완료!"
+        return f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n{advantage}{guide}"
+    return f"## ✅ 모든 선택 완료!\n\n{advantage}".rstrip()
 
 
 ##
