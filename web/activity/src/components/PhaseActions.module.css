@@ -103,7 +103,21 @@
 .btnWinnerTeam1:hover:not(:disabled),
 .btnWinnerTeam2:hover:not(:disabled),
 .btnNextGame:hover:not(:disabled) {
-  filter: brightness(1.12);
+  filter: brightness(1.18);
+  transform: translateY(-2px);
+}
+
+.btnWinnerTeam1:hover:not(:disabled),
+.btnNextGame:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.85),
+    0 8px 24px rgba(91, 140, 255, 0.6);
+}
+
+.btnWinnerTeam2:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.85),
+    0 8px 24px rgba(255, 107, 94, 0.6);
 }
 
 .btnWinnerTeam1:active:not(:disabled),
