@@ -26,20 +26,26 @@
 | `lol-dev` | dev 봇(`DEV_MODE=true`, `ACTIVITY_PORT=8792`) | 127.0.0.1:8792 |
 | `lol-dev-web` | 액티비티 Vite 개발 서버. `/pick-api`를 8792로 넘긴다 | 127.0.0.1:5173 |
 
+주소는 `lol.hansoljj.com` 하나로 합친다(2026-09-29 사용자 결정). 브라우저로 열면 전적 대시보드, 디스코드 액티비티로 열면 픽 화면이 나온다. dev는 `lol-dev.hansoljj.com`이다. 처음 계획한 `pick.hansoljj.com`은 쓰지 않는다.
+
 정적 웹 서버의 경로 규칙:
-- `/` → `web/activity/dist/dashboard.html`, `/assets/*`·`/fonts/*` → `dist/`
-- `/pick/` → `dist/index.html`, `/pick/*` → `dist/*` (디스코드 URL 매핑 `/` → `arena.hansoljj.com/pick`)
+- Host가 `arena.hansoljj.com`이면 모든 경로를 `https://lol.hansoljj.com` + 같은 경로·query로 301 리다이렉트(옛 링크 유지)
+- `/` → query에 `frame_id`가 있으면 `web/activity/dist/index.html`(액티비티), 없으면 `dist/dashboard.html`(대시보드). 디스코드는 액티비티를 열 때 항상 `frame_id`를 붙인다
+- `/dashboard.html`, `/assets/*`, `/fonts/*` → `dist/`
 - `/history_data.json` → `data/history_data.json`, `Cache-Control: no-cache`
 - `/terms`, `/terms.html`, `/privacy`, `/privacy.html` → `web/*.html`
 - `/legacy.html` → `web/index.html`(옛 대시보드, 비교용)
 
-터널(finance 터널 config.yml의 404 규칙 앞):
+터널: finance와 분리한 롤 전용 터널 `lol`(ID `bdf8b12f-…`, 설정 `~/.cloudflared/lol.yml`, pm2 앱 `lol-tunnel`).
 
-| 호스트 | 대상 | 시점 |
+| 호스트 | 대상 | DNS |
 |---|---|---|
-| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | dev 이전 때. 지금은 Windows의 대시보드 관리형 터널로 가는 DNS를 finance 터널로 옮긴다 |
-| `arena.hansoljj.com` | `http://127.0.0.1:8791` | 사이트 전환 때. Cloudflare Pages의 사용자 지정 도메인을 먼저 뗀다 |
-| `pick.hansoljj.com` | `http://127.0.0.1:8790` | 운영 앱 액티비티를 켤 때 |
+| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 롤 터널로 연결함(2026-09-29) |
+| `lol.hansoljj.com` `/pick-api` | `http://127.0.0.1:8790` | 롤 터널로 연결함(2026-09-29) |
+| `lol.hansoljj.com` 나머지 | `http://127.0.0.1:8791` | 위와 같음 |
+| `arena.hansoljj.com` | `http://127.0.0.1:8791`(웹 서버가 301) | Pages 사용자 지정 도메인을 뗀 뒤 연결 |
+
+개발자 포털 URL 매핑: dev 앱은 `/` → `lol-dev.hansoljj.com`, 운영 앱은 `/` → `lol.hansoljj.com`. 두 앱 모두 `/ddragon` → `ddragon.leagueoflegends.com`.
 
 ## 4. 순서
 
