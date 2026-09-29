@@ -292,6 +292,7 @@ class ActivityServer:
         self.server_epoch = str(uuid.uuid4())  # 프로세스(서버 객체)마다 새로 만든다
         self._sessions = {}  # {세션 토큰: _Session}
         self._connections = set()  # 열린 _Connection
+        self._cleanups = set()  # 끊긴 연결의 정리 태스크(핸들러가 취소돼도 끝까지 돈다)
         # {사용자 ID: ready를 보낸 열린 연결 수}. 한 사람의 여러 연결(PC·휴대폰)은 한 명으로 센다
         self._ready_counts = collections.Counter()
         self._token_requests = collections.deque()  # 빈도 제한 창 안의 토큰 요청 시각(단조 시계)
@@ -342,6 +343,7 @@ class ActivityServer:
         for conn in connections:
             conn.request_close(CLOSE_GOING_AWAY)
         await asyncio.gather(*(conn.task for conn in connections), return_exceptions=True)
+        await asyncio.gather(*list(self._cleanups), return_exceptions=True)
 
     async def _on_cleanup(self, app):
         if self._http is not None:
@@ -476,13 +478,24 @@ class ActivityServer:
             await self._receive_loop(conn, session)
         finally:
             self._connections.discard(conn)
-            await asyncio.gather(*conn.requests, return_exceptions=True)
-            if conn.ready:
-                await self._leave(conn)
-            conn.request_close(CLOSE_NORMAL)
-            await conn.task
-            log.info("[ACTIVITY] WS 종료 (user=%s, code=%s)", conn.user_id, ws.close_code)
+            # 정리를 별도 태스크로 떼어 shield로 기다린다. 클라이언트가 끊겨 이 핸들러가 취소돼도
+            # (aiohttp handler cancellation) 퇴장 반영과 전송 태스크 정리는 끝까지 실행된다.
+            cleanup = asyncio.create_task(self._cleanup_connection(conn))
+            self._cleanups.add(cleanup)
+            cleanup.add_done_callback(self._cleanups.discard)
+            await asyncio.shield(cleanup)
         return ws
+
+    ##
+    # @brief 닫힌 연결의 처리 중 요청을 기다리고, 입장에서 빼고, 전송 태스크를 닫는다.
+    # @param conn 닫힌 연결.
+    async def _cleanup_connection(self, conn):
+        await asyncio.gather(*conn.requests, return_exceptions=True)
+        if conn.ready:
+            await self._leave(conn)
+        conn.request_close(CLOSE_NORMAL)
+        await conn.task
+        log.info("[ACTIVITY] WS 종료 (user=%s, code=%s)", conn.user_id, conn.ws.close_code)
 
     ##
     # @brief 클라이언트 메시지를 받아 처리한다. 세션 만료·연속 위반·연결 종료 시 끝난다.

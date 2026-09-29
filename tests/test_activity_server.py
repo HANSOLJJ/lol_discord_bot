@@ -757,6 +757,32 @@ class PresenceSocketTest(GameSocketBase):
         await self.clock.advance(5)
         self.assertEqual(self.game.visible_phase(), "picking")
 
+    async def test_leave_and_sender_cleanup_survive_cancellation(self):
+        """연결 처리가 도중에 취소돼도(TestServer는 handler_cancellation이 켜져 있다) 퇴장·전송 작업 정리는 끝까지 실행된다."""
+        starter = await self.connect_ready()
+        await self.send(starter, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
+        self.assertEqual((await self.recv_reply(starter))["code"], "ok")
+        ids = self.game.snapshot()["pick_order"]
+        sockets = {uid: await self.connect_as(uid) for uid in ids}
+        leaving, staying = ids[0::2], ids[1::2]
+        async with self.game.lock:  # ready 반영(set_present)이 락에서 기다리게 붙잡는다
+            for uid in ids:
+                await self.send(sockets[uid], {"t": "ready"})
+                await self.send(sockets[uid], {"t": "ping", "id": "p", "c": 1})
+                while (await self.recv(sockets[uid]))["t"] != "pong":
+                    pass  # 서버가 ready를 받았음을 같은 소켓의 pong으로 확인한다
+            await asyncio.gather(*(sockets[uid].close() for uid in leaving))
+            await asyncio.sleep(0.05)  # 끊긴 연결의 처리 태스크가 취소될 틈을 준다
+        await self.until(lambda: self.game.present == set(staying))
+        self.assertEqual(set(self.server._ready_counts), set(staying))
+        for uid in staying:
+            await sockets[uid].close()
+        await starter.close()
+        await self.until(lambda: not self.server._ready_counts)
+        await asyncio.sleep(0.05)
+        pending = [t for t in asyncio.all_tasks() if "_Connection._run" in repr(t.get_coro()) and not t.done()]
+        self.assertEqual(pending, [])
+
 
 class HeartbeatTest(GameSocketBase):
     """WebSocket 프로토콜 ping에 pong이 없으면 서버가 연결을 닫고 입장에서 뺀다."""
