@@ -1,338 +1,137 @@
-# 🎮 League of Legends 챔피언 픽 Discord Bot
+# 🎮 리그 오브 레전드 3:3 투기장 디스코드 봇 & 웹 대시보드
 
-액티비티 카운트다운 개선과 봇·전적 기능 통합은 [통합 실행 계획](.agents/plans/activity-integration/plan.md)을 기준으로 진행합니다. [체크리스트](.agents/plans/activity-integration/checklist.md)와 [결정 기록](.agents/plans/activity-integration/context-notes.md)을 함께 관리합니다.
-
-## 📋 프로젝트 개요
-
-6명의 플레이어가 리그 오브 레전드 챔피언을 순서대로 선택하는 Discord 봇입니다.
-
-### 🎯 주요 기능
-
-1. **팀 구성**: 6명을 랜덤으로 3:3 팀으로 나눔
-2. **챔피언 선택**:
-   - 8개의 랜덤 챔피언 제시
-   - 승수가 낮은 사람부터 순서대로 선택 (공평성)
-   - 개인별 제한 시간 (설정 가능)
-   - 시간 초과 시 자동 랜덤 배정
-3. **전적 관리**:
-   - 승/패 기록 자동 저장
-   - 판별 상세 기록(팀·챔프·승자) 자동 저장 → `history_data.json`
-   - 오늘의 전적 및 누적 전적 표시
-   - 승률 자동 계산
-   - **웹 전적 대시보드** ([arena.dcom.co.kr](https://arena.dcom.co.kr/), 원본은 `lol_arena` repo)
-4. **시각적 표시**:
-   - 팀별 색상 구분 (🔵 team1 파란색, 🔴 team2 빨간색)
-   - 실시간 타이머 표시 (큰 폰트)
-   - 선택 현황 및 픽순 한눈에 확인
-5. **다중 채널 동시 지원**:
-   - 명령 실행 채널 + 팀 음성 채널(TEAM1, TEAM2)에 동시 메시지
-   - 각 팀이 음성 채널 채팅에서도 진행 상황 확인 가능
-   - 병렬 처리로 지연 최소화 (1초 단위 정확한 타이머)
+6명의 플레이어가 디스코드에서 3:3으로 팀을 나누고 순서대로 챔피언을 선택하여 경기하는 디스코드 봇과 웹 전적 대시보드 및 디스코드 액티비티(`web/activity`) 통합 시스템입니다.
+모든 서비스는 맥미니 환경에서 pm2 프로세스로 안정적으로 운영됩니다.
 
 ---
 
-## 📁 프로젝트 구조
+## 🌐 서비스 주소 구성
+
+서비스에 접근하는 도메인 및 로컬 프록시 대상은 다음과 같습니다. 세부 Cloudflare 터널 및 라우팅 설정은 [인프라 가이드(docs/INFRA.md)](docs/INFRA.md)를 참고합니다.
+
+| 주소 | 대상 로컬 주소 | 역할 |
+|---|---|---|
+| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` (pm2 `lol`) | 운영 액티비티 백엔드 API 및 WebSocket 서버입니다. 봇에 `DISCORD_CLIENT_ID`·`DISCORD_CLIENT_SECRET` 설정 시 활성화됩니다. |
+| `lol.hansoljj.com` (기타) | `http://127.0.0.1:8791` (pm2 `lol-web`) | 정적 웹 서버입니다. `/` 접근 시 디스코드 액티비티(`?frame_id=`)면 픽 화면을, 일반 브라우저면 전적 대시보드를 서빙합니다. |
+| `arena.hansoljj.com` | `http://127.0.0.1:8791` (pm2 `lol-web`) | 이전 서비스 주소입니다. 웹 서버가 `https://lol.hansoljj.com`의 동일 경로 및 쿼리로 301 영구 리다이렉트합니다. |
+| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` (pm2 `lol-dev-web`) | 개발용 액티비티 프론트엔드(Vite 개발 서버)입니다. `/pick-api` 요청을 개발 봇(포트 8792)으로 프록시합니다. |
+| `fin.hansoljj.com` | `finance` 터널 | 롤 봇 프로젝트와 무관한 독립 서비스입니다. 맥미니 작업 시 건드리지 않습니다. |
+
+- `pick.hansoljj.com`은 초기 기획에만 있었으며 현재 사용하지 않습니다.
+
+---
+
+## ⚔️ 게임 규칙
+
+### 1. 팀 편성
+- 6명의 플레이어를 무작위 3:3 두 팀(`TEAM1`, `TEAM2`)으로 편성합니다.
+
+### 2. 픽 순서 결정
+- 누적 승수가 적은 사람부터 순서대로 챔피언을 선택합니다 (동률 시 무작위 셔플).
+- 승수 최다 플레이어가 1위(가장 마지막 픽)이며, 승수 최소 플레이어가 6위(가장 첫 번째 픽)입니다.
+
+### 3. 챔피언 선택 (20초 제한)
+- 총 8개의 무작위 챔피언이 후보 카드로 제시됩니다.
+- 플레이어당 제한 시간 20초(`pick_timeout: 20`)와 2초의 네트워크 유예 시간(`pick_grace_seconds: 2`)이 주어집니다.
+- 시간 초과 시 남은 후보 중에서 자동으로 무작위 배정됩니다.
+
+### 4. 5·6위 어드밴티지 규칙 (v3 규격, 액티비티 모드)
+승수가 가장 낮은 약한 두 사람이 한 팀으로 묶였을 때 해당 팀에 전략적 이점을 부여합니다.
+- **적용 조건**: 6위와 5위가 같은 팀으로 배정된 경우 해당 팀이 **이점 팀**이 됩니다. 두 사람이 서로 다른 팀이면 어드밴티지 없이 일반 픽으로 진행합니다.
+- **밴(Ban) 어드밴티지**: 이점 팀의 나머지 한 명이 **1위 또는 2위**인 경우 발동합니다.
+  - 이점 팀이 후보 8개 중 1개를 지정하여 밴합니다.
+  - 밴된 챔피언은 이번 판에서 양 팀 모두 고를 수 없으며, 남은 7개 후보에서 6명이 픽을 진행합니다.
+- **강제픽(Force) 어드밴티지**: 이점 팀의 나머지 한 명이 **3위 또는 4위**인 경우 발동합니다.
+  - 이점 팀이 후보 중 1개를 강제픽으로 지정합니다.
+  - 강제픽 챔피언은 상대 팀만 선택할 수 있으며, 상대 팀 세 명 중 누군가는 반드시 해당 챔피언을 골라야 합니다. 상대 팀의 마지막 차례까지 강제픽이 남아 있으면 그 플레이어는 강제픽만 선택할 수 있습니다.
+- **진행 방식**: 픽 시작 전 20초 동안의 별도 `advantage` 단계에서 이점 팀원 중 누구나 먼저 선택한 것으로 확정됩니다. 시간 초과 시 어드밴티지 없이 일반 픽으로 넘어갑니다.
+- 세부 통신 규격과 상태 모델은 [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md) 14절을 참고합니다.
+
+### 5. 채널 구성
+- `config.json`의 `channels` 목록(`["팀짜기"]` 등)을 참조합니다.
+- 액티비티 모드에서는 1개 채널만으로도 원활하게 동작하며, 과거처럼 팀별 음성 채널 2개를 필수로 요구하지 않습니다.
+
+---
+
+## 📁 저장소 구조
 
 ```
 lol_discord_bot/
-├── got_champe.py          # 메인 봇 코드
-├── game_recorder.py       # 판 기록 모듈 (history_data 자동 갱신, 시즌 감지, GitHub Pages 업로드)
-├── parse_all_history.py   # 디스코드 채널 재파싱 (재해복구용)
-├── paths.py               # 모든 데이터/산출물 경로 상수 (single source of truth)
-├── config.json            # 게임 설정 (timeout, 챔피언 수, 채널)
-├── pyproject.toml         # 파이썬 패키지 목록 (uv)
-├── uv.lock                # 패키지 버전 고정 (uv sync가 이 버전 그대로 설치)
-├── .python-version        # 파이썬 버전 고정 (3.14.7)
-├── .env                   # 환경변수 (토큰, DEV_MODE, ARENA_GH_*)
-├── README.md / CLAUDE.md  # 문서 (루트)
-├── data/                  # 전적 데이터 (봇 I/O, gitignore)
-│   ├── wins.json          #   개인 누적 전적 (실제 모드)
-│   ├── wins_dev.json      #   개발용 전적
-│   └── history_data.json  #   전 판 상세 마스터 (lol_arena repo로 업로드됨)
-├── docs/                  # 문서
-│   └── PARSE_REPORT.md    #   과거 전적 복구·검증 리포트
-├── backup/                # 백업 (bak, 구시즌 집계)
-└── logs/                  # 봇 로그
+├── got_champe.py          # 디스코드 메인 봇 및 슬래시 커맨드 핸들러
+├── game_core.py           # 게임 규칙, 어드밴티지 판정 및 상태 관리 코어
+├── activity_server.py     # 액티비티 aiohttp 백엔드 (OAuth2 토큰 교환 및 WebSocket)
+├── web_server.py          # aiohttp 정적 웹 서버 (대시보드 서빙 및 구 주소 301 리다이렉트)
+├── game_recorder.py       # 전적 기록 모듈 (로컬 갱신 및 GitHub 백업)
+├── paths.py               # 저장소 내 모든 파일 경로 단일 관리
+├── config.json            # 게임 제한 시간, 채널 및 픽 모드 설정
+├── ecosystem.config.cjs   # 맥미니 pm2 6개 프로세스 관리 설정
+├── pyproject.toml         # 파이썬 의존성 정의 (uv)
+├── web/                   # 웹 자산 및 정책 문서
+│   ├── index.html         #   구 전적 대시보드
+│   ├── terms.html         #   디스코드 액티비티 서비스 약관
+│   ├── privacy.html       #   디스코드 액티비티 개인정보 처리방침
+│   └── activity/          # 디스코드 액티비티 및 모던 대시보드 프론트엔드 (React + TS + Vite)
+│       ├── src/           #   액티비티 UI 컴포넌트, WebSocket 클라이언트, 뷰 로직
+│       ├── dashboard.html #   신규 전적 대시보드 진입점
+│       ├── index.html     #   디스코드 액티비티 픽 화면 진입점
+│       └── dist/          #   Vite 프로덕션 빌드 산출물 (web_server.py가 직접 서빙)
+├── data/                  # 전적 마스터 데이터 (git 추적 안 함)
+│   ├── wins.json          #   플레이어별 누적 승수 데이터
+│   ├── wins_dev.json      #   개발 환경 가상 유저 전적 데이터
+│   └── history_data.json  #   전체 판 상세 기록 마스터
+├── docs/                  # 프로젝트 기술 및 운영 문서
+│   ├── INFRA.md           #   Cloudflare, DNS, 캐시, 디스코드 개발자 포털 및 전환 체크리스트
+│   ├── DEPLOY_MACMINI.md  #   맥미니 pm2 운영, 배포 스크립트, 환경변수 가이드
+│   ├── ACTIVITY_PROTOCOL.md # 액티비티 클라이언트-서버 통신 규격 (protocol_version 3)
+│   └── PARSE_REPORT.md    #   과거 디스코드 채널 전적 복구·검증 리포트
+├── scripts/               # 운영 유틸리티 스크립트
+│   ├── deploy.sh          #   맥미니 원클릭 빌드 및 배포 스크립트
+│   └── healthcheck.py     #   5분 간격 프로세스 및 웹 상태 점검 스크립트
+├── tests/                 # 파이썬 단위 테스트 (unittest)
+└── .agents/plans/         # 기능별 개발 계획, 체크리스트 및 결정 기록
 ```
 
 ---
 
-## ⚙️ 설정 파일
+## 🛠️ 일상 운영 명령어 요약
 
-### 1. `.env`
-```env
-DISCORD_TOKEN=your_discord_bot_token_here          # 운영 앱(롤랜덤챔프봇)
-DISCORD_TOKEN_DEV=your_dev_bot_token_here          # 개발 앱(롤랜덤챔프봇-dev)
-DEV_MODE=true    # 개발 모드: true, 실제 모드: false
-```
+맥미니 환경에서의 배포, 프로세스 점검 및 인게임 슬래시 커맨드 요약입니다. 세부 운영 절차는 [맥미니 배포 및 운영 가이드 (docs/DEPLOY_MACMINI.md)](docs/DEPLOY_MACMINI.md)를 참고합니다.
 
-**DEV_MODE 차이점:**
-
-| 항목 | DEV_MODE=true | DEV_MODE=false |
-|------|---------------|----------------|
-| 봇 토큰 | `DISCORD_TOKEN_DEV` (없으면 종료) | `DISCORD_TOKEN` |
-| 사용 파일 | `wins_dev.json` | `wins.json` |
-| 유저 생성 | MockUser (가상) | 실제 Discord 유저 |
-| 턴제 검증 | ❌ 없음 (누구나 선택 가능) | ✅ 있음 (자기 차례만) |
-| 용도 | 테스트 및 개발 | 실제 Discord 서버 |
-
-### 2. `config.json`
-```json
-{
-  "pick_timeout": 15,      // 챔피언 선택 제한 시간 (초)
-  "pick_grace_seconds": 2, // 카운트가 0이 된 뒤 자동 배정까지 기다리는 시간 (초). 이 안에 누른 클릭은 인정
-  "countdown_step_seconds": 1.2, // 카운트다운 한 칸의 길이 (초). 서버 응답이 늦으면 그 칸만 늘어나되 숫자는 0.8초 이상 표시
-  "champion_count": 8,     // 제시할 챔피언 수
-  "channels": {
-    "team1": "TEAM1",      // 팀1 음성 채널 이름 (자유롭게 변경 가능)
-    "team2": "TEAM2"       // 팀2 음성 채널 이름 (자유롭게 변경 가능)
-  }
-}
-```
-
-**채널 설정:**
-- `team1`, `team2`: 팀 음성 채널 이름 (Discord 서버에 존재해야 함)
-- `/게임시작` 실행 시 **명령 실행 채널 + team1 + team2**에 동시 메시지 전송
-- 중복 제거: 명령 채널이 team1/team2와 같으면 한 번만 전송
-
-### 3. `wins.json` / `wins_dev.json`
-```json
-{
-  "total_rounds": 74,            // 총 게임 판수 (자동 증가)
-  "365414320332472332": {        // Discord User ID (실제 모드)
-    "name": "정한솔",
-    "wins": 42
-  },
-  "100000000000000001": {        // 가짜 ID (개발 모드)
-    "name": "jaecheol232",
-    "wins": 31
-  }
-}
-```
-
-**⚠️ 중요:**
-- **실제 모드(`wins.json`)**: 반드시 실제 Discord User ID 사용
-- **개발 모드(`wins_dev.json`)**: 가짜 ID 사용 가능
-
----
-
-## 🚀 실행 방법
-
-### 1. 필요한 패키지 설치
-[uv](https://docs.astral.sh/uv/)가 필요하다. 파이썬(3.14.7)과 `.venv`는 uv가 알아서 준비한다.
+### 1. 배포 및 프로세스 관리
 ```bash
-uv sync
+# 운영 프로세스(lol, lol-web) 배포 및 재시작 (git pull, uv sync, npm build 포함)
+bash scripts/deploy.sh
+
+# 개발 프로세스(lol-dev, lol-dev-web)까지 함께 배포 및 재시작
+bash scripts/deploy.sh --dev
+
+# 웹 화면만 수정한 경우 (서버 재시작 불필요)
+cd web/activity && npm run build
+
+# pm2 전체 프로세스 상태 확인
+pm2 status
+
+# 프로세스 로그 실시간 확인
+pm2 logs lol
+pm2 logs lol-web
 ```
 
-### 2. 환경 설정
-1. `.env` 파일에 Discord Bot Token 추가
-2. `DEV_MODE` 설정 (개발: `true`, 실제: `false`)
-3. 실제 모드 사용 시 `wins.json`에 실제 Discord User ID 입력
-
-### 3. 봇 실행
-```bash
-uv run got_champe.py
+### 2. 디스코드 슬래시 커맨드
 ```
-
-### 📌 wins.json으로 실행하기 (실제 모드)
-
-실제 Discord 유저로 게임을 돌리고 전적을 `wins.json`에 기록하려면 아래 순서대로 한다.
-
-1. **`.env`에 실제 모드 설정**
-
-   ```env
-   DISCORD_TOKEN=your_discord_bot_token_here
-   DEV_MODE=false
-   ```
-
-   - `DEV_MODE=false`(또는 미설정)이면 봇이 자동으로 `wins.json`을 읽고 쓴다.
-   - `DEV_MODE=true`이면 대신 `wins_dev.json`을 사용하므로, 실제 전적을 쓰려면 반드시 `false`로 둔다.
-
-2. **`data/wins.json`에 6명의 실제 Discord User ID 입력**
-   - 처음이라면 아래 형식으로 `data/wins.json`을 새로 만든다 (key는 **실제 Discord User ID**, `total_rounds`는 누적 판수).
-
-     ```json
-     {
-       "total_rounds": 141,
-       "365414320332472332": { "name": "정한솔", "wins": 77 },
-       "390449986992865281": { "name": "보링",   "wins": 71 }
-     }
-     ```
-
-   - User ID 확인: Discord 설정 → 고급 → 개발자 모드 켜기 → 유저 우클릭 → "ID 복사".
-   - `total_rounds`와 각 유저의 `wins`는 게임이 끝날 때마다 봇이 자동으로 갱신하므로 처음 한 번만 채워두면 된다.
-
-3. **봇 실행**
-
-   ```bash
-   uv run got_champe.py
-   ```
-
-   - 정상 실행 시 콘솔에 `[DEV_MODE] False`가 찍히면 `wins.json` 모드로 동작 중인 것이다.
-
-4. **Discord에서 게임 진행**
-   - `/게임시작` → (10초 카운트다운 자동 시작) → 챔피언 선택 → `/승리`로 결과 확정.
-   - 결과가 확정되면 `wins.json`의 승수와 `total_rounds`가 자동 저장된다.
-
-> ⚠️ 실제 모드에서는 자기 차례에만 챔피언을 선택할 수 있다(턴제 검증). 또한 정기적으로 `wins.json`을 백업해 두는 것을 권장한다.
-
-### 4. Discord에서 사용
-```
-/게임시작          # 팀 배정 및 챔피언 제시 (10초 카운트다운 후 자동으로 선택 시작)
-(챔피언 버튼 클릭)  # 순서대로 챔피언 선택
-/승리              # 승리 팀 선택 후 전적 업데이트
-/누적결과          # 전체 누적 전적 확인
-/시즌시작          # 현재 시즌 마감 후 새 시즌 시작 (확인 버튼 필요, 전적 초기화)
-/번복 [라운드]     # 기록된 승리 팀 뒤집기 (확인 버튼 필요, 현재 시즌만, 생략 시 마지막 판)
+/게임시작          # 팀 편성 및 챔피언 후보 제시 (액티비티 또는 임베드 시작)
+/승리              # 경기 승리 팀 확정 및 전적/히스토리 갱신
+/번복 [라운드]     # 직전 또는 특정 라운드 승패 정정 (확인 버튼 필요)
+/누적결과          # 전체 누적 전적 및 랭킹 조회
+/시즌시작          # 현재 시즌 승수를 백업하고 새 시즌 시작 (확인 버튼 필요)
 ```
 
 ---
 
-## 🎮 게임 흐름
+## 📚 관련 문서 목록
 
-1. **`/게임시작`** 명령 실행
-   - 6명 선택 (DEV_MODE: wins_dev.json, 실제: 온라인 유저)
-   - 랜덤 3:3 팀 배정
-   - 픽 순서 계산 (승수 낮은 순)
-   - 랜덤 챔피언 8개 제시
+- [인프라 가이드 (docs/INFRA.md)](docs/INFRA.md): Cloudflare 터널, DNS CNAME 라우팅, 캐시 바이패스 규칙, 디스코드 개발자 포털 설정 및 운영 전환 체크리스트.
+- [맥미니 배포 및 운영 가이드 (docs/DEPLOY_MACMINI.md)](docs/DEPLOY_MACMINI.md): pm2 6개 프로세스 구성, 배포 스크립트, `.env` 환경변수 키 목록 및 GitHub 오프사이트 백업 구조.
+- [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md): 디스코드 임베디드 액티비티와 봇 간의 HTTP/WebSocket 통신 규격 (protocol_version 3) 및 5·6위 어드밴티지 프로토콜.
+- [과거 전적 복구 리포트 (docs/PARSE_REPORT.md)](docs/PARSE_REPORT.md): 디스코드 채널 기록으로부터 복구한 과거 경기 데이터 및 정합성 검증 리포트.
+- [에이전트 계획 디렉터리 (.agents/plans/)](.agents/plans/): 각 기능 개선 및 인프라 구축 시 작성된 실행 계획, 체크리스트 및 결정 기록.
 
-2. **10초 카운트다운 후 자동 시작** (`config.json`의 `auto_start_seconds`)
-   - 화면에 "⏰ N초 후 자동 시작"이 한 칸씩 줄어듦 (한 칸 = `countdown_step_seconds`, 기본 1.2초)
-   - 0이 되면 타이머 시작 + 첫 번째 플레이어 차례
-
-3. **챔피언 선택**
-   - 자기 차례에 챔피언 버튼 클릭
-   - 카운트가 0이 되면 "시간 종료 - 마지막 선택 확인 중..." → `pick_grace_seconds` 안에 누른 클릭은 인정
-   - 그래도 선택이 없으면 자동 랜덤 배정, 선택 현황에 `--완료(자동 배정)`으로 표시
-   - 팀별 색상으로 표시 (🔵/🔴)
-
-4. **모두 선택 완료**
-   - "승리한 팀 선택" 드롭다운 표시
-
-5. **`/승리` 또는 드롭다운 선택**
-   - 승리 팀 선택
-   - 전적 자동 업데이트
-   - 오늘의 전적 및 누적 전적 표시
-
----
-
-## 📈 전적 대시보드
-
-- **보기**: <https://arena.dcom.co.kr/> (또는 <https://hansoljj.github.io/lol_arena/>) · 로컬에선 `lol_arena` clone에서 `python -m http.server` 실행 후 localhost 접속 (index.html이 `history_data.json`을 fetch, file:// 더블클릭은 CORS로 데이터 안 뜸)
-- **대시보드 원본**: 별도 public repo [`lol_arena`](https://github.com/HANSOLJJ/lol_arena) = GitHub Pages 본체. `index.html`(UI) + `history_data.json`(데이터)만 있음. 봇은 이 repo에 데이터만 push
-- **탭**: 개인(행 클릭 → 챔프별 승률, 주력 챔프 TOP5 초상화, 번 돈 정산 승 +5000/패 -5000원) / 2인 시너지 / 3인 시너지 / 챔피언 / 3:3 매치업
-- **필터**: 시즌·세션(기간), 인원 선택(탭별 1~3명), 최소 판수 슬라이더, 컬럼 클릭 정렬
-- **데이터 갱신**: 봇이 `/승리` 처리 시 `history_data.json` 갱신 → **lol_arena repo에 Contents API로 자동 커밋** (GitHub Pages 실시간 반영, `.env`의 `ARENA_GH_*` 설정 필요. 실패해도 봇 동작에 영향 없고 다음 판 업로드 때 자동 만회). 대시보드는 이 json을 fetch (캐시버스터로 새로고침 시 항상 최신)
-- **UI 수정**: `index.html`은 `lol_arena` repo에서 직접 편집·`git push` (봇 무관)
-- **새 시즌**: `/시즌시작` 커맨드 (확인 버튼 → 승수를 `backup/`에 백업 후 0으로 초기화, `history_data.json`의 `current_season` +1, 라운드 1부터 재시작). 이전 시즌 판은 자기 `season` 값을 그대로 유지하므로 대시보드에서 계속 조회 가능
-- **결과 번복**: `/번복 [라운드]` 커맨드 (확인 버튼 → 해당 판의 승자를 뒤집고 `wins.json` 승수 ±1, `history_data.json`에 `corrected` 이력 기록 후 대시보드 업로드, 3채널에 정정 embed 방송). 현재 시즌 판만 가능 — 지난 시즌은 승수가 이미 초기화돼 되돌릴 수 없음
-- **재해복구**: 데이터 파일이 날아가면 `parse_all_history.py`로 디스코드 3채널에서 재파싱 (`data/history_data.json` 재생성)
-- **경로 변경**: 모든 데이터/산출물 경로는 `paths.py` 한 곳에서 관리
-
----
-
-## 🔑 핵심 알고리즘
-
-### 픽 순서 계산
-```python
-def calculate_pick_order(members):
-    """
-    승수 낮은 순서대로 정렬
-    동률 시 랜덤 섞기
-    """
-    # 1. 승수별로 그룹화
-    # 2. 각 그룹 내 랜덤 섞기
-    # 3. 승수 낮은 순으로 합치기
-```
-
-### 턴제 검증 (실제 모드)
-```python
-if not DEV_MODE:
-    if interaction.user.id != current_picker.id:
-        # 자기 차례 아니면 경고
-        return
-```
-
-### 타이머 중복 방지
-```python
-if picker_index != current_pick_index:
-    # 다른 사람이 선택 완료하면 타이머 자동 종료
-    return
-```
-
----
-
-## 🐛 알려진 이슈 및 해결
-
-### ✅ 해결됨
-1. **타이머 오버랩**: index 검증으로 해결
-2. **메시지 스팸**: embed 통합 업데이트로 해결
-3. **반응 느림**: API 호출 최적화로 해결
-4. **팀 고정**: 랜덤 섞기로 해결
-
-### ⚠️ 주의사항
-1. **실제 모드 전 `data/wins.json` 확인**
-   - 모든 유저의 실제 Discord ID 필요
-   - ID 확인: Discord 개발자 모드 → 유저 우클릭 → "ID 복사"
-
-2. **전적 백업**
-   - 정기적으로 `data/wins.json` 백업 권장
-
-### 🔧 자주 겪는 오류
-- **"Unknown interaction"**: 상호작용 응답(`interaction.response`)을 3초 이내에 호출해야 함
-- **자기 차례인데 챔피언이 안 눌림**: 실제 모드는 턴제 검증 — `data/wins.json`의 유저 ID가 실제 ID와 맞는지 확인
-- **봇 시작 로그로 모드 확인**: `[DEV_MODE] False` = 실제 모드(`data/wins.json`), `True` = 개발 모드(`data/wins_dev.json`)
-
----
-
-## 📊 데이터 구조
-
-### 전역 상태
-```python
-champion_list = []              # 전체 챔피언 리스트
-selected_users = {}             # user_id: 선택한 챔피언
-pick_order = []                 # 픽 순서 (member 객체)
-current_pick_index = 0          # 현재 차례
-current_teams = {}              # 팀 구성
-overall_results = {}            # 세션 전적
-wins_data = {}                  # 영구 전적
-game_started = False            # 게임 시작 여부
-champion_messages = {}          # {channel_id: message} - 다중 채널 메시지
-champion_views = {}             # {channel_id: view} - 다중 채널 View
-current_game_channels = []      # 현재 게임 사용 중인 채널 리스트
-```
-
----
-
-## 🔮 향후 개선 가능 사항
-
-1. **통계 명령어 추가**
-   - `/전적` - 개인 전적 조회
-   - `/랭킹` - 승률 순위
-
-2. **챔피언 제외 기능**
-   - 특정 챔피언 제외 리스트
-
-3. **밴픽 모드**
-   - 챔피언 밴 단계 추가
-
-4. **다중 서버 지원**
-   - 서버별 전적 분리
-
----
-
-## 📝 라이센스
-
-이 프로젝트는 개인 학습 및 사용 목적으로 제작되었습니다.
-
----
-
-## 🤝 기여
-
-버그 발견 시 Issues에 제보해주세요!
-
----
-
-## 📞 문의
-
-프로젝트 관련 문의사항은 Discord 서버에서 문의해주세요.
