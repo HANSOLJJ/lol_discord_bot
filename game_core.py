@@ -442,11 +442,14 @@ class GameCore:
         current_picker = self.pick_order[picker_index]
         if current_picker.id in self.selected_users:
             return None
-        # 현재 게임의 챔피언 중 남은 챔피언에서 랜덤 선택
+        # 현재 게임의 챔피언 중 남은 챔피언에서 랜덤 선택. 이번 판에서 이미 고른 챔피언도 직접 거른다
+        # (/챔피언리셋으로 excluded가 비어도 같은 판 중복 배정이 없게)
+        taken = set(self.selected_users.values())
         available_champs = [
             champ
             for champ in self.current_game_champions
             if champ["name"] not in self.excluded
+            and champ["name"] not in taken
             and self._advantage_violation(current_picker, champ["name"]) is None
         ]
         if not available_champs:

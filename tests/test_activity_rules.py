@@ -562,6 +562,20 @@ class ChampionPoolResetTest(RulesBase):
         again = {c["id"] for c in self.state()["champions"]}
         self.assertTrue(picked & again)  # 앞에서부터 뽑는 배치라 이전 판 챔피언이 다시 나온다
 
+    async def test_reset_mid_game_does_not_auto_assign_taken_champion(self):
+        """픽 도중 리셋해도 자동 배정은 이번 판에서 이미 고른 챔피언을 다시 주지 않는다."""
+        await self.start_picking()
+        first_champ = self.core.current_game_champions[0]
+        code, _ = await self.pick(champion_id=first_champ["id"])
+        self.assertEqual(code, "ok")
+        async with self.core.lock:
+            self.core.reset_champion_pool()
+        self.core.rng.choice = lambda seq: seq[0]  # 리셋 전 버그라면 방금 고른 챔피언이 뽑힌다
+        await self.clock.advance(22)
+        names = list(self.core.selected_users.values())
+        self.assertEqual(len(names), 2)
+        self.assertEqual(len(set(names)), 2)
+
     async def test_without_reset_previous_picks_are_excluded(self):
         await self.start_picking()
         await self.pick_all()
