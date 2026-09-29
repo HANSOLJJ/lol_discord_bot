@@ -181,6 +181,14 @@ class GameCore:
         key = "dev_pick_mode" if self.dev_mode else "pick_mode"
         return self.config.get(key, "embed")
 
+    ##
+    # @brief 게임 시작 뒤 픽이 자동으로 시작되기까지의 시간(초). DEV_MODE면 dev_auto_start_seconds가 있을 때 그것을 쓴다.
+    # @return 초(0 이상).
+    def auto_start_seconds(self):
+        if self.dev_mode and "dev_auto_start_seconds" in self.config:
+            return self.config["dev_auto_start_seconds"]
+        return self.config.get("auto_start_seconds", DEFAULT_AUTO_START_SECONDS)
+
     # === 변경 알림 ===
 
     ##
@@ -327,9 +335,7 @@ class GameCore:
         advantage = advantage_of(self.pick_order, self.teams)
         if advantage is not None:
             self.advantage = {**advantage, "status": "pending", "champion": None}
-        self.start_at = self.clock() + self.config.get(
-            "auto_start_seconds", DEFAULT_AUTO_START_SECONDS
-        )
+        self.start_at = self.clock() + self.auto_start_seconds()
         self._set_timer(self._auto_start(self.current_game_id, self.start_at))
 
     ##

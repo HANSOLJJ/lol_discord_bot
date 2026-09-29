@@ -1209,7 +1209,7 @@ async def 게임시작(ctx):
     champ_names = [champ["name"] for champ in game.current_game_champions]
 
     # Embed 생성 - description에 자동 시작 카운트다운
-    start_remaining = game.config.get("auto_start_seconds", DEFAULT_AUTO_START_SECONDS)
+    start_remaining = game.auto_start_seconds()
     embed2 = Embed(title=f"무작위 챔피언 {champ_count}명", color=0x00CCFF)
     embed2.description = start_countdown_description(start_remaining)
 

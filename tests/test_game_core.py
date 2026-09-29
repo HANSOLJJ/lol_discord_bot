@@ -120,6 +120,23 @@ def play_until_all_picked(core, people):
         core.current_pick_index += 1
 
 
+class AutoStartSecondsTest(unittest.TestCase):
+
+    def test_dev_uses_dev_value_and_prod_ignores_it(self):
+        config = {"auto_start_seconds": 15, "dev_auto_start_seconds": 0}
+        dev = make_core(FakeStore(), dev_mode=True)
+        prod = make_core(FakeStore(), dev_mode=False)
+        dev.config = dict(config)
+        prod.config = dict(config)
+        self.assertEqual(dev.auto_start_seconds(), 0)
+        self.assertEqual(prod.auto_start_seconds(), 15)
+
+    def test_dev_falls_back_when_dev_value_missing(self):
+        dev = make_core(FakeStore(), dev_mode=True)
+        dev.config = {"auto_start_seconds": 15}
+        self.assertEqual(dev.auto_start_seconds(), 15)
+
+
 class NewGameTest(unittest.TestCase):
 
     def setUp(self):
