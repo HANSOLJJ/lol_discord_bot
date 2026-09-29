@@ -2,7 +2,7 @@
 # @file activity_server.py
 # @brief 디스코드 액티비티용 HTTP·WebSocket 서버 (토큰 교환, 세션, 상태 스냅샷, 게임 요청).
 # @details 봇 프로세스 안에서 aiohttp.web으로 127.0.0.1에만 바인딩한다. 메시지 형식의 기준은
-#          docs/ACTIVITY_PROTOCOL.md(protocol_version 2)이다. 봇 전역 상태를 import하지 않고 게임 객체
+#          docs/ACTIVITY_PROTOCOL.md(protocol_version 3)이다. 봇 전역 상태를 import하지 않고 게임 객체
 #          (game_core.GameCore와 같은 메서드를 가진 객체)와 설정을 생성자로 주입받는다. 이 모듈은 세션·연결·
 #          형식 검증·요청 멱등성·state 방송을 맡고, 게임 판정은 게임 객체가 한다.
 #          OAuth code, access token, client secret, 세션 토큰, WebSocket query는 로그에 남기지 않는다.
@@ -19,7 +19,7 @@ import aiohttp
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 DEFAULT_PORT = 8790
 BIND_HOST = "127.0.0.1"
 DISCORD_API_BASE = "https://discord.com/api"
@@ -98,6 +98,10 @@ _REQUEST_FIELDS = {
     "pick": {
         "game_id": lambda v: _is_field(v, nullable=True),
         "turn_id": lambda v: _is_field(v, nullable=True),
+        "champion_id": _is_field,
+    },
+    "advantage": {
+        "game_id": lambda v: _is_field(v, nullable=True),
         "champion_id": _is_field,
     },
     "result": {
@@ -250,7 +254,7 @@ class _Connection:
 class ActivityServer:
 
     ##
-    # @param game 게임 객체. snapshot(), me(), add_listener(), activity_start/pick/result/reverse()를 쓴다.
+    # @param game 게임 객체. snapshot(), me(), add_listener(), activity_start/pick/advantage/result/reverse()를 쓴다.
     # @param client_id Discord 앱 client ID.
     # @param client_secret Discord 앱 client secret. 로그에 남기지 않는다.
     # @param port 바인딩할 포트(주소는 항상 127.0.0.1).
@@ -533,7 +537,7 @@ class ActivityServer:
     # @brief 게임 요청 하나를 처리하고 reply를 보낸다. 같은 사용자·판·요청 ID의 재전송에는 처음 reply를 돌려준다.
     # @details 상태가 바뀌면 게임 객체의 변경 알림으로 모든 소켓에 state가 먼저 쌓이고, reply는 그 뒤에 쌓인다.
     # @param conn 연결.
-    # @param kind "start" | "pick" | "result" | "reverse".
+    # @param kind "start" | "pick" | "advantage" | "result" | "reverse".
     # @param data 형식 검증을 통과한 요청.
     # @param received_at 접수 단조 시각.
     async def _process_request(self, conn, kind, data, received_at):
@@ -572,6 +576,10 @@ class ActivityServer:
         if kind == "pick":
             return await game.activity_pick(
                 user_id, data["game_id"], data["turn_id"], data["champion_id"], received_at
+            )
+        if kind == "advantage":
+            return await game.activity_advantage(
+                user_id, data["game_id"], data["champion_id"], received_at
             )
         if kind == "result":
             return await game.activity_result(user_id, data["game_id"], data["winner"])

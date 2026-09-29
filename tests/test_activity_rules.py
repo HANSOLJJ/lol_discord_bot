@@ -5,12 +5,38 @@
 # @details 단조 시계와 sleep을 FakeClock으로 바꿔 실제 20초를 기다리지 않는다. 저장소는 test_game_core의
 #          FakeStore를 쓴다.
 import asyncio
+import random
 import unittest
 
 from game_core import GameCore
 from tests.test_game_core import CHAMPIONS, FakeStore, Member, members
 
 START_MS = 1790000000000
+# 픽 순서(6위부터)를 뽑힌 6명의 인덱스로 적는다. 0~2가 TEAM 1, 3~5가 TEAM 2다(arrange 참고).
+NO_ADVANTAGE = (0, 3, 1, 4, 2, 5)  # 6위·5위가 다른 팀
+BAN_TEAM1 = (0, 1, 3, 4, 5, 2)  # 6위·5위가 TEAM 1, 나머지 한 명이 1위
+FORCE_TEAM2 = (3, 4, 0, 5, 1, 2)  # 6위·5위가 TEAM 2, 나머지 한 명이 3위. TEAM 1의 마지막 차례는 인덱스 5
+
+
+##
+# @brief 팀 나누기와 후보 뽑기를 고정하는 난수 생성기. 섞지 않고, 뽑기는 앞에서부터 가져온다.
+class ArrangedRng(random.Random):
+
+    def shuffle(self, x):
+        pass
+
+    def sample(self, population, k):
+        return list(population[:k])
+
+
+##
+# @brief 새 판의 팀과 픽 순서를 고정한다. 뽑힌 앞 6명 가운데 0~2가 TEAM 1, 3~5가 TEAM 2가 되고,
+#        픽 순서는 order(6위부터)를 따른다. 자동 배정의 무작위 선택은 그대로 남긴다.
+# @param core GameCore.
+# @param order 픽 순서가 될 인덱스 6개.
+def arrange(core, order=NO_ADVANTAGE):
+    core.rng = ArrangedRng(0)
+    core.calculate_pick_order = lambda selected: [selected[i] for i in order]
 
 
 ##
@@ -109,6 +135,7 @@ class RulesBase(unittest.IsolatedAsyncioTestCase):
         self.core.wins_data = {"total_rounds": 86}
         self.core.round_counter = 87
         self.core.effects = self.effects
+        arrange(self.core)  # 이점이 없는 배치. 어드밴티지 테스트는 다시 arrange한다
         self.changes = 0
         self.core.add_listener(self._on_change)
 
@@ -512,7 +539,7 @@ class PermissionTest(RulesBase):
         me = self.me("101")
         self.assertEqual(me, {
             "id": "101", "role": "spectator", "team": None, "can_start": True,
-            "can_pick": False, "can_report": False, "can_reverse": False,
+            "can_pick": False, "can_advantage": False, "can_report": False, "can_reverse": False,
         })
         await self.start_picking()
         s = self.state()
@@ -522,7 +549,7 @@ class PermissionTest(RulesBase):
         picker_team = next(p["team"] for p in s["players"] if p["id"] == picker)
         self.assertEqual(self.me(picker), {
             "id": picker, "role": "player", "team": picker_team, "can_start": False,
-            "can_pick": True, "can_report": False, "can_reverse": False,
+            "can_pick": True, "can_advantage": False, "can_report": False, "can_reverse": False,
         })
         self.assertFalse(self.me(other)["can_pick"])
         self.assertEqual(self.me(outsider)["role"], "spectator")

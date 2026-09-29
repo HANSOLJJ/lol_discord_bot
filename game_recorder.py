@@ -247,9 +247,10 @@ def set_game_winner(round_num, winner, dev_mode=False):
 # @param teams {"team1": [{"id","name","champ"}]x3, "team2": [...]} 형태의 양 팀 정보.
 # @param winner 승리 팀 키. "team1" 또는 "team2".
 # @param dev_mode True면 history_data_dev.*에 기록(테스트 분리).
+# @param advantage 확정된 5·6위 어드밴티지 {"kind", "team", "champion"}. 없으면 None이고 필드를 넣지 않는다.
 # @return int 기록된 시즌 번호.
 # @throws SeasonMismatchError 라운드 회귀인데 시즌이 갱신되지 않은 경우.
-def record_game(round_num, teams, winner, dev_mode=False):
+def record_game(round_num, teams, winner, dev_mode=False, advantage=None):
     data = _load_history(dev_mode)
     games = data["games"]
 
@@ -277,6 +278,8 @@ def record_game(round_num, teams, winner, dev_mode=False):
         "time": now,
         "sources": ["BOT"],
     })
+    if advantage is not None:
+        games[-1]["advantage"] = advantage
 
     # 이름 매핑은 처음 보는 id만 추가 (기존 이름 보존)
     for p in teams["team1"] + teams["team2"]:

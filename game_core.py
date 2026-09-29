@@ -53,6 +53,22 @@ def pick_random_champions(champion_list, excluded_champs, count=8, rng=random):
 
 
 ##
+# @brief 5·6위 어드밴티지(규격 14-1절)의 이점 팀과 종류를 구한다.
+# @details 순위는 픽 순서 그대로다(인덱스 0이 6위, 마지막이 1위). 6위와 5위가 같은 팀이면 그 팀이 이점 팀이고,
+#          나머지 한 명이 1·2위면 밴, 3·4위면 강제픽이다.
+# @param pick_order 픽 순서대로 정렬된 멤버 리스트.
+# @param teams {"team1": [member...], "team2": [...]}.
+# @return {"kind": "ban"|"force", "team": 팀 키}. 이점이 없으면 None.
+def advantage_of(pick_order, teams):
+    team_of = {m.id: key for key in TEAM_KEYS for m in teams.get(key, [])}
+    team = team_of.get(pick_order[0].id)
+    if team is None or team_of.get(pick_order[1].id) != team:
+        return None
+    third = next(i for i in range(2, len(pick_order)) if team_of.get(pick_order[i].id) == team)
+    return {"kind": "ban" if third >= len(pick_order) - 2 else "force", "team": team}
+
+
+##
 # @brief new_game()의 결과.
 # @details ok가 False면 챔피언 목록이 부족해 판을 만들지 못한 것이다(팀과 픽 순서는 이미 정해졌다).
 @dataclass
@@ -84,7 +100,7 @@ class GameCore:
     ##
     # @param dev_mode DEV_MODE 여부.
     # @param save_wins 승수 데이터를 저장하는 함수(data). 실패하면 예외를 던진다.
-    # @param record_game 판 기록 함수(round, teams, winner, dev_mode) → 시즌.
+    # @param record_game 판 기록 함수(round, teams, winner, dev_mode, advantage=) → 시즌.
     # @param find_game 판 기록 조회 함수(round, dev_mode) → 판 dict 또는 None.
     # @param set_game_winner 판 기록 승자 변경 함수(round, winner, dev_mode).
     # @param get_season 현재 시즌 조회 함수(dev_mode) → int.
@@ -145,7 +161,9 @@ class GameCore:
         self.game_season = None  # 이 판이 기록될 시즌
         self.result = None  # {"winner", "recorded_ms", "corrected", "history_recorded"}
         self.start_at = None  # activity 모드 자동 시작 시각(단조 시계)
-        self.deadline = None  # activity 모드 현재 차례 마감(단조 시계)
+        self.deadline = None  # activity 모드 현재 차례(또는 어드밴티지 선택) 마감(단조 시계)
+        # activity 모드 5·6위 어드밴티지 {"kind", "team", "status", "champion"(한국어 이름)}. 없으면 None
+        self.advantage = None
         self._last_uid_ms = 0
         self._listeners = []
         self._timer = None  # activity 모드 자동 시작·차례 마감 타이머
@@ -246,6 +264,7 @@ class GameCore:
         self.result = None
         self.start_at = None
         self.deadline = None
+        self.advantage = None
 
         half = MAX_PLAYERS // 2
         if self.dev_mode:
@@ -299,11 +318,15 @@ class GameCore:
         return f"g-{ms}"
 
     ##
-    # @brief new_game()이 판을 만든 직후 부른다. activity 모드면 자동 시작 시각을 정하고 서버 타이머를 건다.
-    # @details embed 모드의 자동 시작 카운트다운은 got_champe가 채널 메시지로 센다.
+    # @brief new_game()이 판을 만든 직후 부른다. activity 모드면 어드밴티지를 정하고, 자동 시작 시각과
+    #        서버 타이머를 건다.
+    # @details embed 모드의 자동 시작 카운트다운은 got_champe가 채널 메시지로 센다. embed 모드에는 어드밴티지가 없다.
     def _on_new_game(self):
         if self.mode != "activity":
             return
+        advantage = advantage_of(self.pick_order, self.teams)
+        if advantage is not None:
+            self.advantage = {**advantage, "status": "pending", "champion": None}
         self.start_at = self.clock() + self.config.get(
             "auto_start_seconds", DEFAULT_AUTO_START_SECONDS
         )
@@ -328,7 +351,8 @@ class GameCore:
     ##
     # @brief 지금 차례가 비어 있으면 남은 후보에서 무작위로 배정하고 다음 차례로 넘긴다. 락 안에서 부른다.
     # @details embed 모드 타이머와 activity 모드 타이머가 같이 쓴다. 배정한 사람은 선택 현황에
-    #          "자동 배정"으로 남도록 auto_assigned_users에 넣는다.
+    #          "자동 배정"으로 남도록 auto_assigned_users에 넣는다. 어드밴티지가 있으면 픽과 같은 규칙
+    #          (_advantage_violation)으로 후보를 거른다.
     # @param picker_index 배정할 차례의 인덱스(현재 차례여야 한다).
     # @return 배정한 챔피언 이름. 이미 골랐거나 남은 후보가 없으면 None.
     def auto_assign(self, picker_index):
@@ -340,6 +364,7 @@ class GameCore:
             champ
             for champ in self.current_game_champions
             if champ["name"] not in self.excluded
+            and self._advantage_violation(current_picker, champ["name"]) is None
         ]
         if not available_champs:
             return None
@@ -349,6 +374,47 @@ class GameCore:
         self.auto_assigned_users.add(current_picker.id)
         self.current_pick_index += 1
         return champ_name
+
+    ##
+    # @brief 멤버가 판을 시작할 때 나뉜 팀 가운데 어디 소속인지 확인한다(승리 기록 뒤에도 남는 teams 기준).
+    # @param member 확인할 멤버 객체.
+    # @return "team1" 또는 "team2", 없으면 None.
+    def _team_key(self, member):
+        return next((key for key in TEAM_KEYS if member in self.teams.get(key, [])), None)
+
+    ##
+    # @brief 이 사람이 이 챔피언을 고르면 어드밴티지 규칙(규격 14-5절)에 걸리는지 판정한다.
+    # @details 확정된 어드밴티지가 있을 때만 적용한다. 밴 챔피언은 아무도 못 고르고, 강제픽 챔피언은 상대 팀만
+    #          고를 수 있으며, 상대 팀의 마지막 차례에 강제픽이 남아 있으면 그 챔피언만 고를 수 있다.
+    # @param picker 고르는 차례의 멤버.
+    # @param champ_name 고르려는 챔피언 이름.
+    # @return (code, message). 걸리지 않으면 None.
+    def _advantage_violation(self, picker, champ_name):
+        adv = self.advantage
+        if adv is None or adv["status"] != "chosen":
+            return None
+        chosen = adv["champion"]
+        if adv["kind"] == "ban":
+            if champ_name == chosen:
+                return "champion_banned", "이번 판에서 밴된 챔피언입니다."
+            return None
+        if champ_name == chosen:
+            if self._team_key(picker) == adv["team"]:
+                return "champion_reserved", "상대 팀만 고를 수 있는 강제픽 챔피언입니다."
+            return None
+        opponents = [m for m in self.pick_order if self._team_key(m) not in (None, adv["team"])]
+        if opponents and opponents[-1] is picker and chosen not in self.selected_users.values():
+            return "must_pick_forced", f"강제픽 챔피언({chosen})을 골라야 하는 차례입니다."
+        return None
+
+    ##
+    # @brief 판 기록(history_data.json)에 남길 어드밴티지. 확정된 판만 남긴다(규격 14-6절).
+    # @return {"kind", "team", "champion"(한국어 이름)} 또는 None.
+    def _advantage_record(self):
+        adv = self.advantage
+        if adv is None or adv["status"] != "chosen":
+            return None
+        return {"kind": adv["kind"], "team": adv["team"], "champion": adv["champion"]}
 
     # === 승리 기록 ===
 
@@ -433,6 +499,7 @@ class GameCore:
                 },
                 team_key,
                 self.dev_mode,
+                advantage=self._advantage_record(),
             )
             history_recorded = True
             print(f"[RECORD] history_data: 시즌{season} R{finished_round} 기록 완료")
@@ -541,7 +608,8 @@ class GameCore:
             await self.sleep(remaining)
 
     ##
-    # @brief 자동 시작 시각이 되면 픽을 시작한다. 락 안에서 세대와 시작 여부를 다시 확인한다.
+    # @brief 자동 시작 시각이 되면 어드밴티지 선택(있을 때) 또는 픽을 시작한다. 락 안에서 세대와 시작 여부를
+    #        다시 확인한다.
     # @param game_id 타이머를 건 판의 세대 번호.
     # @param start_at 자동 시작 단조 시각.
     async def _auto_start(self, game_id, start_at):
@@ -551,6 +619,36 @@ class GameCore:
                 return
             self.game_started = True
             self.start_at = None
+            if self.advantage is not None:
+                self._start_advantage()
+            else:
+                self._start_turn(0)
+            self._emit()
+        self._run_effect("board_changed")
+
+    ##
+    # @brief 어드밴티지 선택을 시작한다. 마감은 픽 차례와 같은 pick_timeout이고, 마감+유예에 건너뛰기 타이머를
+    #        건다. 락 안에서 부른다.
+    def _start_advantage(self):
+        self.deadline = self.clock() + self.config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
+        self._set_timer(self._expire_advantage(self.current_game_id, self.deadline))
+
+    ##
+    # @brief 마감+유예가 지나도록 아무도 고르지 않았으면 이번 판을 어드밴티지 없이(skipped) 픽으로 넘긴다.
+    # @details 그 사이 확정됐거나 새 판이 시작됐으면 아무것도 하지 않는다.
+    # @param game_id 타이머를 건 판의 세대 번호.
+    # @param deadline 어드밴티지 선택 마감(단조 시각).
+    async def _expire_advantage(self, game_id, deadline):
+        await self._sleep_until(deadline + self._grace())
+        async with self.lock:
+            if (
+                game_id != self.current_game_id
+                or self.visible_phase() != "advantage"
+                or self.deadline != deadline
+            ):
+                return
+            self.advantage["status"] = "skipped"
+            log.info("[GAME] 어드밴티지 시간 초과 (game=%s)", self.game_uid)
             self._start_turn(0)
             self._emit()
         self._run_effect("board_changed")
@@ -639,7 +737,7 @@ class GameCore:
 
     ##
     # @brief 액티비티에 보이는 phase.
-    # @return "none" | "starting" | "picking" | "awaiting_result" | "completed".
+    # @return "none" | "starting" | "advantage" | "picking" | "awaiting_result" | "completed".
     def visible_phase(self):
         if not self._visible():
             return "none"
@@ -647,6 +745,8 @@ class GameCore:
             return "completed"
         if not self.game_started:
             return "starting"
+        if self.advantage is not None and self.advantage["status"] == "pending":
+            return "advantage"
         if self.current_pick_index < len(self.pick_order):
             return "picking"
         return "awaiting_result"
@@ -684,6 +784,7 @@ class GameCore:
             "selections": {},
             "auto_assigned": [],
             "result": None,
+            "advantage": None,
         }
         if phase == "none":
             return state
@@ -716,8 +817,18 @@ class GameCore:
                 str(m.id) for m in self.pick_order if m.id in self.auto_assigned_users
             ],
         )
+        adv = self.advantage
+        if adv is not None:
+            state["advantage"] = {
+                "kind": adv["kind"],
+                "team": adv["team"],
+                "status": adv["status"],
+                "champion_id": champ_ids.get(adv["champion"]) if adv["status"] == "chosen" else None,
+            }
         if phase == "starting":
             state["start_at_ms"] = at_ms(self.start_at)
+        elif phase == "advantage":
+            state.update(deadline_ms=at_ms(self.deadline), grace_ms=round(self._grace() * 1000))
         elif phase == "picking":
             state.update(
                 deadline_ms=at_ms(self.deadline),
@@ -745,12 +856,15 @@ class GameCore:
         current = (
             snapshot["pick_order"][snapshot["current_index"]] if phase == "picking" else None
         )
+        adv_team = snapshot["advantage"]["team"] if snapshot["advantage"] is not None else None
         return {
             "id": user_id,
             "role": "player" if player is not None else "spectator",
             "team": player["team"] if player is not None else None,
             "can_start": self.pick_mode() == "activity" and phase in START_PHASES,
             "can_pick": phase == "picking" and (self.dev_mode or current == user_id),
+            "can_advantage": phase == "advantage"
+            and (self.dev_mode or (player is not None and player["team"] == adv_team)),
             "can_report": phase == "awaiting_result" and can_act,
             "can_reverse": phase == "completed" and can_act,
         }
@@ -820,6 +934,9 @@ class GameCore:
             )
             if champ is None:
                 return "not_candidate", "이번 판 후보가 아닌 챔피언입니다."
+            violation = self._advantage_violation(picker, champ["name"])
+            if violation is not None:
+                return violation
             # 중복 확인과 기록은 embed 모드 버튼과 같은 공통 판정(process_pick)을 쓴다
             res = process_pick(
                 game_started=self.game_started,
@@ -847,6 +964,43 @@ class GameCore:
             self._emit()
         self._run_effect("board_changed")
         return "ok", f"{champ['name']} 선택 완료!"
+
+    ##
+    # @brief advantage 요청. 규격 14-4절 판정 순서대로 확인하고, 먼저 온 한 번을 확정한 뒤 바로 픽을 시작한다.
+    # @param user_id 보낸 사람 Discord ID(문자열).
+    # @param game_id 요청의 판 ID.
+    # @param champion_id 밴하거나 강제픽으로 정할 챔피언의 Data Dragon 영문 ID.
+    # @param received_at 서버가 메시지를 받은 단조 시각(락을 기다리기 전에 잡은 값).
+    # @return (code, message).
+    async def activity_advantage(self, user_id, game_id, champion_id, received_at):
+        async with self.lock:
+            if game_id != self.visible_game_id():
+                return "stale_game", "이미 끝났거나 바뀐 판입니다."
+            if self.visible_phase() != "advantage":
+                return "wrong_phase", "지금은 어드밴티지를 고를 수 없습니다."
+            adv = self.advantage
+            if not self.dev_mode and not any(
+                str(m.id) == user_id for m in self.teams.get(adv["team"], [])
+            ):
+                return "not_allowed", "어드밴티지 팀만 고를 수 있습니다."
+            if received_at > self.deadline + self._grace():
+                return "timeout", "선택 시간이 지났습니다."
+            champ = next(
+                (c for c in self.current_game_champions if c["id"] == champion_id), None
+            )
+            if champ is None:
+                return "not_candidate", "이번 판 후보가 아닌 챔피언입니다."
+            adv["status"] = "chosen"
+            adv["champion"] = champ["name"]
+            log.info(
+                "[GAME] 어드밴티지 (game=%s, by=%s, kind=%s, champ=%s)",
+                self.game_uid, user_id, adv["kind"], champ["name"],
+            )
+            self._start_turn(0)
+            self._emit()
+        self._run_effect("board_changed")
+        label = "밴" if adv["kind"] == "ban" else "강제픽"
+        return "ok", f"{champ['name']} {label} 확정!"
 
     ##
     # @brief result 요청. 규격 9절 판정 순서대로 확인하고 /승리와 같은 record_result_locked()로 기록한다.

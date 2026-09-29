@@ -1,6 +1,6 @@
 ##
 # @file test_activity_server.py
-# @brief activity_server의 토큰 교환·세션·WebSocket 규격(docs/ACTIVITY_PROTOCOL.md, protocol_version 2) 테스트.
+# @brief activity_server의 토큰 교환·세션·WebSocket 규격(docs/ACTIVITY_PROTOCOL.md, protocol_version 3) 테스트.
 # @details 가짜 Discord API를 aiohttp 테스트 서버로 띄워 discord_api_base로 주입한다. 게임은 game_core.GameCore에
 #          가짜 저장소·가짜 시계를 넣어 쓴다. 실제 Discord나 봇(got_champe)은 쓰지 않는다.
 #          실행: uv run python -m unittest discover -s tests -t . -v
@@ -16,7 +16,7 @@ from aiohttp.test_utils import TestClient, TestServer
 import activity_server
 from activity_server import ActivityServer, _Connection
 from game_core import GameCore
-from tests.test_activity_rules import FakeClock, FakeEffects
+from tests.test_activity_rules import FakeClock, FakeEffects, arrange
 from tests.test_game_core import CHAMPIONS, FakeStore, Member
 
 CLIENT_ID = "test-client-id"
@@ -65,6 +65,7 @@ def make_game(clock, dev_mode, pick_mode, people):
     game.wins_data = {"total_rounds": 86}
     game.round_counter = 87
     game.effects = FakeEffects({"guild-1": people})
+    arrange(game)  # 이점이 없는 배치. 어드밴티지 왕복 테스트는 다시 arrange한다
     return game, store
 
 
@@ -270,7 +271,7 @@ class WebSocketMessageTest(ActivityTestBase):
         state = await self.recv(ws)
 
         self.assertEqual(hello["t"], "hello")
-        self.assertEqual(hello["protocol_version"], 2)
+        self.assertEqual(hello["protocol_version"], 3)
         self.assertEqual(hello["server_epoch"], self.server.server_epoch)
         self.assertIsInstance(hello["server_ms"], int)
         self.assertAlmostEqual(hello["server_ms"], before, delta=5000)
@@ -278,13 +279,13 @@ class WebSocketMessageTest(ActivityTestBase):
         self.assertEqual(hello["user"]["username"], "hansol")
 
         self.assertEqual(state["t"], "state")
-        self.assertEqual(state["protocol_version"], 2)
+        self.assertEqual(state["protocol_version"], 3)
         self.assertEqual(state["server_epoch"], self.server.server_epoch)
         self.assertEqual(state["state_version"], 0)
         self.assertEqual(state["phase"], "none")
         self.assertIsInstance(state["server_ms"], int)
         for key in ("game_id", "round", "season", "start_at_ms", "deadline_ms", "grace_ms",
-                    "turn_id", "current_index", "ddragon_version", "result"):
+                    "turn_id", "current_index", "ddragon_version", "result", "advantage"):
             self.assertIn(key, state)
             self.assertIsNone(state[key], key)
         for key in ("players", "pick_order", "champions", "auto_assigned"):
@@ -298,6 +299,7 @@ class WebSocketMessageTest(ActivityTestBase):
                 "team": None,
                 "can_start": True,
                 "can_pick": False,
+                "can_advantage": False,
                 "can_report": False,
                 "can_reverse": False,
             },
@@ -418,7 +420,7 @@ class GameRoundTripTest(GameSocketBase):
         ws = await self.connect()
         hello = await self.recv_type(ws, "hello")
         first = await self.recv_type(ws, "state")
-        self.assertEqual((hello["protocol_version"], first["phase"]), (2, "none"))
+        self.assertEqual((hello["protocol_version"], first["phase"]), (3, "none"))
         other = await self.connect_ready()  # 다른 연결도 같은 state를 받는다
 
         await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})

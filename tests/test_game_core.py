@@ -43,7 +43,7 @@ class FakeStore:
             raise OSError("디스크 가득 참")
         self.saved_wins = data
 
-    def record_game(self, round_num, teams, winner, dev_mode):
+    def record_game(self, round_num, teams, winner, dev_mode, advantage=None):
         self.calls.append(("record_game", round_num, winner, dev_mode))
         if self.record_error is not None:
             raise self.record_error
@@ -57,6 +57,8 @@ class FakeStore:
                 "names": {p["id"]: p["name"] for p in teams["team1"] + teams["team2"]},
             }
         )
+        if advantage is not None:
+            self.games[-1]["advantage"] = advantage
         return self.season
 
     def find_game(self, round_num, dev_mode):
