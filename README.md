@@ -47,7 +47,13 @@
 - **진행 방식**: 픽 시작 전 20초 동안의 별도 `advantage` 단계에서 이점 팀원 중 누구나 먼저 선택한 것으로 확정됩니다. 시간 초과 시 어드밴티지 없이 일반 픽으로 넘어갑니다.
 - 세부 통신 규격과 상태 모델은 [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md) 14절을 참고합니다.
 
-### 5. 채널 구성
+### 5. 입장·시작·일시정지 (v4 규격, 액티비티 모드)
+- 게임 시작 후 바로 픽 타이머가 돌지 않고, 참가자 전원이 액티비티 화면에 입장할 때까지 대기합니다(상단 "입장 n/6", 팀 칸 이름 옆 점 표시).
+- 전원이 입장하면 5초 카운트다운 뒤 픽이 시작됩니다. 누군가 들어오지 않으면 참가자 누구나 "지금 시작"으로 바로 시작할 수 있습니다.
+- 자동 일시정지는 없고, 참가자가 직접 멈추고(시간 제한 없음) 참가자 누구나 다시 시작합니다. 멈춘 동안 픽·어드밴티지·시작 요청은 거절됩니다.
+- 세부 통신 규격은 [액티비티 통신 규격](docs/ACTIVITY_PROTOCOL.md) 15절을 참고합니다.
+
+### 6. 채널 구성
 - `config.json`의 `channels` 목록(`["팀짜기"]` 등)을 참조합니다.
 - 액티비티 모드에서는 1개 채널만으로도 원활하게 동작하며, 과거처럼 팀별 음성 채널 2개를 필수로 요구하지 않습니다.
 
@@ -82,7 +88,7 @@ lol_discord_bot/
 ├── docs/                  # 프로젝트 기술 및 운영 문서
 │   ├── INFRA.md           #   Cloudflare, DNS, 캐시, 디스코드 개발자 포털 및 전환 체크리스트
 │   ├── DEPLOY_MACMINI.md  #   맥미니 pm2 운영, 배포 스크립트, 환경변수 가이드
-│   ├── ACTIVITY_PROTOCOL.md # 액티비티 클라이언트-서버 통신 규격 (protocol_version 3)
+│   ├── ACTIVITY_PROTOCOL.md # 액티비티 클라이언트-서버 통신 규격 (protocol_version 4)
 │   ├── PARSE_REPORT.md    #   과거 디스코드 채널 전적 복구·검증 리포트
 │   └── archive/           #   과거 폐기된 계획 문서 보관소
 │       └── handover-workers-2026-08.md # 2026-08 Cloudflare Workers 이식 계획 (폐기)
@@ -125,6 +131,7 @@ pm2 logs lol-web
 /번복 [라운드]     # 직전 또는 특정 라운드 승패 정정 (확인 버튼 필요)
 /누적결과          # 전체 누적 전적 및 랭킹 조회
 /시즌시작          # 현재 시즌 승수를 백업하고 새 시즌 시작 (확인 버튼 필요)
+/챔피언리셋        # 챔피언 제외 목록을 비움 (다음 판부터 적용, 확인 버튼 없음)
 ```
 
 ---
@@ -133,7 +140,7 @@ pm2 logs lol-web
 
 - [인프라 가이드 (docs/INFRA.md)](docs/INFRA.md): Cloudflare 터널, DNS CNAME 라우팅, 캐시 바이패스 규칙, 디스코드 개발자 포털 설정 및 운영 전환 체크리스트.
 - [맥미니 배포 및 운영 가이드 (docs/DEPLOY_MACMINI.md)](docs/DEPLOY_MACMINI.md): pm2 6개 프로세스 구성, 배포 스크립트, `.env` 환경변수 키 목록 및 GitHub 오프사이트 백업 구조.
-- [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md): 디스코드 임베디드 액티비티와 봇 간의 HTTP/WebSocket 통신 규격 (protocol_version 3) 및 5·6위 어드밴티지 프로토콜.
+- [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md): 디스코드 임베디드 액티비티와 봇 간의 HTTP/WebSocket 통신 규격 (protocol_version 4), 5·6위 어드밴티지 및 입장·일시정지 프로토콜.
 - [과거 전적 복구 리포트 (docs/PARSE_REPORT.md)](docs/PARSE_REPORT.md): 디스코드 채널 기록으로부터 복구한 과거 경기 데이터 및 정합성 검증 리포트.
 - [에이전트 계획 디렉터리 (.agents/plans/)](.agents/plans/): 각 기능 개선 및 인프라 구축 시 작성된 실행 계획, 체크리스트 및 결정 기록.
 

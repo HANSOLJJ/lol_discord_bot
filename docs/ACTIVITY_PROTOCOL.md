@@ -1,4 +1,4 @@
-# 액티비티 통신 규격 (protocol_version 3)
+# 액티비티 통신 규격 (protocol_version 4)
 
 봇의 액티비티 서버(`activity_server.py`, `game_core.py`)와 액티비티 프론트(`web/activity/`)가 주고받는 HTTP·WebSocket 형식을 고정하는 문서다.
 설계 이유와 전체 흐름은 [통합 실행 계획](../.agents/plans/activity-integration/plan.md) 5~7절에 있고, 이 문서는 양쪽 구현이 똑같이 맞춰야 하는 형식만 정한다.
@@ -13,6 +13,7 @@ v1(1단계)은 토큰 교환, 세션, WebSocket 연결, ping/pong, 상태 스냅
 - 클라이언트 → 서버 메시지에 `start`, `pick`, `result`, `reverse`가 생긴다(9절).
 - 개발용 `demo_countdown`은 없어진다. 받으면 모르는 `t`로 보고 `bad_request`로 응답한다. 개발 중 시험은 DEV_MODE의 실제 게임 흐름으로 한다(11절).
 - v3(2026-09-29)은 5·6위 어드밴티지(밴·강제픽)를 더했다. `protocol_version`은 3이고, 달라진 점은 14절에 모았다.
+- v4(2026-09-29)는 입장 현황(`present`), 전원 입장 시 5초 카운트다운 시작, "지금 시작", 수동 일시정지/재개를 더했다. `protocol_version`은 4이고, 달라진 점은 15절에 모았다. 클라이언트는 4가 아니면 입력을 막고 새로고침 안내를 보여 준다.
 
 ## 2. 공통 규칙
 
@@ -108,7 +109,7 @@ Discord Embedded App SDK의 `commands.authorize`로 받은 code를 access token�
 ```json
 {
   "t": "hello",
-  "protocol_version": 3,
+  "protocol_version": 4,
   "server_epoch": "4b0e1c9a-6a53-4a0f-9e2b-0d5b8f3c2a11",
   "server_ms": 1790000000000,
   "user": { "id": "365414320332472332", "username": "hansol", "global_name": "정한솔", "avatar": "a1b2c3" }
@@ -188,7 +189,7 @@ const remaining = Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000
 ```json
 {
   "t": "state",
-  "protocol_version": 3,
+  "protocol_version": 4,
   "server_epoch": "4b0e1c9a-6a53-4a0f-9e2b-0d5b8f3c2a11",
   "game_id": "g-1790000000000",
   "state_version": 41,
@@ -475,4 +476,81 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 
 - 이점이 확정된 판은 `history_data.json`의 판 기록에 `"advantage": {"kind": "ban", "team": "team1", "champion": "제드"}`처럼 한국어 이름으로 남긴다. 건너뛴 판과 이점 없는 판은 이 필드를 넣지 않는다.
 - 화면(13절)에 더할 것: `advantage` phase에는 이점 팀과 종류(밴·강제픽), 남은 시간, 후보 카드를 보여 주고 `me.can_advantage`일 때만 누를 수 있다. 확정된 뒤 `picking`에서는 밴된 카드에 "밴" 표시와 잠금을, 강제픽 카드에 "강제픽" 표시를 한다. 상대 팀의 마지막 차례에 강제픽이 남아 있으면 그 카드만 누를 수 있다.
+- 채널 버튼 방식(`pick_mode: embed`)에는 이 규칙을 넣지 않는다.
+
+## 15. 입장 현황 · 전원 입장 시작 · 수동 일시정지 (protocol_version 4, 2026-09-29 확정)
+
+디스코드가 액티비티를 여는 시간이 컴퓨터마다 달라서, 늦게 연 사람은 이미 자기 차례 시간이 흘러간 상태로 들어온다. v4에서는 서버가 누가 화면에 들어와 있는지 알고, 전원이 들어오면 시작하며, 사람이 직접 멈추고 다시 시작할 수 있게 한다. v4에서 달라지는 점은 이 절에 모두 적는다. 다른 절과 다르면 이 절이 우선한다.
+
+### 15-1. 클라이언트 → 서버: `ready`·`start_now`·`pause`·`resume`
+
+4절의 `ping`, `sync`와 9절의 네 가지에 아래 네 가지를 더한다. 모두 4절 규칙대로 `id`가 있고(`ready` 제외) 4KB 이하이다.
+
+| `t` | 형식 | 서버 응답 |
+|---|---|---|
+| `ready` | `{ "t": "ready" }` | 응답 없음 |
+| `start_now` | `{ "t": "start_now", "id": "n-1", "game_id": "g-1790000000000" }` | 기존 `reply` |
+| `pause` | `{ "t": "pause", "id": "u-1", "game_id": "g-1790000000000" }` | 기존 `reply` |
+| `resume` | `{ "t": "resume", "id": "u-2", "game_id": "g-1790000000000" }` | 기존 `reply` |
+
+- `ready`에는 `id`가 없어도 되고, 있어도 무시하고 받는다. 응답은 없다. 연결마다 첫 `state`를 화면에 그린 뒤 한 번 보낸다. 재연결하면 다시 보낸다.
+- `start_now`·`pause`·`resume`의 `game_id`는 화면에 지금 떠 있는 판의 ID이다.
+
+### 15-2. "입장"의 뜻과 끊김 감지
+
+- "입장"은 인증된 WebSocket에서 그 사용자의 `ready`를 받은 상태이다. 같은 사용자의 여러 연결(PC·휴대폰 동시 접속)은 한 명으로 센다. 그 사용자의 `ready` 연결이 모두 끊기면 입장에서 빠진다.
+- 서버는 `WebSocketResponse(..., heartbeat=10)`로 WebSocket 프로토콜 수준의 ping을 10초마다 보낸다. 브라우저가 자동으로 pong을 돌려주므로 별도 JS 코드는 필요 없다. pong이 없으면 서버가 연결을 닫고 입장에서 뺀다. 최악의 경우 약 15초 안에 미입장으로 바뀐다.
+- 감지되는 것: 네트워크 끊김, 휴대폰 백그라운드로 웹뷰가 멈춤, 디스코드 강제 종료, 액티비티 창 닫기(이건 즉시). 감지되지 않는 것: 액티비티는 열어 둔 채 다른 창을 보는 경우. "입장"은 화면이 열려 있다는 뜻이지 보고 있다는 뜻이 아니다.
+- 돌아오면 클라이언트의 기존 자동 재연결 뒤 첫 `state` 렌더 → `ready`로 다시 입장된다.
+- 기존 앱 수준 `ping`(시계 보정용, 접속 시 5회 + 30초마다)은 그대로 둔다. 생존 확인은 heartbeat가 맡는다.
+
+### 15-3. state에 더해지는 것
+
+```json
+"present": ["365414320332472332", "111111111111111111"],
+"paused": null,
+"start_at_ms": null,
+"me": { "can_start_now": false, "can_pause": false, "can_resume": false }
+```
+
+- `present`: 이번 판 참가자(`players`) 가운데 지금 입장한 사람의 ID 목록이다. 관전자는 넣지 않는다. 게임이 없으면(`none`) `[]`이다.
+- `paused`: `null` 또는 `{"by": "<user id>", "remaining_ms": <int> | null}`이다. `by`는 멈춘 사람, `remaining_ms`는 멈췄을 때 남은 시간이다. `starting` 입장 대기 중(카운트다운 없음)에 정지하면 `remaining_ms`는 `null`이고, 재개하면 다시 입장 대기로 돌아간다(그때 전원 입장 상태면 카운트다운을 새로 시작한다).
+- `starting` phase의 의미 변경: **입장 대기**이다. 참가자 전원(= `players` 길이, 곧 `MAX_PLAYERS`)이 입장하면 `ready_countdown_seconds`(config, 없으면 기본 5초) 카운트다운을 시작하고, 끝나면 기존처럼 `advantage` 또는 `picking`으로 간다.
+  - 대기 중에는 `start_at_ms`가 `null`이고, 카운트다운 중에만 숫자이다.
+  - 카운트다운 중 누가 나가서 전원이 아니게 되면 카운트다운을 취소하고 대기로 돌아간다(`start_at_ms: null`). 단 `start_now`로 잡힌 카운트다운은 취소하지 않는다.
+- 일시정지 중에는 `deadline_ms`와 `start_at_ms`가 `null`이고 `paused.remaining_ms`가 남은 시간이다. 단 `starting` 대기 중 정지이면 `remaining_ms`도 `null`이다. `grace_ms`는 그대로 둔다.
+- `me`에 세 필드가 더해진다. 클라이언트는 버튼 활성화를 `me`로만 정한다.
+
+| 필드 | 뜻 |
+|---|---|
+| `can_start_now` | `starting` 대기 중(`start_at_ms`가 `null`)이고 정지가 아니며 참가자일 때 참 |
+| `can_pause` | `starting`(대기·카운트다운 모두)·`advantage`·`picking`이고 정지가 아니며 참가자일 때 참 |
+| `can_resume` | 정지 중이고 참가자일 때 참 |
+
+### 15-4. 요청 판정 순서
+
+공통: `game_id`가 보이는 판과 다르면 `stale_game`.
+
+- `start_now`: `phase`가 `starting`이 아니면 `wrong_phase` → 참가자가 아니면 `not_allowed` → 정지 중이면 `paused` → 이미 카운트다운 중이면 `wrong_phase` → 강제 카운트다운 시작, `ok`.
+- `pause`: `phase`가 `starting`·`advantage`·`picking`이 아니면 `wrong_phase` → 참가자가 아니면 `not_allowed` → 이미 정지면 `already_paused` → `advantage`·`picking`에서 마감이 지나 유예 중이면(남은 시간 ≤ 0) `timeout` → 남은 시간을 저장하고(`starting` 대기 중이면 `remaining_ms: null`) 타이머를 취소, `ok`.
+- `resume`: `phase` 조건은 `pause`와 같다 → 참가자가 아니면 `not_allowed` → 정지가 아니면 `not_paused` → 남은 시간으로 마감을 다시 잡고 타이머를 재장전(`remaining_ms`가 `null`이면 다시 입장 대기로), `ok`.
+- 정지 중 `pick`·`advantage`·`start_now` 요청은 `paused`로 거절한다(마감 계산보다 먼저 판정).
+
+| 새 `code` | 뜻 |
+|---|---|
+| `paused` | 일시정지 중이라 할 수 없는 요청 |
+| `already_paused` | 이미 멈춰 있는 판 |
+| `not_paused` | 멈춰 있지 않은 판에 온 재개 요청 |
+
+### 15-5. DEV_MODE 예외
+
+- DEV_MODE의 참가자는 가상 유저라 입장이 성립하지 않는다. 기존대로 `auto_start_seconds()`(dev 0초) 고정 자동 시작을 유지한다. `present`는 비어 있을 수 있다.
+- `me` 권한은 11절처럼 접속한 누구에게나 넓힌다. `can_start_now`·`can_pause`·`can_resume`도 그에 맞게 참이 된다.
+- 운영 모드에서는 이 예외가 없다.
+
+### 15-6. 설정과 화면 (참고)
+
+- config에 `"ready_countdown_seconds": 5`를 둔다. 없으면 기본 5초이다. `auto_start_seconds`·`dev_auto_start_seconds`는 embed 모드와 DEV_MODE용으로 남긴다.
+- 화면(13절)에 더할 것: 팀 칸 이름 옆 점(입장 초록, 미입장 회색)과 상단 "입장 n/6". `starting` 대기 중에는 "참가자 입장 대기 n/6"과 "지금 시작" 버튼(`me.can_start_now`), 카운트다운 중에는 5초 표시. 일시정지/재개 버튼(`me.can_pause`·`me.can_resume`)과 "⏸ X님이 일시정지함" 배너. 정지 중에는 카운트다운을 `paused.remaining_ms`로 고정한 초로 보여 준다. `remaining_ms`가 `null`이면 초를 표시하지 않고 "입장 대기 중 일시정지"로 보여 준다.
+- 이탈 알림: `starting`·`advantage`·`picking` 중에 참가자가 입장 → 미입장으로 바뀌면 "⚠ X님 연결 끊김 — 필요하면 일시정지하세요" 토스트를, 다시 들어오면 "X님 다시 입장" 토스트를 띄운다. 자동 일시정지는 하지 않는다.
 - 채널 버튼 방식(`pick_mode: embed`)에는 이 규칙을 넣지 않는다.
