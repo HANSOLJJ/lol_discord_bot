@@ -1,4 +1,4 @@
-# 액티비티 통신 규격 (protocol_version 2)
+# 액티비티 통신 규격 (protocol_version 3)
 
 봇의 액티비티 서버(`activity_server.py`, `game_core.py`)와 액티비티 프론트(`web/activity/`)가 주고받는 HTTP·WebSocket 형식을 고정하는 문서다.
 설계 이유와 전체 흐름은 [통합 실행 계획](../.agents/plans/activity-integration/plan.md) 5~7절에 있고, 이 문서는 양쪽 구현이 똑같이 맞춰야 하는 형식만 정한다.
@@ -12,6 +12,7 @@ v1(1단계)은 토큰 교환, 세션, WebSocket 연결, ping/pong, 상태 스냅
 - `state`에 실제 게임 내용(선수, 픽 순서, 챔피언 후보, 선택, 결과)과 내 권한(`me`)이 채워진다(8절).
 - 클라이언트 → 서버 메시지에 `start`, `pick`, `result`, `reverse`가 생긴다(9절).
 - 개발용 `demo_countdown`은 없어진다. 받으면 모르는 `t`로 보고 `bad_request`로 응답한다. 개발 중 시험은 DEV_MODE의 실제 게임 흐름으로 한다(11절).
+- v3(2026-09-29)은 5·6위 어드밴티지(밴·강제픽)를 더했다. `protocol_version`은 3이고, 달라진 점은 14절에 모았다.
 
 ## 2. 공통 규칙
 
@@ -107,7 +108,7 @@ Discord Embedded App SDK의 `commands.authorize`로 받은 code를 access token�
 ```json
 {
   "t": "hello",
-  "protocol_version": 2,
+  "protocol_version": 3,
   "server_epoch": "4b0e1c9a-6a53-4a0f-9e2b-0d5b8f3c2a11",
   "server_ms": 1790000000000,
   "user": { "id": "365414320332472332", "username": "hansol", "global_name": "정한솔", "avatar": "a1b2c3" }
@@ -187,7 +188,7 @@ const remaining = Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000
 ```json
 {
   "t": "state",
-  "protocol_version": 2,
+  "protocol_version": 3,
   "server_epoch": "4b0e1c9a-6a53-4a0f-9e2b-0d5b8f3c2a11",
   "game_id": "g-1790000000000",
   "state_version": 41,
@@ -405,3 +406,71 @@ DEV_MODE에서는 권한이 넓어진다(11절). 클라이언트는 버튼 활�
 | `picking` | 위와 같고, 지금 고르는 사람 노란색 강조, 남은 초(5초 이하 빨강), 뽑힌 챔피언 잠금. `me.can_pick`이 참이면 후보 카드를 누를 수 있다 |
 | `awaiting_result` | 픽 결과와 승리 팀 버튼 두 개(`me.can_report`). 떨어진 곳에 작은 "결과 없이 새 판" 버튼(`me.can_start`) |
 | `completed` | 결과, 번복 버튼(`me.can_reverse`), "다음 판 시작" 버튼(`me.can_start`). 번복됐으면 표시 |
+
+## 14. 5·6위 어드밴티지 (protocol_version 3, 2026-09-29 확정)
+
+약한 두 사람이 한 팀이 되면 그 팀에 이점을 주는 규칙이다. v3에서 달라지는 점은 이 절에 모두 적는다. 다른 절과 다르면 이 절이 우선한다.
+
+### 14-1. 누가 이점을 받나
+
+- 순위는 픽 순서를 정할 때 쓴 순서 그대로이다. `pick_order[0]`이 6위(승수 최소), `pick_order[1]`이 5위, …, `pick_order[5]`가 1위(승수 최다)이다. 승수가 같으면 픽 순서를 정할 때의 무작위 결과를 따른다.
+- 6위와 5위가 같은 팀이면 그 팀이 **이점 팀**이다. 두 사람이 다른 팀이면 이점이 없고 v2와 똑같이 진행한다.
+- 이점 팀의 나머지 한 명이 1위 또는 2위이면 **밴**, 3위 또는 4위이면 **강제픽**이다.
+- **밴**: 이점 팀이 이번 판 후보 8개 가운데 1개를 고른다. 그 챔피언은 이번 판에서 아무도 고를 수 없다. 6명은 남은 7개에서 고른다.
+- **강제픽**: 이점 팀이 후보 가운데 1개를 고른다. 그 챔피언은 상대 팀만 고를 수 있고, 상대 팀 세 명 가운데 누군가는 반드시 그 챔피언을 해야 한다. 누가 할지는 정하지 않는다.
+
+### 14-2. 진행
+
+- phase에 `advantage`가 생긴다. 순서는 `starting` → (이점이 있으면) `advantage` → `picking`이다.
+- `advantage`의 길이는 `pick_timeout`(20초)과 같고, `deadline_ms`와 `grace_ms`를 v2의 픽 차례와 같은 규칙으로 채운다. `turn_id`, `current_index`는 `null`이다.
+- 이점 팀의 세 명 가운데 누구든 먼저 고른 한 번이 확정된다. 확정되면 바로 `picking`으로 넘어간다.
+- 마감과 유예가 지나도록 아무도 고르지 않으면 이번 판은 이점 없이 진행한다(`advantage.status`가 `skipped`).
+
+### 14-3. state에 더해지는 것
+
+```json
+"advantage": {
+  "kind": "force",
+  "team": "team2",
+  "status": "chosen",
+  "champion_id": "Zed"
+}
+```
+
+- `advantage`는 이점이 없는 판이면 `null`이다.
+- `kind`: `ban` 또는 `force`. `team`: 이점 팀(`team1`·`team2`). `status`: `pending`(고르는 중), `chosen`(확정), `skipped`(시간 초과로 없음). `champion_id`: `chosen`일 때만 채우고 그 밖에는 `null`.
+- `me.can_advantage`: `advantage` phase이고 내가 이점 팀일 때 참이다. DEV_MODE에서는 11절처럼 접속한 누구나 참이다.
+- `hello`와 `state`의 `protocol_version`은 3이다.
+
+### 14-4. 클라이언트 → 서버: `advantage`
+
+`{ "t": "advantage", "id": "a-1", "game_id": "g-1790000000000", "champion_id": "Zed" }`
+
+판정 순서(먼저 걸린 코드로 거절):
+1. `game_id`가 현재 판이 아니다 → `stale_game`
+2. `phase`가 `advantage`가 아니다 → `wrong_phase`
+3. 보낸 사람이 이점 팀이 아니다 → `not_allowed` (DEV_MODE 예외는 11절)
+4. 접수 시각이 `deadline + grace`보다 늦다 → `timeout`
+5. `champion_id`가 이번 판 후보가 아니다 → `not_candidate`
+6. 그 외 → 확정하고 `picking`으로 넘어간다.
+
+### 14-5. 픽 규칙 추가
+
+9절의 `pick` 판정에서 6번(`not_candidate`)과 7번(`champion_taken`) 사이에 다음을 넣는다.
+- 밴된 챔피언이다 → `champion_banned`
+- 강제픽 챔피언인데 보낸 사람이 상대 팀(이점 팀의 반대)이 아니다 → `champion_reserved`
+- 보낸 사람이 상대 팀의 마지막 차례이고 강제픽 챔피언이 아직 안 뽑혔는데 다른 챔피언을 골랐다 → `must_pick_forced`
+
+자동 배정도 같은 규칙을 따른다. 밴된 챔피언은 고르지 않고, 강제픽 챔피언은 상대 팀에게만 주며, 상대 팀의 마지막 차례에 강제픽 챔피언이 남아 있으면 반드시 그것을 준다.
+
+| 새 `code` | 뜻 |
+|---|---|
+| `champion_banned` | 이번 판에서 밴된 챔피언 |
+| `champion_reserved` | 상대 팀만 고를 수 있는 강제픽 챔피언 |
+| `must_pick_forced` | 강제픽 챔피언을 반드시 골라야 하는 차례 |
+
+### 14-6. 기록과 화면
+
+- 이점이 확정된 판은 `history_data.json`의 판 기록에 `"advantage": {"kind": "ban", "team": "team1", "champion": "제드"}`처럼 한국어 이름으로 남긴다. 건너뛴 판과 이점 없는 판은 이 필드를 넣지 않는다.
+- 화면(13절)에 더할 것: `advantage` phase에는 이점 팀과 종류(밴·강제픽), 남은 시간, 후보 카드를 보여 주고 `me.can_advantage`일 때만 누를 수 있다. 확정된 뒤 `picking`에서는 밴된 카드에 "밴" 표시와 잠금을, 강제픽 카드에 "강제픽" 표시를 한다. 상대 팀의 마지막 차례에 강제픽이 남아 있으면 그 카드만 누를 수 있다.
+- 채널 버튼 방식(`pick_mode: embed`)에는 이 규칙을 넣지 않는다.
