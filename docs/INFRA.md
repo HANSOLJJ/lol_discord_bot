@@ -204,3 +204,46 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 | `lol_arena` 저장소 | 대시보드 원본과 Pages 배포 | 지원 중단 표시, 전적 백업 전용. 로컬 클론 삭제 | 2026-09-29 대시보드를 `lol_discord_bot/web/`으로 이전 완료 |
 | Windows 개발 환경 터널 | Windows 서비스로 등록된 대시보드 관리형 터널이 `lol-dev`를 처리 | 그 터널의 `lol-dev` 공개 호스트 이름을 지우고, `lol-dev` DNS를 맥미니 `lol` 터널로 옮김. Windows의 터널 자체와 cloudflared 서비스는 남아 있을 수 있으나 쓰지 않는다 | 2026-09-29 개발·운영 환경을 모두 맥미니로 단일화 |
 
+---
+
+## 9. 새 맥미니 복구 절차
+
+맥미니가 고장 나 새 기계에서 처음부터 복구하는 순서이다. 비밀값은 이 문서에 적지 않으며, `.env` 키 목록(값 제외)은 [맥미니 배포 가이드](DEPLOY_MACMINI.md) 6절을 본다.
+
+1. 저장소를 clone하고 파이썬 의존성을 맞춘다.
+  ```bash
+  git clone https://github.com/HANSOLJJ/lol_discord_bot.git ~/projects/lol_discord_bot
+  cd ~/projects/lol_discord_bot
+  uv sync
+  ```
+2. 웹 액티비티 의존성을 설치하고 빌드한다.
+  ```bash
+  cd web/activity
+  npm ci
+  npm run build
+  cd ../..
+  ```
+3. 저장소 루트에 `.env`를 만든다. 필요한 키 목록은 [맥미니 배포 가이드](DEPLOY_MACMINI.md) 6절에 있다.
+4. Cloudflare 터널을 준비한다. 먼저 `cloudflared tunnel login`으로 인증한다. 기존 터널 인증 파일(`~/.cloudflared/<터널ID>.json`)이 있으면 그대로 쓰고, 없으면 새 터널을 만든다.
+  ```bash
+  cloudflared tunnel login
+  cloudflared tunnel create lol
+  ```
+5. `~/.cloudflared/lol.yml`을 작성한다. ingress 예시는 2절에 있다.
+6. 세 호스트를 터널에 다시 연결한다.
+  ```bash
+  cloudflared tunnel route dns --overwrite-dns <터널ID> lol.hansoljj.com
+  cloudflared tunnel route dns --overwrite-dns <터널ID> lol-dev.hansoljj.com
+  cloudflared tunnel route dns --overwrite-dns <터널ID> arena.hansoljj.com
+  ```
+7. pm2로 프로세스를 띄운 뒤 봇과 dev 앱은 끄고 상태를 저장한다.
+  ```bash
+  pm2 start ecosystem.config.cjs
+  pm2 stop lol-bot lol-bot-dev lol-web-dev
+  pm2 save
+  ```
+8. 재부팅 뒤 자동 기동을 설정한다. `pm2 startup` 또는 LaunchAgent(`pm2.hansol.plist`)를 쓰고, 시스템 설정에서 자동 로그인을 켠다.
+9. 전적 데이터를 가져온다. `data/history_data.json`과 `data/wins.json`은 `lol_arena` 저장소의 백업(`history_data.json`)에서 가져와 `data/`에 둔다.
+
+새 터널을 만들면 터널 ID가 바뀌므로 이 문서 2절과 2-4절의 터널 ID와 CNAME 대상도 새 ID로 갱신해야 한다.
+
