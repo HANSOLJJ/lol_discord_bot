@@ -98,8 +98,8 @@ cloudflared tunnel route dns [--overwrite-dns] bdf8b12f-2d40-4c1e-8f6a-89e5d4350
 
 맥미니에는 롤 프로젝트 외에도 `finance` 서비스가 구동 중입니다. 상호 간섭으로 인한 장애를 방지하기 위해 엄격히 격리되어 있습니다.
 
-- **독립 구동**: finance 터널(ID: `2558b984-…`)은 `~/.cloudflared/config.yml` 설정 파일과 macOS LaunchAgent(`com.cloudflare.cloudflared`)에 의해 실행됩니다. pm2에서 관리하지 않습니다.
-- **서비스 중단 주의**: finance 터널이나 LaunchAgent를 재시작하면 실제 운영 중인 finance 서비스 연결이 일시적으로 끊어집니다. 롤 작업 시 건드리지 않습니다.
+- **독립 구동**: finance 터널(ID: `2558b984-…`)은 `~/.cloudflared/config.yml` 설정 파일을 쓰며, 2026-09-29부터 pm2 앱 `finance-tunnel`(`cloudflared tunnel --config ~/.cloudflared/config.yml run`)이 실행합니다. 롤 저장소의 `ecosystem.config.cjs`에는 넣지 않고 pm2 명령으로 따로 등록했습니다. 예전 LaunchAgent(`com.cloudflare.cloudflared`)는 내리고 plist를 `~/Library/LaunchAgents/com.cloudflare.cloudflared.plist.bak-20260929-pm2`로 백업했습니다. `brew services`에는 cloudflared가 등록되어 있지 않습니다.
+- **서비스 중단 주의**: `finance`나 `finance-tunnel`을 재시작하면 finance 서비스가 잠깐 끊어집니다. 롤 작업 시 건드리지 않습니다. 되돌릴 때는 `pm2 delete finance-tunnel` 뒤 plist 이름을 원래대로 바꾸고 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cloudflare.cloudflared.plist`를 실행합니다.
 - **Zero Trust 대시보드 조작 금지**: Cloudflare Zero Trust 대시보드에 노출되는 **"Migrate finance"** 버튼은 되돌릴 수 없는 영구적인 마이그레이션을 트리거하므로 절대로 클릭하지 않습니다.
 - **레거시 정리**: 과거 Windows 환경에서 테스트 목적으로 운영하던 대시보드 관리형 터널의 `lol-dev` 공개 호스트 이름은 모두 삭제되었습니다. Windows 머신은 인프라 구성에서 완전히 제외되었습니다.
 
