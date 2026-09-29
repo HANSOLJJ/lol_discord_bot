@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REQUIRED_PM2_APPS = ("lol", "lol-web")
+REQUIRED_PM2_APPS = ("lol-web", "lol-tunnel")  # 봇(lol-bot)은 필요할 때만 켜므로 점검하지 않는다
 DEFAULT_HTTP_URL = "http://127.0.0.1:8791/"
 ALERT_COOLDOWN_SECONDS = 1800  # 30분
 
@@ -49,7 +49,7 @@ def default_pm2_provider() -> str:
 
 
 def check_pm2(pm2_json_text: str) -> list[str]:
-    """pm2 JSON 결과를 해석하여 lol, lol-web이 online인지 확인한다."""
+    """pm2 JSON 결과를 해석하여 lol-web, lol-tunnel이 online인지 확인한다."""
     errors = []
     try:
         data = json.loads(pm2_json_text)

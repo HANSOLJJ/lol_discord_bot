@@ -11,10 +11,10 @@
 
 | 도메인 / 경로 | 프록시 대상 로컬 주소 | 처리 주체 및 역할 |
 |---|---|---|
-| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` | 운영 디스코드 봇(pm2 `lol`) 액티비티 API 및 WebSocket 서버. 운영 봇에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되어야 기동됩니다. |
+| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` | 운영 디스코드 봇(pm2 `lol-bot`) 액티비티 API 및 WebSocket 서버. 운영 봇에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되어야 기동됩니다. |
 | `lol.hansoljj.com` (기타 경로) | `http://127.0.0.1:8791` | aiohttp 정적 웹 서버(pm2 `lol-web`). `/` 접근 시 디스코드 액티비티(`?frame_id=`)면 픽 화면, 일반 브라우저면 전적 대시보드를 서빙합니다. `/terms`, `/privacy`, `/history_data.json`, `/legacy.html`, `/favicon.svg` 등을 처리합니다. |
 | `arena.hansoljj.com` | `http://127.0.0.1:8791` | 과거 서비스 주소입니다. 정적 웹 서버가 `https://lol.hansoljj.com`과 동일한 경로 및 쿼리로 301 영구 리다이렉트합니다. |
-| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 개발용 액티비티 프론트엔드(pm2 `lol-dev-web`, Vite 개발 서버). `/pick-api` 요청은 Vite 내부 프록시를 통해 개발 봇(`http://127.0.0.1:8792`)으로 전달됩니다. |
+| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 개발용 액티비티 프론트엔드(pm2 `lol-web-dev`, Vite 개발 서버). `/pick-api` 요청은 Vite 내부 프록시를 통해 개발 봇(`http://127.0.0.1:8792`)으로 전달됩니다. |
 | `fin.hansoljj.com` | `finance` 터널 | 롤 봇 프로젝트와 무관한 독립 서비스입니다. 롤 관련 작업에서 절대 변경하지 않습니다. |
 
 - `pick.hansoljj.com`은 초기 설계 시 검토되었으나 현재 사용하지 않습니다.
@@ -144,7 +144,7 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
 
 ### 6-2. 운영용 앱 (`롤랜덤챔프봇`)
 - **Application ID**: `1354988564458377216`
-- **현재 동작 방식**: 디스코드 액티비티(`pick_mode: activity`, 2026-09-29 전환). 되돌릴 때는 `config.json`의 `pick_mode`를 `embed`로 바꾸고 `pm2 restart lol`을 합니다.
+- **현재 동작 방식**: 디스코드 액티비티(`pick_mode: activity`, 2026-09-29 전환). 되돌릴 때는 `config.json`의 `pick_mode`를 `embed`로 바꾸고 `pm2 restart lol-bot`을 합니다.
 - **Activities**: 켜짐. URL 매핑 `/` → `lol.hansoljj.com`, `/ddragon` → `ddragon.leagueoflegends.com`. Max Participants 6, Supported Platforms는 dev 앱과 같게 맞춤.
 - **OAuth2 Redirects**: `https://127.0.0.1`. 액티비티는 리디렉션을 실제로 쓰지 않지만, 하나도 없으면 디스코드가 로그인 승인(`authorize`)을 거절합니다.
 - **앱 인증**: 완료(2026-09-29, Stripe 신원 확인 자동 승인, `verification_state` 6). 인증된 앱은 "공개 봇" 설정을 끌 수 없습니다.
@@ -173,8 +173,8 @@ Vite 개발 서버가 제공하는 소스 코드 파일명에는 해시가 포�
    - OAuth2 → Redirects에 `https://127.0.0.1`을 넣습니다. 비어 있으면 로그인 승인이 실패합니다.
 2. **맥미니 `.env` 파일에 OAuth2 인증 키 주입**
    - 맥미니 저장소 루트의 `.env` 파일에 운영 앱의 `DISCORD_CLIENT_ID` 및 `DISCORD_CLIENT_SECRET`을 설정합니다.
-   - 키가 주입되어야 운영 봇(pm2 `lol`)이 기동될 때 포트 8790에서 `/pick-api` 백엔드 서버를 함께 시작합니다.
-   - 완료(2026-09-29). 키는 봇이 시작할 때만 읽으므로, 전환할 때 `pm2 restart lol`로 반영합니다.
+   - 키가 주입되어야 운영 봇(pm2 `lol-bot`)이 기동될 때 포트 8790에서 `/pick-api` 백엔드 서버를 함께 시작합니다.
+   - 완료(2026-09-29). 키는 봇이 시작할 때만 읽으므로, 전환할 때 `pm2 restart lol-bot`으로 반영합니다.
 3. **픽 화면(프론트엔드)에 운영 앱 번호 넣기**
    - 픽 화면은 켜질 때 디스코드 SDK에 자기 앱 번호(Application ID)를 알려야 하고, 번호가 없으면 디스코드 로그인에서 실패합니다.
    - 브라우저 코드는 맥미니 `.env`를 읽지 못하므로, Vite가 빌드할 때 파일에서 번호를 읽어 JS에 넣습니다. `npm run dev`(lol-dev)는 `web/activity/.env.development`(dev 앱 번호)를, `npm run build`(운영)는 `web/activity/.env.production`(운영 앱 번호)을 읽습니다.

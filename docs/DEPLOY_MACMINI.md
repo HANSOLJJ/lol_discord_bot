@@ -9,25 +9,35 @@ Cloudflare 터널, DNS 설정, 캐시 규칙, 디스코드 개발자 포털 설�
 
 | 외부 도메인 / 경로 | 대상 로컬 주소 | 설명 |
 |---|---|---|
-| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` | 운영 봇 액티비티 API 및 WebSocket (pm2 `lol`) |
+| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` | 운영 봇 액티비티 API 및 WebSocket (pm2 `lol-bot`) |
 | `lol.hansoljj.com` (기타 경로) | `http://127.0.0.1:8791` | aiohttp 정적 웹 서버 (pm2 `lol-web`). `/`는 액티비티면 픽 화면, 브라우저면 대시보드 |
 | `arena.hansoljj.com` | `http://127.0.0.1:8791` | 옛 주소. 웹 서버가 `https://lol.hansoljj.com`으로 301 영구 리다이렉트 |
-| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 개발 액티비티 Vite 개발 서버 (pm2 `lol-dev-web`) |
+| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` | 개발 액티비티 Vite 개발 서버 (pm2 `lol-web-dev`) |
 | `fin.hansoljj.com` | `finance` 터널 | 롤과 무관한 다른 서비스. 맥미니 작업 시 건드리지 않음 |
 
 
 ## 2. pm2 프로세스 목록
 
-`ecosystem.config.cjs`에 정의된 6개 앱입니다.
+`ecosystem.config.cjs`에 정의된 6개 앱입니다. 이름 규칙은 `lol-{bot|web}[-dev]`입니다(2026-09-29 `lol` → `lol-bot`, `lol-dev` → `lol-bot-dev`, `lol-dev-web` → `lol-web-dev`로 변경).
 
-- `lol`: 운영 디스코드 봇 (`pick_mode: activity`, `DEV_MODE=false`). 운영 환경에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되면 포트 8790에서 `/pick-api` 액티비티 API 서버도 함께 시작합니다.
+- `lol-bot`: 운영 디스코드 봇 (`pick_mode: activity`, `DEV_MODE=false`). 운영 환경에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되면 포트 8790에서 `/pick-api` 액티비티 API 서버도 함께 시작합니다.
 - `lol-web`: aiohttp 정적 웹 서버 (`WEB_PORT=8791`). 프론트엔드 빌드 결과물(`web/activity/dist/`)을 서빙하고 구 도메인 리다이렉트를 처리합니다.
-- `lol-dev`: 개발 디스코드 봇 (`DEV_MODE=true`, `ACTIVITY_PORT=8792`, `dev_pick_mode: activity`, `dev_auto_start_seconds: 0`).
-- `lol-dev-web`: 액티비티 Vite 개발 서버 (포트 5173, `ACTIVITY_PROXY_TARGET=http://127.0.0.1:8792`).
-- `lol-health`: 5분 간격 cron(`cron_restart: '*/5 * * * *'`)으로 실행되는 헬스체크 스크립트. `lol`과 `lol-web` 상태를 점검하고 장애 시 디스코드 웹훅으로 알립니다.
+- `lol-bot-dev`: 개발 디스코드 봇 (`DEV_MODE=true`, `ACTIVITY_PORT=8792`, `dev_pick_mode: activity`, `dev_auto_start_seconds: 0`).
+- `lol-web-dev`: 액티비티 Vite 개발 서버 (포트 5173, `ACTIVITY_PROXY_TARGET=http://127.0.0.1:8792`).
+- `lol-health`: 5분 간격 cron(`cron_restart: '*/5 * * * *'`)으로 실행되는 헬스체크 스크립트. `lol-web`과 `lol-tunnel` 상태를 점검하고 장애 시 디스코드 웹훅으로 알립니다.
 - `lol-tunnel`: Cloudflare 롤 전용 터널 데몬 (`cloudflared tunnel --config ~/.cloudflared/lol.yml run`).
 
-> **참고**: 맥미니에서 함께 구동 중인 `finance` 서비스는 LaunchAgent `com.cloudflare.cloudflared`를 통해 별도로 관리되므로 pm2 관리 대상에 포함되지 않습니다. 서버 재부팅 시 pm2 앱들은 `pm2 save` 설정과 LaunchAgent `pm2.hansol.plist`를 통해 자동으로 복구됩니다.
+### 평소 켜 두는 앱과 필요할 때만 켜는 앱
+
+| 구분 | 앱 | 비고 |
+|---|---|---|
+| 항상 켜 둠 | `lol-web`, `lol-tunnel`, `lol-health` | 대시보드(`lol.hansoljj.com`)는 봇 없이 `lol-web`이 `data/history_data.json`을 직접 읽어 보여 줍니다. |
+| 필요할 때만 | `lol-bot` | 게임할 때 `pm2 start lol-bot`, 끝나면 `pm2 stop lol-bot`. 꺼져 있으면 슬래시 명령과 픽 화면 서버(`/pick-api`)가 작동하지 않습니다. |
+| 필요할 때만 | `lol-bot-dev`, `lol-web-dev` | TEST2 테스트할 때만 켭니다. |
+
+- `pm2 save`를 한 시점의 상태(켜짐·꺼짐)가 재부팅 뒤에 그대로 복구됩니다. 봇을 켜 둔 채 `pm2 save`를 하지 않도록 주의합니다.
+- 재부팅 시 pm2 자체는 LaunchAgent `pm2.hansol.plist`가 띄웁니다.
+- 같은 맥미니의 `finance` 서비스도 pm2에서 돕니다. 웹 서버는 `finance`, 터널은 `finance-tunnel`(`cloudflared tunnel --config ~/.cloudflared/config.yml run`)입니다. 롤 저장소의 `ecosystem.config.cjs`에는 들어 있지 않습니다.
 
 ## 3. 최초 설치 및 기동
 
@@ -43,8 +53,9 @@ npm ci
 npm run build
 cd ../..
 
-# 3. pm2로 전체 프로세스 기동
+# 3. pm2로 전체 프로세스 기동 후, 필요할 때만 쓰는 앱은 끈다
 pm2 start ecosystem.config.cjs
+pm2 stop lol-bot lol-bot-dev lol-web-dev
 
 # 4. 서버 재부팅 시 자동 기동되도록 상태 저장
 pm2 save
@@ -55,10 +66,10 @@ pm2 save
 배포 스크립트(`scripts/deploy.sh`)를 사용하여 코드 풀, 의존성 동기화, 빌드, pm2 재시작을 진행합니다.
 
 ```bash
-# 운영 프로세스(lol, lol-web)만 배포 및 재시작
+# 배포 후 lol-web 재시작, lol-bot은 켜져 있을 때만 재시작
 bash scripts/deploy.sh
 
-# 개발 프로세스(lol-dev, lol-dev-web)까지 함께 배포 및 재시작
+# dev 앱(lol-bot-dev, lol-web-dev)도 켜져 있으면 함께 재시작
 bash scripts/deploy.sh --dev
 ```
 
@@ -73,15 +84,15 @@ bash scripts/deploy.sh --dev
 pm2 status
 
 # 프로세스별 실시간 로그 확인
-pm2 logs lol
+pm2 logs lol-bot
 pm2 logs lol-web
-pm2 logs lol-dev
-pm2 logs lol-dev-web
+pm2 logs lol-bot-dev
+pm2 logs lol-web-dev
 pm2 logs lol-health
 pm2 logs lol-tunnel
 
 # 특정 프로세스 단독 재시작
-pm2 restart lol
+pm2 restart lol-bot
 pm2 restart lol-web
 ```
 

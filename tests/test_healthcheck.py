@@ -20,29 +20,35 @@ class HealthCheckTest(unittest.TestCase):
     def tearDown(self):
         self.tmp_dir.cleanup()
 
-    def make_pm2_output(self, lol_status="online", lol_web_status="online"):
+    def make_pm2_output(self, tunnel_status="online", lol_web_status="online"):
         procs = []
-        if lol_status is not None:
-            procs.append({"name": "lol", "pm2_env": {"status": lol_status}})
+        if tunnel_status is not None:
+            procs.append({"name": "lol-tunnel", "pm2_env": {"status": tunnel_status}})
         if lol_web_status is not None:
             procs.append({"name": "lol-web", "pm2_env": {"status": lol_web_status}})
         return json.dumps(procs)
 
     def test_check_pm2_success(self):
-        """lol과 lol-web이 모두 online이면 에러가 없다."""
+        """lol-tunnel과 lol-web이 모두 online이면 에러가 없다."""
         output = self.make_pm2_output("online", "online")
         errors = check_pm2(output)
         self.assertEqual(errors, [])
 
+    def test_check_pm2_ignores_stopped_bot(self):
+        """봇은 필요할 때만 켜므로 lol-bot이 stopped여도 에러가 아니다."""
+        procs = json.loads(self.make_pm2_output("online", "online"))
+        procs.append({"name": "lol-bot", "pm2_env": {"status": "stopped"}})
+        self.assertEqual(check_pm2(json.dumps(procs)), [])
+
     def test_check_pm2_missing_or_stopped(self):
         """프로세스가 없거나 online이 아니면 에러를 반환한다."""
-        # lol 누락
-        output_missing = self.make_pm2_output(lol_status=None, lol_web_status="online")
+        # lol-tunnel 누락
+        output_missing = self.make_pm2_output(tunnel_status=None, lol_web_status="online")
         errors = check_pm2(output_missing)
-        self.assertTrue(any("lol 프로세스를 찾을 수 없습니다" in e for e in errors))
+        self.assertTrue(any("lol-tunnel 프로세스를 찾을 수 없습니다" in e for e in errors))
 
         # lol-web 상태 stopped
-        output_stopped = self.make_pm2_output(lol_status="online", lol_web_status="stopped")
+        output_stopped = self.make_pm2_output(tunnel_status="online", lol_web_status="stopped")
         errors = check_pm2(output_stopped)
         self.assertTrue(any("lol-web 상태가 비정상입니다" in e for e in errors))
 
@@ -88,7 +94,7 @@ class HealthCheckTest(unittest.TestCase):
         self.assertEqual(res1["status"], "failed")
         self.assertEqual(len(sent_messages), 1)
         self.assertIn("장애 발생", sent_messages[-1][1])
-        self.assertIn("lol 상태가 비정상입니다", sent_messages[-1][1])
+        self.assertIn("lol-tunnel 상태가 비정상입니다", sent_messages[-1][1])
 
         # 2. t = 1300초 (5분 뒤): 동일 장애 지속 -> 30분 이내이므로 알림 생략
         res2 = run_healthcheck(
@@ -122,7 +128,7 @@ class HealthCheckTest(unittest.TestCase):
         def fake_sender(url, msg):
             sent_messages.append((url, msg))
 
-        # t = 1000: lol 에러
+        # t = 1000: lol-tunnel 에러
         run_healthcheck(
             pm2_provider=lambda: self.make_pm2_output("errored", "online"),
             http_checker=lambda: [],

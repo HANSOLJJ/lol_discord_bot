@@ -4,7 +4,7 @@ const path = require('node:path');
 module.exports = {
   apps: [
     {
-      name: 'lol',
+      name: 'lol-bot',
       script: '/opt/homebrew/bin/uv',
       args: 'run python -u got_champe.py',
       interpreter: 'none',
@@ -35,7 +35,7 @@ module.exports = {
       },
     },
     {
-      name: 'lol-dev',
+      name: 'lol-bot-dev',
       script: '/opt/homebrew/bin/uv',
       args: 'run python -u got_champe.py',
       interpreter: 'none',
@@ -53,7 +53,7 @@ module.exports = {
       },
     },
     {
-      name: 'lol-dev-web',
+      name: 'lol-web-dev',
       script: 'npm',
       args: 'run dev',
       interpreter: 'none',

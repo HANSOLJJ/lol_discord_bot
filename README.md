@@ -11,10 +11,10 @@
 
 | 주소 | 대상 로컬 주소 | 역할 |
 |---|---|---|
-| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` (pm2 `lol`) | 운영 액티비티 백엔드 API 및 WebSocket 서버입니다. 봇에 `DISCORD_CLIENT_ID`·`DISCORD_CLIENT_SECRET` 설정 시 활성화됩니다. |
+| `lol.hansoljj.com/pick-api` | `http://127.0.0.1:8790` (pm2 `lol-bot`) | 운영 액티비티 백엔드 API 및 WebSocket 서버입니다. 봇에 `DISCORD_CLIENT_ID`·`DISCORD_CLIENT_SECRET` 설정 시 활성화됩니다. |
 | `lol.hansoljj.com` (기타) | `http://127.0.0.1:8791` (pm2 `lol-web`) | 정적 웹 서버입니다. `/` 접근 시 디스코드 액티비티(`?frame_id=`)면 픽 화면을, 일반 브라우저면 전적 대시보드를 서빙합니다. |
 | `arena.hansoljj.com` | `http://127.0.0.1:8791` (pm2 `lol-web`) | 이전 서비스 주소입니다. 웹 서버가 `https://lol.hansoljj.com`의 동일 경로 및 쿼리로 301 영구 리다이렉트합니다. |
-| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` (pm2 `lol-dev-web`) | 개발용 액티비티 프론트엔드(Vite 개발 서버)입니다. `/pick-api` 요청을 개발 봇(포트 8792)으로 프록시합니다. |
+| `lol-dev.hansoljj.com` | `http://127.0.0.1:5173` (pm2 `lol-web-dev`) | 개발용 액티비티 프론트엔드(Vite 개발 서버)입니다. `/pick-api` 요청을 개발 봇(포트 8792)으로 프록시합니다. |
 | `fin.hansoljj.com` | `finance` 터널 | 롤 봇 프로젝트와 무관한 독립 서비스입니다. 맥미니 작업 시 건드리지 않습니다. |
 
 - `pick.hansoljj.com`은 초기 기획에만 있었으며 현재 사용하지 않습니다.
@@ -101,10 +101,10 @@ lol_discord_bot/
 
 ### 1. 배포 및 프로세스 관리
 ```bash
-# 운영 프로세스(lol, lol-web) 배포 및 재시작 (git pull, uv sync, npm build 포함)
+# 배포 (git pull, uv sync, npm build 후 lol-web 재시작, lol-bot은 켜져 있을 때만 재시작)
 bash scripts/deploy.sh
 
-# 개발 프로세스(lol-dev, lol-dev-web)까지 함께 배포 및 재시작
+# dev 앱(lol-bot-dev, lol-web-dev)도 켜져 있으면 함께 재시작
 bash scripts/deploy.sh --dev
 
 # 웹 화면만 수정한 경우 (서버 재시작 불필요)
@@ -114,7 +114,7 @@ cd web/activity && npm run build
 pm2 status
 
 # 프로세스 로그 실시간 확인
-pm2 logs lol
+pm2 logs lol-bot
 pm2 logs lol-web
 ```
 
