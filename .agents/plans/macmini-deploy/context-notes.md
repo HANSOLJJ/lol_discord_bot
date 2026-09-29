@@ -17,3 +17,7 @@
 - 사용자 결정: 운영 주소는 `lol.hansoljj.com` 하나. 처음 계획한 `pick.hansoljj.com`(API 전용)과 `arena.hansoljj.com/pick`(화면)은 쓰지 않는다. 같은 주소에서 브라우저는 대시보드, 디스코드는 액티비티를 보게 하려고 `frame_id` query로 구분한다. 개발자 포털 URL 매핑이 dev와 같은 모양(`/` → 호스트)이 된다.
 - 사용자 결정: `arena.hansoljj.com`은 맥미니 웹 서버가 `lol.hansoljj.com`으로 301 리다이렉트한다(방법 1). Cloudflare 리다이렉트 규칙(방법 2)은 설정이 저장소 밖에 남아서 택하지 않았다.
 - 주의: 백엔드가 없을 때 cloudflared가 원본 연결 실패를 오류 로그에 남기면서 요청 주소를 통째로 적는다. WebSocket 주소의 `session` query가 `~/.pm2/logs/lol-tunnel-error.log`에 남은 것을 확인했다(당시 세션은 dev 봇 종료로 이미 무효). 백엔드를 띄우면 이 오류 기록은 생기지 않는다.
+- (agy 기록) 운영 액티비티 도메인 `lol.hansoljj.com` 추가. 터널이 `lol.hansoljj.com`의 `/pick-api`는 8790(운영 봇), 나머지는 8791(정적 서버)로 전달한다. agy는 첫 번째 추가 지시대로 Host 목록(`ACTIVITY_ROOT_HOSTS`)으로 첫 화면을 나눴으나, 사용자가 주소 하나로 합치기로 해서 코디네이터가 `frame_id` 구분과 `arena.hansoljj.com` 301로 바꿨다(b410a83). agy가 두 번째 추가 지시를 읽기 전에 작업을 끝냈기 때문이다.
+- `ecosystem.config.cjs`에 `lol-tunnel`(cloudflared run) 앱 추가.
+- `docs/DEPLOY_MACMINI.md`에 도메인/포트 매핑 표, `lol-tunnel`, `.env`의 `DEV_MODE` 미사용 주의사항 명시.
+- pm2의 launchd 설정(`pm2.hansol.plist`)과 실행 중인 pm2 환경의 PATH에 `/opt/homebrew/bin`이 있어서, ecosystem에서 `npm`·`pm2`를 경로 없이 불러도 재부팅 뒤 동작한다.
