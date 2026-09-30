@@ -1,7 +1,7 @@
 # 액티비티 통신 규격 (protocol_version 4)
 
 봇의 액티비티 서버(`activity_server.py`, `game_core.py`)와 액티비티 프론트(`web/activity/`)가 주고받는 HTTP·WebSocket 형식을 고정하는 문서다.
-설계 이유와 전체 흐름은 [통합 실행 계획](../.agents/plans/activity-integration/plan.md) 5~7절에 있고, 이 문서는 양쪽 구현이 똑같이 맞춰야 하는 형식만 정한다.
+이 문서는 양쪽 구현이 똑같이 맞춰야 하는 형식만 정한다.
 형식을 바꿀 때는 이 문서를 먼저 고치고 `protocol_version`을 올린다.
 
 ## 1. 범위와 버전

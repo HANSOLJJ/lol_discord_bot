@@ -94,8 +94,7 @@ lol_discord_bot/
 ├── scripts/               # 운영 유틸리티 스크립트
 │   ├── deploy.sh          #   맥미니 원클릭 빌드 및 배포 스크립트
 │   └── healthcheck.py     #   5분 간격 프로세스 및 웹 상태 점검 스크립트
-├── tests/                 # 파이썬 단위 테스트 (unittest)
-└── .agents/plans/         # 기능별 개발 계획, 체크리스트 및 결정 기록
+└── tests/                 # 파이썬 단위 테스트 (unittest)
 ```
 
 ---
@@ -167,7 +166,6 @@ pm2 logs lol-web
 - [맥미니 배포 및 운영 가이드 (docs/DEPLOY_MACMINI.md)](docs/DEPLOY_MACMINI.md): pm2 6개 프로세스 구성, 배포 스크립트, `.env` 환경변수 키 목록 및 GitHub 오프사이트 백업 구조.
 - [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md): 디스코드 임베디드 액티비티와 봇 간의 HTTP/WebSocket 통신 규격 (protocol_version 4), 5·6위 어드밴티지 및 입장·일시정지 프로토콜.
 - [과거 전적 복구 리포트 (docs/PARSE_REPORT.md)](docs/PARSE_REPORT.md): 디스코드 채널 기록으로부터 복구한 과거 경기 데이터 및 정합성 검증 리포트.
-- [에이전트 계획 디렉터리 (.agents/plans/)](.agents/plans/): 각 기능 개선 및 인프라 구축 시 작성된 실행 계획, 체크리스트 및 결정 기록.
 
 ### 아카이브 문서
 - [Workers 이식 인수인계서 (docs/archive/handover-workers-2026-08.md)](docs/archive/handover-workers-2026-08.md): 2026-08-26 작성된 Cloudflare Workers 이식 계획 (2026-09-28 맥미니 자체 호스팅 결정으로 폐기됨).

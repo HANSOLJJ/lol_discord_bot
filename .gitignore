@@ -34,6 +34,7 @@ history_data_dev.json
 
 # 로컬 작업 컨텍스트 (호스팅 경로 등 포함)
 CLAUDE.md
+.agents/
 
 # 테스트 아티팩트
 .playwright-mcp/
