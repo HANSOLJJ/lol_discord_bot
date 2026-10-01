@@ -89,9 +89,7 @@ lol_discord_bot/
 │   ├── INFRA.md           #   Cloudflare, DNS, 캐시, 디스코드 개발자 포털 및 전환 체크리스트
 │   ├── DEPLOY_MACMINI.md  #   맥미니 pm2 운영, 배포 스크립트, 환경변수 가이드
 │   ├── ACTIVITY_PROTOCOL.md # 액티비티 클라이언트-서버 통신 규격 (protocol_version 4)
-│   ├── PARSE_REPORT.md    #   과거 디스코드 채널 전적 복구·검증 리포트
-│   └── archive/           #   과거 폐기된 계획 문서 보관소
-│       └── handover-workers-2026-08.md # 2026-08 Cloudflare Workers 이식 계획 (폐기)
+│   └── PARSE_REPORT.md    #   과거 디스코드 채널 전적 복구·검증 리포트
 ├── scripts/               # 운영 유틸리티 스크립트
 │   ├── deploy.sh          #   맥미니 원클릭 빌드 및 배포 스크립트
 │   └── healthcheck.py     #   5분 간격 프로세스 및 웹 상태 점검 스크립트
@@ -168,8 +166,5 @@ pm2 logs lol-web
 - [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md): 디스코드 임베디드 액티비티와 봇 간의 HTTP/WebSocket 통신 규격 (protocol_version 4), 5·6위 어드밴티지 및 입장·일시정지 프로토콜.
 - [과거 전적 복구 리포트 (docs/PARSE_REPORT.md)](docs/PARSE_REPORT.md): 디스코드 채널 기록으로부터 복구한 과거 경기 데이터 및 정합성 검증 리포트.
 - [프론트엔드 안내 (web/activity/README.md)](web/activity/README.md): 픽 화면·대시보드의 진입점(`main.tsx`, `App.tsx` 등), 화면이 그려지는 흐름, `src/` 파일별 역할, 개발 명령과 미리보기.
-
-### 아카이브 문서
-- [Workers 이식 인수인계서 (docs/archive/handover-workers-2026-08.md)](docs/archive/handover-workers-2026-08.md): 2026-08-26 작성된 Cloudflare Workers 이식 계획 (2026-09-28 맥미니 자체 호스팅 결정으로 폐기됨).
 
 
