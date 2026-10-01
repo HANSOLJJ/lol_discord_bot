@@ -7,11 +7,13 @@ import { getReplyMessage, type DiscordUser, type ReplyMessage, type StateMessage
 import { getPresenceAlerts } from '../lib/view-logic.ts'
 import { USER } from '../test/fixtures.ts'
 
+/** 로그인 진행 상태. login_required면 ActivityScreen이 "Discord로 로그인" 버튼을 보인다. */
 export type AuthState =
   | { kind: 'pending' }
   | { kind: 'login_required'; message: string }
   | { kind: 'ok'; user: DiscordUser }
 
+/** 화면이 쓰는 값과 요청 함수 묶음. 요청 함수는 서버의 reply를 돌려주고, 실패하면 토스트도 띄운다. */
 export interface Activity {
   auth: AuthState
   snapshot: ConnectionSnapshot | null
@@ -30,6 +32,10 @@ export interface Activity {
   resume: (game_id: string) => Promise<ReplyMessage>
 }
 
+/**
+ * 인증과 서버 연결(Connection)을 컴포넌트가 살아 있는 동안 한 번만 만들고, 바뀐 상태를 React 상태로 내려 준다.
+ * previewPhase가 있으면(개발 서버의 ?preview=) 서버에 연결하지 않고 고정 상태와 가짜 응답을 쓴다.
+ */
 export function useActivity(previewPhase?: string | null): Activity {
   const isPreview = Boolean(import.meta.env.DEV && previewPhase)
   const previewState = isPreview ? getPreviewState(previewPhase!) : null
@@ -55,6 +61,7 @@ export function useActivity(previewPhase?: string | null): Activity {
   const toastTimerRef = useRef<number | null>(null)
   const connRef = useRef<Connection | null>(null)
 
+  // 토스트는 3초 뒤 사라진다. 새 토스트가 오면 앞의 타이머를 지우고 다시 센다.
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current !== null) {
       window.clearTimeout(toastTimerRef.current)
@@ -66,6 +73,8 @@ export function useActivity(previewPhase?: string | null): Activity {
     }, 3000)
   }, [])
 
+  // 인증한 뒤 받은 세션으로 연결을 시작한다. interactive가 false면 동의 창 없이 조용히 시도한다(처음 열 때·재인증).
+  // 인증을 기다리는 사이 연결 객체가 새로 만들어졌으면 낡은 결과는 버린다.
   const signIn = useCallback((interactive: boolean) => {
     if (isPreview) return
     const conn = connRef.current
@@ -85,6 +94,7 @@ export function useActivity(previewPhase?: string | null): Activity {
     )
   }, [isPreview])
 
+  // 연결 객체를 만들고 상태 변화를 구독한다. 서버가 재인증을 요구하면(4401 종료) 조용히 다시 로그인한다.
   useEffect(() => {
     if (isPreview) return
     const conn = new Connection(browserConnectionOptions())
@@ -119,6 +129,8 @@ export function useActivity(previewPhase?: string | null): Activity {
 
   const login = useCallback(() => signIn(true), [signIn])
 
+  // 요청 공통 처리. 앞 요청이 끝나기 전에는 새 요청을 막고(isPending), 실패 응답과 예외는 토스트로 알린다.
+  // 미리보기에서는 서버 대신 150ms 뒤 previewReply의 가짜 응답을 준다.
   const wrapAction = useCallback(
     (fn: () => Promise<ReplyMessage>, previewReply: () => ReplyMessage): Promise<ReplyMessage> => {
       if (isPending) return Promise.reject(new Error('이전 요청 처리 중입니다.'))
@@ -161,6 +173,7 @@ export function useActivity(previewPhase?: string | null): Activity {
     [isPending, isPreview, showToast],
   )
 
+  // 시작 요청에는 규격 9절대로 SDK의 guildId를 함께 보낸다.
   const start = useCallback(
     (game_id: string | null) => {
       const guild_id = getGuildId()
@@ -274,6 +287,7 @@ export function useActivity(previewPhase?: string | null): Activity {
     [wrapAction, showToast],
   )
 
+  // start_now·pause·resume처럼 미리보기에서 토스트 없이 성공 응답만 주면 되는 요청의 공통 함수.
   const gameAction = useCallback(
     (request: (conn: Connection) => Promise<ReplyMessage>, previewId: string) => {
       return wrapAction(
