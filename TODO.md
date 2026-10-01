@@ -50,9 +50,7 @@
 
 - [ ] `config/` 폴더: `config.json`을 옮긴다(`paths.CONFIG_FILE` 한 줄과 문서). `ecosystem.config.cjs`도 옮길지는 미정. 봇이 켜진 동안 배포하면 옛 코드가 설정을 못 찾을 수 있으니 봇이 꺼져 있을 때 배포한다
 - [ ] 가끔 쓰는 도구 `parse_all_history.py`, `rollback_season.py`를 `tools/`로 옮긴다
-- [ ] `watch_bus.py`(고속버스 취소표 감시, 롤 봇과 무관)를 이 저장소 밖으로 뺄지 정한다
 
 ## 기타
 
-- [ ] `ARENA_GH_TOKEN`을 폐기하고 새로 발급한다. 2026-10-01 대화 중에 원문이 노출됐다. 새 토큰은 맥미니 `.env`에만 넣는다(윈도우 `.env`에서는 지워도 된다)
 - [ ] `.env`·`.env.example`의 `ARENA_GH_*` 주석을 "GitHub Pages 자동 배포"에서 "history_data.json 오프사이트 백업"으로 고친다
