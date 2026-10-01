@@ -12,9 +12,14 @@ import { Toast } from './Toast.tsx'
 import { TurnCountdown } from './TurnCountdown.tsx'
 
 interface Props {
+  /** 개발 서버의 ?preview= 값. 있으면 서버에 연결하지 않고 고정 상태로 그린다(App.tsx가 넘긴다). */
   previewPhase?: string | null
 }
 
+/**
+ * 픽 화면 본체. 로그인·버전 확인 화면을 먼저 걸러 낸 뒤, 화면 크기(useLayoutMode)에 따라
+ * PiP·PC·모바일 배치 중 하나로 그린다. 서버와의 통신은 모두 useActivity가 맡는다.
+ */
 export function ActivityScreen({ previewPhase }: Props) {
   const { auth, snapshot, state, isPending, toast, login, start, advantage, pick, result, reverse, startNow, pause, resume } =
     useActivity(previewPhase)
@@ -59,9 +64,11 @@ export function ActivityScreen({ previewPhase }: Props) {
 
   const isConnected = snapshot?.status === 'connected'
   const isPc = layoutMode === 'pc'
+  // 카운트다운이 도는 단계면 TurnCountdown을, 대기·결과 단계면 PhaseActions를 같은 자리에 그린다.
   const isTurnPhase = state?.phase === 'starting' || state?.phase === 'advantage' || state?.phase === 'picking'
   const user = snapshot?.user ?? (auth.kind === 'ok' ? auth.user : null)
 
+  // 챔피언 그리드는 어드밴티지(밴·강제픽 지정)와 일반 픽이 함께 쓴다. 지금 단계에 맞는 요청으로 나눠 보낸다.
   const handlePick = (championId: string) => {
     if (!state || !state.game_id) return
     if (state.phase === 'advantage') {
@@ -73,6 +80,7 @@ export function ActivityScreen({ previewPhase }: Props) {
     }
   }
 
+  // PC: 위에 헤더·팀, 아래 왼쪽 열에 카운트다운과 픽 순서, 오른쪽에 챔피언 그리드
   if (isPc) {
     return (
       <main className={styles.screenPc}>
@@ -112,6 +120,7 @@ export function ActivityScreen({ previewPhase }: Props) {
     )
   }
 
+  // 모바일: 같은 부품을 위에서 아래로 한 줄로 쌓는다
   return (
     <main className={styles.screenMobile}>
       <Header status={snapshot?.status ?? 'idle'} user={user} state={state} isPc={false} />

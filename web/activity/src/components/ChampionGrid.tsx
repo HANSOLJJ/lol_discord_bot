@@ -17,11 +17,17 @@ import styles from './ChampionGrid.module.css'
 
 interface Props {
   state: StateMessage | null
+  /** 앞 요청의 응답을 기다리는 중이면 카드를 누를 수 없다. */
   isPending: boolean
   isPc?: boolean
+  /** 카드를 눌렀을 때. 어드밴티지 지정인지 일반 픽인지는 ActivityScreen이 단계를 보고 나눈다. */
   onPick: (championId: string) => void
 }
 
+/**
+ * 카드 위쪽 초상화 영역. 이미지를 못 불러오면 첫 글자로 대신하고,
+ * 이미 뽑혔거나 밴된 카드는 흑백 처리와 자물쇠를, 강제픽 카드는 "강제픽" 배지를 얹는다.
+ */
 function ChampionCardImage({
   champion,
   ddragonVersion,
@@ -89,6 +95,10 @@ function ChampionCardImage({
   )
 }
 
+/**
+ * 챔피언 후보 카드 그리드(PC·모바일 모두 4x2). advantage 단계에서는 밴·강제픽 지정에, picking 단계에서는 픽에 쓴다.
+ * 누를 수 있는지는 canClickChampion이 판정하고, 이 컴포넌트는 카드 상태별 색과 문구만 정한다.
+ */
 export function ChampionGrid({ state, isPending, isPc = false, onPick }: Props) {
   if (!state || state.champions.length === 0) return null
 
@@ -120,6 +130,8 @@ export function ChampionGrid({ state, isPending, isPc = false, onPick }: Props) 
                 ? COLOR_TEAM2
                 : null
 
+          // 카드 상태별 표시. 우선순위는 밴 > 이미 뽑힘 > 강제픽 > 어드밴티지 단계 > 일반 픽 단계이다.
+          // 누를 수 있는 카드는 밝은 테두리(#9aa4bb)로 구분한다.
           let borderColor = '#262b36'
           let tileBg = '#171a21'
           let nameColor = '#e6e9ef'

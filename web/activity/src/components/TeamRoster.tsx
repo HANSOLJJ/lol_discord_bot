@@ -8,6 +8,10 @@ interface Props {
   isPc?: boolean
 }
 
+/**
+ * TEAM 1·TEAM 2 명단. 현재 차례인 사람을 강조하고, 이름 옆 점으로 액티비티 입장 여부를 보인다.
+ * 어드밴티지가 있으면 그 요약을 한 줄 덧붙인다.
+ */
 export function TeamRoster({ state, isPc = false }: Props) {
   if (!state || state.players.length === 0) return null
 
@@ -18,6 +22,7 @@ export function TeamRoster({ state, isPc = false }: Props) {
   const team2 = state.players.filter((p) => p.team === 'team2')
   const advantageSummary = getAdvantageSummary(state.advantage, state.champions, state.phase)
 
+  // PC와 모바일이 같은 명단을 쓰고 이름 글자 클래스만 다르다.
   const renderNames = (players: Player[], isPcView: boolean) => (
     <div className={styles.namesWrap}>
       {players.map((p) => {

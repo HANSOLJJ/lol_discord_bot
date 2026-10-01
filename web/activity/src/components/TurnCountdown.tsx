@@ -27,14 +27,21 @@ import styles from './TurnCountdown.module.css'
 
 interface Props {
   state: StateMessage
+  /** 서버 시계 기준점. 없으면(아직 측정 전) 남은 초를 계산하지 않는다. */
   anchor: ClockAnchor | null
   isConnected: boolean
   isPending: boolean
+  /** 미입장자를 기다리지 않고 시작. 서버가 5초 카운트다운을 건다. */
   onStartNow: (gameId: string) => void
   onPause: (gameId: string) => void
   onResume: (gameId: string) => void
 }
 
+/**
+ * 카운트다운이 도는 단계(starting·advantage·picking)의 차례 상자. 큰 숫자, 제목·안내, 진행 막대와
+ * "지금 시작"·일시정지·재개 버튼을 보인다. 남은 초가 바뀔 때마다 다시 그려지므로,
+ * 그 다시 그리기가 화면 전체로 번지지 않도록 ActivityScreen에서 따로 떼어 낸 컴포넌트다.
+ */
 export function TurnCountdown({ state, anchor, isConnected, isPending, onStartNow, onPause, onResume }: Props) {
   const isStarting = state.phase === 'starting'
   const isAdvantage = state.phase === 'advantage'
@@ -56,6 +63,7 @@ export function TurnCountdown({ state, anchor, isConnected, isPending, onStartNo
   const warning = isWarningSeconds(seconds)
   const color = paused ? COLOR_MUTED : warning ? COLOR_WARNING_RED : COLOR_YELLOW
 
+  // 단계별 제목과 안내 문구. 어드밴티지 제목은 팀 이름에 팀 색을 입히려고 ReactNode로 만든다.
   let title: ReactNode = ''
   let hint = ''
 
@@ -100,6 +108,7 @@ export function TurnCountdown({ state, anchor, isConnected, isPending, onStartNo
   const progressPercent = Math.min(100, Math.max(0, Math.round((currentSeconds / maxSeconds) * 100)))
 
   const gameId = state.game_id ?? ''
+  // 버튼을 보일지는 서버가 준 me 권한으로, 누를 수 있는지는 연결·대기 상태까지 본 can* 함수로 나눠 정한다.
   const showStartNow = waiting && state.me.can_start_now
   const showPause = state.me.can_pause
   const showResume = state.me.can_resume
@@ -107,6 +116,7 @@ export function TurnCountdown({ state, anchor, isConnected, isPending, onStartNo
   return (
     <section aria-label="현재 차례" className={styles.turnBox} data-my-turn={myTurn} data-paused={paused}>
       <div className={styles.countCol} style={{ color }}>
+        {/* 0초가 되면 서버의 판정(유예 포함)을 기다리는 동안 "마감 확인 중"을 보인다. 정지 중이면 0초여도 숫자를 그대로 둔다. */}
         {seconds !== null && (seconds > 0 || paused) ? (
           seconds
         ) : seconds === 0 ? (

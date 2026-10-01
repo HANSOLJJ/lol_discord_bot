@@ -13,6 +13,7 @@ interface Props {
   isPc?: boolean
 }
 
+/** 픽 순서 줄의 작은 초상화. 주소가 없거나 이미지를 불러오지 못하면 챔피언 이름 첫 글자로 대신한다. */
 function SmallPortrait({ champion, ddragonVersion }: { champion: Champion; ddragonVersion: string | null }) {
   const [failed, setFailed] = useState(false)
   const url = getChampionPortraitUrl(champion.id, ddragonVersion)
@@ -33,10 +34,12 @@ function SmallPortrait({ champion, ddragonVersion }: { champion: Champion; ddrag
   )
 }
 
+/** 픽 순서(승수 낮은 순) 목록. 줄마다 순번·이름·승수와, 고른 챔피언 또는 "선택 중"·"대기"를 보인다. */
 export function PickOrderList({ state, isPc = false }: Props) {
   if (!state || state.pick_order.length === 0) return null
 
   const myId = state.me.id
+  // 현재 차례 줄 강조는 picking 단계에서만 한다.
   const currentIndex = state.phase === 'picking' ? state.current_index : null
 
   return (
@@ -56,6 +59,7 @@ export function PickOrderList({ state, isPc = false }: Props) {
         const isCurrentTurn = index === currentIndex
         const champId = state.selections[userId]
         const champ = champId ? state.champions.find((c) => c.id === champId) : null
+        // 시간 초과로 서버가 대신 고른 사람은 "자동" 태그를 붙인다.
         const isAuto = state.auto_assigned.includes(userId)
 
         const nameColor = player.team === 'team1' ? COLOR_TEAM1 : COLOR_TEAM2

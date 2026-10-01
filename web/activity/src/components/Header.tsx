@@ -8,11 +8,14 @@ interface Props {
   status: ConnectionStatus
   user: DiscordUser | null
   state: StateMessage | null
+  /** PC면 라운드·입장 표시를 왼쪽 연결 상태 옆에 붙이고, 모바일이면 가운데에 따로 둔다. */
   isPc?: boolean
 }
 
+/** 연결 상태 점의 색. 스타일 시트가 data-tone 값으로 색을 고른다. */
 type Tone = 'ok' | 'wait' | 'bad'
 
+/** 연결 상태를 헤더 문구와 점 색으로 바꾼다. 목록에 없는 상태는 모두 "연결 중"으로 본다. */
 function statusLabel(status: ConnectionStatus): { label: string; tone: Tone } {
   switch (status) {
     case 'connected':
@@ -28,6 +31,7 @@ function statusLabel(status: ConnectionStatus): { label: string; tone: Tone } {
   }
 }
 
+/** 픽 화면 맨 위 줄. 왼쪽에 연결 상태, 가운데에 라운드·시즌과 입장 인원, 오른쪽에 내 이름을 보인다. */
 export function Header({ status, user, state, isPc = false }: Props) {
   const { label, tone } = statusLabel(status)
   const roundText =
@@ -35,6 +39,7 @@ export function Header({ status, user, state, isPc = false }: Props) {
       ? `ROUND ${state.round} · 시즌 ${state.season}`
       : ''
   const displayName = user ? user.global_name ?? user.username : ''
+  // "입장 n/6" 배지. 어느 단계에서 보일지는 getHeaderPresence가 정하고, 전원 입장(data-full)이면 스타일이 바뀐다.
   const presence = getHeaderPresence(state)
   const presenceBadge = presence && (
     <span className={isPc ? styles.presencePc : styles.presence} data-full={presence.present === presence.total}>

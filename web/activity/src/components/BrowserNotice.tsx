@@ -1,6 +1,10 @@
 // Discord 밖(일반 브라우저)에서 열었을 때 보여주는 실행 안내
 import styles from './BrowserNotice.module.css'
 
+/**
+ * 디스코드 밖(frame_id 없음)에서 열었을 때 App.tsx가 보여 주는 안내.
+ * 운영의 `/`는 이 경우 web_server.py가 대시보드를 주므로, 주로 `/pick/`에 직접 들어왔을 때 보인다.
+ */
 export function BrowserNotice() {
   return (
     <main className={styles.screen}>

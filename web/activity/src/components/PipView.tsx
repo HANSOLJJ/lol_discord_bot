@@ -24,9 +24,11 @@ import styles from './PipView.module.css'
 
 interface Props {
   state: StateMessage | null
+  /** 서버 시계 기준점. 없으면(아직 측정 전) 남은 초를 계산하지 않는다. */
   anchor: ClockAnchor | null
 }
 
+/** 진행 원 안의 초상화. 이미지를 못 불러오면 챔피언 이름 첫 글자로 대신한다. */
 function PipSlotImage({ champion, ddragonVersion }: { champion: Champion; ddragonVersion: string | null }) {
   const [failed, setFailed] = useState(false)
   const url = getChampionPortraitUrl(champion.id, ddragonVersion)
@@ -47,6 +49,11 @@ function PipSlotImage({ champion, ddragonVersion }: { champion: Champion; ddrago
   )
 }
 
+/**
+ * 액티비티 창이 작아졌을 때(가로 480·세로 320 이하, useLayoutMode의 pip)의 요약 화면. 버튼 없이 보기만 한다.
+ * 큰 카운트다운 숫자, 단계별 제목·안내, 픽 순서대로 6개 진행 원(고른 챔피언 초상화), 진행 막대를 보인다.
+ * 내 차례면 테두리를 노랗게 해서 창을 크게 열도록 알린다.
+ */
 export function PipView({ state, anchor }: Props) {
   const isAdvantage = state?.phase === 'advantage'
   const deadlineMs = getCountdownDeadline(state)
@@ -62,6 +69,7 @@ export function PipView({ state, anchor }: Props) {
   const color = paused ? COLOR_MUTED : warning ? COLOR_WARNING_RED : COLOR_YELLOW
   const frameBorder = myTurn ? COLOR_YELLOW : '#262b36'
 
+  // 단계별 제목과 안내 문구. 해당하는 단계가 없으면 "대기 중"으로 둔다.
   let title = '대기 중'
   let hint = '게임이 시작되면 여기에 표시됩니다'
 
@@ -105,6 +113,7 @@ export function PipView({ state, anchor }: Props) {
     <div className={styles.pipBox} style={{ border: `2px solid ${frameBorder}` }}>
       <div className={styles.topRow}>
         <div className={styles.countNum} style={{ color }}>
+          {/* 0초가 되면 서버의 판정(유예 포함)을 기다리는 동안 "마감 확인 중"을 보인다. 정지 중이면 0초여도 숫자를 그대로 둔다. */}
           {seconds !== null && (seconds > 0 || paused) ? (
             seconds
           ) : seconds === 0 ? (
@@ -120,6 +129,7 @@ export function PipView({ state, anchor }: Props) {
       </div>
 
       <div className={styles.bottomCol}>
+        {/* 어드밴티지 단계에는 아직 고른 사람이 없으므로 진행 원을 숨긴다. */}
         {!isAdvantage && (
           <div className={styles.slotsRow}>
             {pickOrder.map((userId, idx) => {
