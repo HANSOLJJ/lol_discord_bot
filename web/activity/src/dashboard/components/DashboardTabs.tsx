@@ -6,6 +6,7 @@ export interface TabItem {
   label: string
 }
 
+/** 탭 순서와 이름. key는 주소 해시(#player 등)와 DashboardApp의 SEL_MAX 키로도 쓴다. */
 const DASHBOARD_TABS: TabItem[] = [
   { key: 'history', label: '대전 기록' },
   { key: 'player', label: '개인' },
@@ -20,6 +21,7 @@ export interface DashboardTabsProps {
   onTabChange: (key: string) => void
 }
 
+/** 대시보드 탭 줄. 지금 탭은 aria-current로 표시하고, 바꾸는 처리(해시 갱신 등)는 DashboardApp에 맡긴다. */
 export function DashboardTabs({ activeTab, onTabChange }: DashboardTabsProps) {
   return (
     <nav className={styles.tabNav} aria-label="대시보드 탭 목록">

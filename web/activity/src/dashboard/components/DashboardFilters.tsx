@@ -5,6 +5,7 @@ import styles from './DashboardFilters.module.css'
 
 export interface DashboardFiltersProps {
   period: string
+  /** 기본 기간(최신 시즌, 없으면 전체). 지금 기간이 이 값과 다르면 켜진 조건으로 센다. */
   defaultPeriod: string
   onPeriodChange: (p: string) => void
   periodOptions: PeriodOption[]
@@ -16,12 +17,19 @@ export interface DashboardFiltersProps {
   onTogglePlayer: (id: string) => void
   championQuery: string
   onChampionQueryChange: (q: string) => void
+  /** 전체 판 수와 필터 뒤 판 수. 플레이어를 고르지 않았을 때 "n판 / 전체판"으로 보인다. */
   totalCount: number
   filteredCount: number
+  /** 고른 플레이어가 속한 팀의 승패. 고른 사람이 없으면 null이다. */
   recordSummary: RecordSummary | null
   onResetFilters: () => void
 }
 
+/**
+ * 대전 기록 탭 필터. 챔피언 검색창과 결과 요약은 늘 보이고, 기간·정렬·플레이어 칩은 서랍 안에 둔다.
+ * 서랍은 화면 폭 480px 이하에서만 접히고 "필터" 버튼으로 펼친다(DashboardFilters.module.css).
+ * 플레이어를 고르면 결과 요약이 판 수 대신 그 사람들이 같은 팀이었을 때의 승패로 바뀐다.
+ */
 export function DashboardFilters({
   period,
   defaultPeriod,
@@ -42,6 +50,7 @@ export function DashboardFilters({
 }: DashboardFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
+  // 세션 기간은 아래에서 "세션별" 묶음으로 따로 보이므로 나머지 기간(전체·시즌)만 먼저 나열한다.
   const nonSessionOptions = periodOptions.filter((opt) => opt.group !== 'session')
 
   // 기간·정렬 기본값을 제외한 켜진 조건 수 계산
@@ -50,6 +59,7 @@ export function DashboardFilters({
   if (sortOrder !== 'desc') activeCollapsibleCount++
   activeCollapsibleCount += selectedPlayerIds.length
 
+  // "필터 n" 숫자는 서랍 안 조건만 센다(검색창은 접히지 않아 늘 보이므로). 초기화 버튼은 검색어까지 포함해 판단한다.
   const hasActiveFilters =
     selectedPlayerIds.length > 0 ||
     championQuery.trim() !== '' ||

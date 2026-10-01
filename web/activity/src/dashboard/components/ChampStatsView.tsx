@@ -15,6 +15,7 @@ export interface ChampStatsViewProps {
   minGames: number
 }
 
+/** 챔피언 탭. 기간 안의 챔피언별 픽 수와 승률 표. 인원 선택은 쓰지 않고, 머리글을 눌러 정렬한다. */
 export function ChampStatsView({
   games,
   championPortraits,
@@ -36,6 +37,7 @@ export function ChampStatsView({
     sortDir,
   )
 
+  // 같은 열을 다시 누르면 방향을 뒤집고, 다른 열로 바꾸면 이름 열은 오름차순, 숫자 열은 내림차순부터 시작한다.
   const handleSortClick = (colIdx: number) => {
     if (sortCol === colIdx) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))

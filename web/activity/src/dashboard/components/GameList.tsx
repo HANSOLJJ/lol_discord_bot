@@ -4,16 +4,23 @@ import type { Game } from '../lib/types.ts'
 import { GameCard } from './GameCard.tsx'
 import styles from './GameList.module.css'
 
+/** 처음 그리는 카드 수이자 "더 보기" 한 번에 늘어나는 카드 수. */
 export const DEFAULT_PAGE_SIZE = 30
 
 export interface GameListProps {
+  /** 이미 기간·플레이어·검색·정렬 필터가 적용된 경기 목록(DashboardApp이 계산). */
   games: Game[]
   players: Record<string, string>
   championPortraits: Record<string, string>
+  /** 카드 안에서 강조할 플레이어와 챔피언 검색어. 걸러 내기는 이미 끝났고 강조 표시에만 쓴다. */
   selectedPlayerIds?: string[]
   championQuery?: string
 }
 
+/**
+ * 대전 기록 카드 목록. 처음 30개만 그리고 "더 보기"로 30개씩 늘린다.
+ * 필터가 바뀌면 DashboardApp이 key를 바꿔 페이지를 처음부터 다시 시작한다.
+ */
 export function GameList({
   games,
   players,

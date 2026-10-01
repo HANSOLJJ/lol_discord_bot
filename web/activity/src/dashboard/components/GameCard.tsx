@@ -8,12 +8,19 @@ import styles from './GameCard.module.css'
 
 export interface GameCardProps {
   game: Game
+  /** 디스코드 id → 표시 이름. 이름이 없는 id는 id를 그대로 보인다. */
   players: Record<string, string>
+  /** 챔피언 이름 → 초상화 주소. */
   championPortraits: Record<string, string>
+  /** 강조할 플레이어와 챔피언 검색어. 해당하는 줄을 isRowHighlighted로 강조한다. */
   selectedPlayerIds?: string[]
   championQuery?: string
 }
 
+/**
+ * 한 판의 결과 카드. 머리줄에 시즌·라운드·시각과 승리 팀(번복됐으면 번복 배지와 요약)을,
+ * 본문에 두 팀의 플레이어·챔피언을 보인다. 두 팀 칸은 같은 구조이고 승패 스타일만 다르다.
+ */
 export function GameCard({
   game,
   players,

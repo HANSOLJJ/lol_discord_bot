@@ -16,6 +16,10 @@ export interface MatchupStatsViewProps {
   minGames: number
 }
 
+/**
+ * 3:3 매치업 탭. 같은 대진(3명 대 3명)이 반복된 경우의 판 수와 양 팀 전적 표.
+ * 1명을 고르면 그 사람(포커스)의 팀을 왼쪽(A)에 고정해 "내 팀 vs 상대팀"으로 읽히게 한다.
+ */
 export function MatchupStatsView({
   games,
   players,

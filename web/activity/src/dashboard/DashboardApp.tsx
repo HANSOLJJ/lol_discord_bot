@@ -17,6 +17,10 @@ import { calculateTeamRecord, filterByPeriod, filterGames } from './lib/filter.t
 import { buildPeriodOptions, getDefaultPeriod, splitSessions } from './lib/session.ts'
 import type { SortOrder } from './lib/types.ts'
 
+/**
+ * 탭마다 고를 수 있는 플레이어 수. 대전 기록은 같은 팀 필터 3명, 개인·매치업은 1명,
+ * 시너지는 조합 크기만큼 고른다. 챔피언 탭은 인원 선택을 쓰지 않는다(0).
+ */
 const SEL_MAX: Record<string, number> = {
   history: 3,
   player: 1,
@@ -26,6 +30,7 @@ const SEL_MAX: Record<string, number> = {
   matchup: 1,
 }
 
+/** 주소의 #해시로 열 탭을 정한다. #personal은 #player의 별칭이고, 모르는 값은 대전 기록으로 본다. */
 function getTabFromHash(): string {
   if (typeof window === 'undefined') return 'history'
   const hash = window.location.hash.replace(/^#/, '').toLowerCase()
@@ -37,6 +42,10 @@ function getTabFromHash(): string {
   return 'history'
 }
 
+/**
+ * 대시보드 최상위. 전적 데이터를 불러오고 탭·기간·필터 상태를 한곳에서 들고 각 탭 컴포넌트에 내려 준다.
+ * 기간은 탭을 바꿔도 유지되고, 선택 인원은 새 탭의 최대치(SEL_MAX)를 넘을 때만 비운다.
+ */
 export function DashboardApp() {
   const { data, loading, error, lastUpdated, refresh } = useHistoryData()
   const championPortraits = useChampionPortraits()
@@ -61,6 +70,7 @@ export function DashboardApp() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
+  // 대전 기록은 기본 탭이라 해시 없는 주소로 두고, 나머지 탭은 #해시를 남겨 새로고침·공유 때 같은 탭이 열리게 한다.
   const handleTabChange = (key: string) => {
     setActiveTab(key)
     if (key === 'history') {
@@ -113,6 +123,8 @@ export function DashboardApp() {
     return filterByPeriod(allGames, activePeriod, sessions)
   }, [allGames, activePeriod, sessions])
 
+  // 통계 탭 요약줄(기간 이름 · 판 수 · 날짜 범위)의 이름과 날짜 범위.
+  // 기간 값은 'all', 'season<N>', 세션 id(s로 시작) 중 하나라서 season을 먼저 검사한다.
   const statsSummary = useMemo(() => {
     const selectedOpt = periodOptions.find((o) => o.value === activePeriod)
     let label = '전체'
@@ -133,6 +145,7 @@ export function DashboardApp() {
     return calculateTeamRecord(filteredHistoryGames, selectedPlayerIds)
   }, [filteredHistoryGames, selectedPlayerIds])
 
+  // 지금 탭의 최대 인원에 맞춰 선택을 토글한다. 1명 탭에서는 다른 사람을 누르면 바꿔 끼우고, 다 찼으면 더 넣지 않는다.
   const handleTogglePlayer = (id: string) => {
     const max = SEL_MAX[activeTab] ?? 6
     if (max === 0) return
@@ -157,6 +170,7 @@ export function DashboardApp() {
     setSortOrder('desc')
   }
 
+  // 필터가 바뀌면 이 key로 GameList를 새로 만들어 "더 보기" 페이지를 처음(30개)으로 되돌린다.
   const filterKey = `${activePeriod}-${sortOrder}-${selectedPlayerIds.join(',')}-${championQuery}`
 
   return (

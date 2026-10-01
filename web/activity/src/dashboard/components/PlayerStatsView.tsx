@@ -16,11 +16,14 @@ export interface PlayerStatsViewProps {
   games: Game[]
   players: Record<string, string>
   championPortraits: Record<string, string>
+  /** 드릴다운할 플레이어(DashboardApp 선택 인원의 첫 번째). null이면 전원 개요를 보인다. */
   selectedPlayerId: string | null
+  /** 이름을 누르면 그 사람으로, "전체 플레이어로"를 누르면 null로 바꾼다. */
   onSelectPlayer: (id: string | null) => void
   minGames: number
 }
 
+/** 초상화 툴팁에 보일 챔피언 전적과 화면 좌표(px, position: fixed 기준). */
 interface TooltipState {
   champ: string
   w: number
@@ -31,6 +34,11 @@ interface TooltipState {
   y: number
 }
 
+/**
+ * 개인 탭. 플레이어를 고르지 않으면 전원 개요(PC는 표, 화면 폭 768px 이하는 카드)를,
+ * 고르면 그 사람의 챔피언별 전적(드릴다운)을 보인다.
+ * 개요의 주력 챔프 초상화를 누르면 그 챔피언 전적을 작은 툴팁으로 띄운다.
+ */
 export function PlayerStatsView({
   games,
   players,
@@ -51,6 +59,7 @@ export function PlayerStatsView({
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   // 툴팁 닫기 이벤트 리스너 등록
+  // Esc, 툴팁 밖 클릭, 스크롤, 창 크기 변경 때 닫는다. 다른 초상화를 누른 것은 밖 클릭으로 치지 않아 툴팁이 바로 바뀐다.
   useEffect(() => {
     if (!tooltip) return
 
@@ -81,6 +90,8 @@ export function PlayerStatsView({
     }
   }, [tooltip])
 
+  // 초상화 아래에 띄우되 화면 아래쪽 공간이 모자라면 위로 올리고, 좌우는 화면 안(여백 12px)에 맞춘다.
+  // 너비 220px는 .champInfo CSS와 같고, 높이 75px는 위치 계산용 어림값이다.
   const openTooltip = (
     stat: { champ: string; w: number; l: number; n: number; winRate: number },
     target: HTMLElement,
@@ -131,6 +142,7 @@ export function PlayerStatsView({
       drillSortDir,
     )
 
+    // 같은 열을 다시 누르면 방향을 뒤집고, 다른 열로 바꾸면 이름 열은 오름차순, 숫자 열은 내림차순부터 시작한다.
     const handleSortClick = (colIdx: number) => {
       if (drillSortCol === colIdx) {
         setDrillSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
@@ -264,6 +276,8 @@ export function PlayerStatsView({
     setOverviewSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
   }
 
+  // 주력 챔프 TOP5 초상화 줄. PC 표와 모바일 카드가 함께 쓴다. 초상화가 없으면 챔피언 이름 글자로 대신한다.
+  // 누르면 툴팁을 띄우고, 클릭이 줄 전체의 드릴다운 클릭으로 번지지 않게 막는다.
   const renderTopChampions = (top5: PlayerChampStat[]) => {
     if (!top5.length) {
       return <span className={styles.drill}>기록 없음</span>
@@ -345,6 +359,7 @@ export function PlayerStatsView({
                       ? styles.earningsNegative
                       : styles.earningsNeutral
 
+                // 줄 어디를 눌러도 드릴다운한다. 줄 안의 버튼(이름·초상화)은 각자의 동작을 따르도록 건너뛴다.
                 return (
                   <tr
                     key={r.id}

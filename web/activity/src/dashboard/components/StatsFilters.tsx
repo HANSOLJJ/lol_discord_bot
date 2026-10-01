@@ -7,6 +7,7 @@ export interface StatsFiltersProps {
   onPeriodChange: (p: string) => void
   periodOptions: PeriodOption[]
   sessions: Session[]
+  /** 요약줄의 기간 이름·판 수·날짜 범위. DashboardApp이 기간에 맞춰 계산한다. */
   summaryLabel: string
   gamesCount: number
   dateRange: string
@@ -14,11 +15,14 @@ export interface StatsFiltersProps {
   selectedPlayerIds: string[]
   onTogglePlayer: (id: string) => void
   onClearPlayer: () => void
+  /** 고를 수 있는 인원 수(SEL_MAX). 0이면 칩을 모두 막는다(챔피언 탭). */
   maxSelection: number
+  /** 이 판 수보다 적게 나온 행은 통계 표에서 뺀다. 슬라이더 범위는 1~10이다. */
   minGames: number
   onMinGamesChange: (n: number) => void
 }
 
+/** 통계 탭(개인·2인·3인 시너지·챔피언·매치업) 공통 필터. 요약줄, 기간 선택, 인원 선택 칩, 최소 판수 슬라이더를 보인다. */
 export function StatsFilters({
   period,
   onPeriodChange,

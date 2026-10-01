@@ -12,11 +12,14 @@ import styles from './StatsTable.module.css'
 export interface ComboStatsViewProps {
   games: Game[]
   players: Record<string, string>
+  /** 조합 크기. 2면 2인 시너지, 3이면 3인 시너지 탭이다. */
   k: number
+  /** 고른 인원. 있으면 그 사람들이 모두 낀 조합만 보인다. */
   selectedPlayerIds: string[]
   minGames: number
 }
 
+/** 2인·3인 시너지 탭. 같은 팀이었던 조합별 판 수와 그때의 승률 표. 기본 정렬은 승률 내림차순이다. */
 export function ComboStatsView({
   games,
   players,
@@ -46,6 +49,7 @@ export function ComboStatsView({
     sortDir,
   )
 
+  // 같은 열을 다시 누르면 방향을 뒤집고, 다른 열로 바꾸면 이름 열은 오름차순, 숫자 열은 내림차순부터 시작한다.
   const handleSortClick = (colIdx: number) => {
     if (sortCol === colIdx) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
