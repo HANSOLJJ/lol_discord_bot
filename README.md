@@ -76,6 +76,7 @@ lol_discord_bot/
 │   ├── terms.html         #   디스코드 액티비티 서비스 약관
 │   ├── privacy.html       #   디스코드 액티비티 개인정보 처리방침
 │   └── activity/          # 디스코드 액티비티 및 모던 대시보드 프론트엔드 (React + TS + Vite)
+│       ├── README.md      #   프론트 진입점·파일 지도·개발 명령 안내
 │       ├── src/           #   액티비티 UI 컴포넌트, WebSocket 클라이언트, 뷰 로직
 │       ├── dashboard.html #   신규 전적 대시보드 진입점
 │       ├── index.html     #   디스코드 액티비티 픽 화면 진입점
@@ -166,6 +167,7 @@ pm2 logs lol-web
 - [맥미니 배포 및 운영 가이드 (docs/DEPLOY_MACMINI.md)](docs/DEPLOY_MACMINI.md): pm2 6개 프로세스 구성, 배포 스크립트, `.env` 환경변수 키 목록 및 GitHub 오프사이트 백업 구조.
 - [액티비티 통신 규격 (docs/ACTIVITY_PROTOCOL.md)](docs/ACTIVITY_PROTOCOL.md): 디스코드 임베디드 액티비티와 봇 간의 HTTP/WebSocket 통신 규격 (protocol_version 4), 5·6위 어드밴티지 및 입장·일시정지 프로토콜.
 - [과거 전적 복구 리포트 (docs/PARSE_REPORT.md)](docs/PARSE_REPORT.md): 디스코드 채널 기록으로부터 복구한 과거 경기 데이터 및 정합성 검증 리포트.
+- [프론트엔드 안내 (web/activity/README.md)](web/activity/README.md): 픽 화면·대시보드의 진입점(`main.tsx`, `App.tsx` 등), 화면이 그려지는 흐름, `src/` 파일별 역할, 개발 명령과 미리보기.
 
 ### 아카이브 문서
 - [Workers 이식 인수인계서 (docs/archive/handover-workers-2026-08.md)](docs/archive/handover-workers-2026-08.md): 2026-08-26 작성된 Cloudflare Workers 이식 계획 (2026-09-28 맥미니 자체 호스팅 결정으로 폐기됨).
