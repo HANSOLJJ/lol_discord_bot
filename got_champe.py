@@ -953,6 +953,16 @@ class ActivityLaunchView(View):
 
 
 ##
+# @brief 게임을 시작하지 않고 인원 제한 없이 액티비티 진입 버튼을 보낸다.
+@bot.slash_command(name="픽화면", description="게임을 시작하지 않고 액티비티 픽 화면을 엽니다.")
+async def 픽화면(ctx):
+    await ctx.respond(
+        "아래 버튼으로 픽 화면을 열어주세요. 게임을 시작하지 않아도 입장할 수 있습니다.",
+        view=ActivityLaunchView(),
+    )
+
+
+##
 # @brief 현황판을 채널들에 보내고 champion_messages에 등록한다(이후 push_channel_embed가 고친다).
 # @param channels 보낼 채널 리스트.
 # @param ctx /게임시작 컨텍스트. 있으면 첫 채널(명령 채널)은 명령 응답으로 보낸다.
