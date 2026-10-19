@@ -76,9 +76,6 @@ class MockUser:
 # 게임 상태(팀·픽·승수·라운드 등)와 게임 락은 game_core.GameCore가 소유한다. 디스코드 명령·버튼과
 # 액티비티 서버가 같은 객체를 쓴다. 저장 함수 save_wins는 아래에서 정의된다.
 game = GameCore(dev_mode=DEV_MODE, save_wins=lambda data: save_wins(data))
-# 채널당 편집 최소 간격(초). 틱 사이에 픽 갱신이 끼어도 편집이 몰려 버킷이 바닥나지 않게 한다
-# (편집이 끝나자마자 다시 보내 채널당 초당 2~3회가 되면 4초씩 멈췄다, 실측)
-CHANNEL_EDIT_MIN_GAP_SECONDS = 0.5
 champion_messages = {}  # {channel_id: message} - 채널별 현황판 메시지
 champion_views = {}  # {channel_id: view} - 채널별 현황판 View("픽 화면 열기" 버튼)
 current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
@@ -87,8 +84,6 @@ embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
 embed_update_task = None  # 화면 갱신을 밀고 있는 태스크
 channel_update_latest = {}  # {channel_id: (message, selection_status, description)} - 채널별 아직 못 보낸 최신 갱신
 channel_update_tasks = {}  # {channel_id: task} - 채널별 embed 편집 태스크
-channel_update_last_at = {}  # {channel_id: 시각} - 채널별 마지막 편집 시작 시각
-channel_update_last_sent = {}  # {channel_id: (message, selection_status, description)} - 채널별 마지막으로 보낸 내용
 
 
 # === 설정 로드 ===
@@ -328,14 +323,13 @@ def build_activity_board():
 
 
 ##
-# @brief 모든 채널의 챔피언 선택 embed 갱신을 채널별 편집 태스크에 맡긴다.
-# @details 편집이 끝나기를 기다리지 않고 바로 돌아온다. 예전엔 3채널 편집을 모두 기다려서,
-#          한 채널 응답이 2초씩 걸리면 나머지 채널 카운트다운까지 같이 멈췄다(실측).
-#          pick_lock을 잡지 않은 상태에서 호출한다.
+# @brief 모든 채널의 현황판 갱신을 채널별 편집 태스크에 맡긴다.
+# @details 편집이 끝나기를 기다리지 않고 바로 돌아온다. 한 채널 응답이 느려도 다른 채널은 기다리지 않는다.
+#          게임 락을 잡지 않은 상태에서 호출한다.
 # @param selection_status field 0(선택 현황 및 픽순)에 넣을 문자열.
-# @param description None이 아니면 embed description도 교체한다.
+# @param description embed description.
 # @return 없음.
-async def broadcast_embed_update(selection_status, description=None):
+async def broadcast_embed_update(selection_status, description):
     for channel_id, message in champion_messages.items():
         channel_update_latest[channel_id] = (message, selection_status, description)
         task = channel_update_tasks.get(channel_id)
@@ -346,38 +340,23 @@ async def broadcast_embed_update(selection_status, description=None):
 
 
 ##
-# @brief 한 채널의 최신 embed 갱신을 보낸다. 보내는 동안 더 새 갱신이 오면 그것만 이어서 보낸다.
-# @details 직전 편집 시작으로부터 CHANNEL_EDIT_MIN_GAP_SECONDS가 지나야 보낸다. 응답이 느린
-#          채널은 밀린 중간 상태를 건너뛰고 최신 상태만 보낸다. 직전에 보낸 것과 내용이 같으면
-#          아예 보내지 않는다 - 차례가 넘어갈 때 픽 갱신과 새 타이머 첫 칸이 같은 화면을 두 번
-#          그리던 것을 막는다.
+# @brief 한 채널의 최신 현황판 갱신을 보낸다. 보내는 동안 더 새 갱신이 오면 그것만 이어서 보낸다.
+# @details 응답이 느린 채널은 밀린 중간 상태를 건너뛰고 최신 상태만 보낸다. 현황판은 시작·어드밴티지·
+#          픽·자동 배정 때만 바뀌어(판당 7~8회) 편집 간격을 따로 두지 않는다.
 # @param channel_id 갱신할 채널 ID.
 # @return 없음.
 async def push_channel_embed(channel_id):
     while channel_id in channel_update_latest:
-        wait = (
-            channel_update_last_at.get(channel_id, 0)
-            + CHANNEL_EDIT_MIN_GAP_SECONDS
-            - time.time()
-        )
-        if wait > 0:
-            await asyncio.sleep(wait)
-        latest = channel_update_latest.pop(channel_id)
-        message, selection_status, description = latest
+        message, selection_status, description = channel_update_latest.pop(channel_id)
         if champion_messages.get(channel_id) is not message:
             continue  # 그 사이 새 게임이 시작됐다 - 낡은 갱신을 새 메시지에 쓰지 않는다
-        if channel_update_last_sent.get(channel_id) == latest:
-            continue  # 화면에 이미 같은 내용이 떠 있다 - 편집을 낭비하지 않는다
-        channel_update_last_at[channel_id] = time.time()
         try:
             embed = message.embeds[0].copy()
-            if description is not None:
-                embed.description = description
+            embed.description = description
             embed.set_field_at(
                 0, name="선택 현황 및 픽순", value=selection_status, inline=False
             )
             await message.edit(embed=embed, view=champion_views.get(channel_id))
-            channel_update_last_sent[channel_id] = latest  # 실패한 편집은 기록하지 않는다 - 다음에 다시 보낸다
         except Exception:
             pass  # 메시지 삭제됨 등의 에러 무시
 
