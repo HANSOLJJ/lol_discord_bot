@@ -16,7 +16,6 @@ from typing import Optional
 
 import game_recorder
 from game_recorder import SeasonMismatchError
-from pick_logic import process_pick
 
 log = logging.getLogger("game")
 
@@ -1121,28 +1120,12 @@ class GameCore:
             violation = self._advantage_violation(picker, champ["name"])
             if violation is not None:
                 return violation
-            # 중복 확인과 기록은 embed 모드 버튼과 같은 공통 판정(process_pick)을 쓴다
-            res = process_pick(
-                game_started=self.game_started,
-                pick_order=self.pick_order,
-                current_pick_index=self.current_pick_index,
-                selected_users=self.selected_users,
-                excluded=self.excluded,
-                auto_assigned_users=self.auto_assigned_users,
-                user_id=picker.id,
-                champ_name=champ["name"],
-                clicked_at=received_at,
-                current_pick_deadline=self.deadline,
-                pick_grace_seconds=self._grace(),
-                dev_mode=self.dev_mode,
-                max_players=MAX_PLAYERS,
-            )
-            if res.kind != "pick":
-                if res.reason == "already_picked_champ":
-                    return "champion_taken", "이미 선택된 챔피언입니다."
-                log.error("[GAME] 예상하지 못한 픽 판정: %s", res.reason)
-                return "server_error", "선택을 처리하지 못했습니다."
-            self.current_pick_index = res.current_pick_index
+            if champ["name"] in self.selected_users.values():
+                return "champion_taken", "이미 선택된 챔피언입니다."
+            # 고르는 순간 차례가 넘어가므로 지금 차례인 사람은 아직 고른 챔피언이 없다
+            self.selected_users[picker.id] = champ["name"]
+            self.excluded.add(champ["name"])
+            self.current_pick_index += 1
             log.info("[GAME] 픽 (game=%s, by=%s, champ=%s)", self.game_uid, user_id, champ["name"])
             self._after_turn()
             self._emit()
