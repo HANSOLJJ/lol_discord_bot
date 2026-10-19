@@ -40,7 +40,10 @@ Discord Embedded App SDK의 `commands.authorize`로 받은 code를 access token�
 
 1. `POST https://discord.com/api/oauth2/token`에 form 형식으로 `client_id`, `client_secret`, `grant_type=authorization_code`, `code`를 보낸다. client ID와 secret은 `DEV_MODE=true`면 `DISCORD_CLIENT_ID_DEV`, `DISCORD_CLIENT_SECRET_DEV`, 아니면 `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`를 쓴다.
 2. 받은 access token으로 `GET https://discord.com/api/users/@me`를 호출해 사용자 신원을 확인한다.
-3. 세션 토큰을 발급한다. URL-safe 난수 32바이트 이상이고, 수명은 발급 시점부터 1시간이며, 서버 메모리에만 보관한다.
+3. 세션 토큰을 발급한다. URL-safe 난수 32바이트 이상이고, 서버 메모리에만 보관한다. 수명은 두 가지다.
+   - **수명 1시간**: 그 세션으로 열린 연결이 하나도 없게 된 시점부터 센다. 연결이 열려 있는 동안에는 만료되지 않고, 끊긴 뒤 1시간 안에 재접속하면 같은 세션으로 들어온다.
+   - **최대 수명 12시간**: 발급 시점부터 센다. 연결 중이어도 이때는 만료된다.
+   - 2026-10-16까지는 "발급 시점부터 1시간"이라 연결 중에도 1시간이면 끊겼다. 액티비티 안에서 다시 `authorize`하는 것이 실패해 채널을 나갔다 들어와야 복구됐으므로, 연결 중에는 끊지 않게 바꿨다.
 
 ### 성공 응답 `200`
 
@@ -76,7 +79,7 @@ Discord Embedded App SDK의 `commands.authorize`로 받은 code를 access token�
 ### 연결과 종료
 
 - 세션이 없거나 만료됐으면 서버는 업그레이드 직후 종료 코드 4401로 닫는다.
-- 연결 중에 세션이 만료되면 서버가 4401로 닫는다.
+- 연결 중에 세션이 최대 수명(12시간)에 닿으면 서버가 4401로 닫는다. 1시간 수명으로는 연결 중에 닫지 않는다.
 - 연결 직후 서버는 `hello`, `state`를 이 순서로 보낸다.
 
 | 종료 코드 | 의미 | 클라이언트 동작 |

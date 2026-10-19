@@ -75,6 +75,7 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
     dev_mode = True
     pick_mode = "activity"
     session_ttl = activity_server.SESSION_TTL_SECONDS
+    session_max = activity_server.SESSION_MAX_SECONDS
     heartbeat = activity_server.HEARTBEAT_SECONDS
 
     async def asyncSetUp(self):
@@ -98,6 +99,7 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
             client_secret=CLIENT_SECRET,
             discord_api_base=str(self.fake_discord.make_url("")),
             session_ttl=self.session_ttl,
+            session_max=self.session_max,
             heartbeat=self.heartbeat,
             clock=self.clock,
         )
@@ -257,11 +259,58 @@ class ExpiredSessionTest(ActivityTestBase):
         ws = await self.connect(session)
         self.assertEqual(await self.recv_close_code(ws), 4401)
 
-    async def test_session_expiring_while_connected_closes_4401(self):
+    async def test_connected_session_does_not_expire(self):
+        """연결 중에는 수명이 지나도 끊지 않는다(2026-10-16: 1시간에 전원 4401 → 재로그인 실패)."""
+        session = await self.get_session()
+        ws = await self.connect(session)
+        self.assertEqual((await self.recv(ws))["t"], "hello")
+        self.assertEqual((await self.recv(ws))["t"], "state")
+        await asyncio.sleep(0.5)  # 발급 시점부터 수명(0.3초)을 넘김
+        self.assertFalse(ws.closed)
+        # 열린 연결이 있으니 같은 세션으로 하나 더 연결해도 된다(다른 기기·재접속)
+        ws2 = await self.connect(session)
+        self.assertEqual((await self.recv(ws2))["t"], "hello")
+
+    async def test_ttl_counts_from_last_disconnect(self):
+        """연결이 끊긴 시점부터 수명을 센다. 그 안의 재접속은 같은 세션으로 들어온다."""
+        session = await self.get_session()
+        ws = await self.connect(session)
+        await self.recv(ws)
+        await self.recv(ws)
+        await asyncio.sleep(0.5)  # 발급 시점부터는 이미 수명을 넘김
+        await ws.close()
+        await asyncio.sleep(0.1)  # 서버가 끊김을 처리할 시간
+        ws2 = await self.connect(session)  # 끊긴 지 0.1초 → 유효
+        self.assertEqual((await self.recv(ws2))["t"], "hello")
+        await ws2.close()
+        await asyncio.sleep(0.5)  # 마지막으로 끊긴 지 수명(0.3초)을 넘김
+        ws3 = await self.connect(session)
+        self.assertEqual(await self.recv_close_code(ws3), 4401)
+
+
+class SessionMaxAgeTest(ActivityTestBase):
+    session_max = 0.4
+
+    async def test_max_age_closes_connected_session(self):
+        """최대 수명이 되면 연결 중이어도 4401로 닫는다."""
         ws = await self.connect()
         self.assertEqual((await self.recv(ws))["t"], "hello")
         self.assertEqual((await self.recv(ws))["t"], "state")
         self.assertEqual(await self.recv_close_code(ws), 4401)
+
+    async def test_max_age_rejects_reconnect(self):
+        """최대 수명이 지난 세션으로는 재접속할 수 없다."""
+        session = await self.get_session()
+        await asyncio.sleep(0.5)
+        ws = await self.connect(session)
+        self.assertEqual(await self.recv_close_code(ws), 4401)
+
+    async def test_expires_ms_capped_by_max_age(self):
+        """클라이언트에 알려주는 만료 시각도 최대 수명을 넘지 않는다."""
+        before = time.time() * 1000
+        resp = await self.client.post("/pick-api/token", json={"code": GOOD_CODE})
+        body = await resp.json()
+        self.assertLessEqual(body["session_expires_ms"], before + 400 + 100)
 
 
 class WebSocketMessageTest(ActivityTestBase):

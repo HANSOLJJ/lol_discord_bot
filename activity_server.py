@@ -24,7 +24,13 @@ DEFAULT_PORT = 8790
 BIND_HOST = "127.0.0.1"
 DISCORD_API_BASE = "https://discord.com/api"
 DISCORD_TIMEOUT_SECONDS = 10  # Discord OAuth2 호출 하나의 최대 시간(초)
-SESSION_TTL_SECONDS = 3600  # 세션 수명(초). 발급 시점부터 센다
+# 세션 수명(초). 이 세션으로 열린 연결이 없게 된 시점부터 센다. 연결 중에는 최대 수명 전까지 만료되지 않는다.
+# 예전엔 발급 시점부터 세서 1시간이 되면 연결 중에도 4401로 끊었는데, 액티비티 안에서 두 번째
+# authorize가 디스코드 쪽에서 실패해 채널을 나갔다 들어와야만 복구됐다(2026-10-16 실전, 6명 전원)
+SESSION_TTL_SECONDS = 3600
+# 세션 최대 수명(초). 발급 시점부터 세며 연결 중이어도 이때는 4401로 닫는다. 토큰이 새거나 앱 테스터에서
+# 빠진 사람이 연결을 붙잡아도 무기한 쓰지 못하게 하는 상한. 하룻밤 게임이 다 들어가도록 12시간
+SESSION_MAX_SECONDS = 12 * 3600
 MAX_BODY_BYTES = 4096  # 토큰 요청 본문 최대 크기
 MAX_CODE_LENGTH = 512
 MAX_MESSAGE_BYTES = 4096  # 이보다 큰 WS 메시지는 규격 위반(reply bad_request)
@@ -158,11 +164,31 @@ class _Session:
 
     ##
     # @param user 규격의 user 객체.
-    # @param ttl 수명(초).
-    def __init__(self, user, ttl):
+    # @param ttl 수명(초). 열린 연결이 없게 된 시점부터 센다.
+    # @param max_age 최대 수명(초). 발급 시점부터 세며 연결 중이어도 넘길 수 없다.
+    def __init__(self, user, ttl, max_age):
         self.user = user
-        self.expires_mono = time.monotonic() + ttl  # 만료 판정용 단조 시계
-        self.expires_ms = _now_ms() + int(ttl * 1000)  # 클라이언트에 알려주는 유닉스 밀리초
+        self.ttl = ttl
+        self.connections = 0  # 이 세션으로 열려 있는 연결 수. 1 이상이면 최대 수명 전까지 만료되지 않는다
+        self.hard_expires_mono = time.monotonic() + max_age  # 최대 수명 판정용 단조 시계
+        self._hard_expires_ms = _now_ms() + int(max_age * 1000)
+        self.touch()
+
+    ##
+    # @brief 지금부터 다시 수명을 센다(최대 수명은 넘지 않는다). 발급할 때와 연결이 끊길 때 부른다.
+    def touch(self):
+        self.expires_mono = min(time.monotonic() + self.ttl, self.hard_expires_mono)  # 만료 판정용 단조 시계
+        # 클라이언트에 알려주는 유닉스 밀리초
+        self.expires_ms = min(_now_ms() + int(self.ttl * 1000), self._hard_expires_ms)
+
+    ##
+    # @brief 최대 수명이 지났거나, 열린 연결이 없고 수명이 지났으면 만료다.
+    # @return 만료 여부.
+    def expired(self):
+        now = time.monotonic()
+        if self.hard_expires_mono <= now:
+            return True
+        return self.connections == 0 and self.expires_mono <= now
 
 
 ##
@@ -266,7 +292,8 @@ class ActivityServer:
     # @param client_secret Discord 앱 client secret. 로그에 남기지 않는다.
     # @param port 바인딩할 포트(주소는 항상 127.0.0.1).
     # @param discord_api_base Discord API 기본 URL. 테스트에서 가짜 서버로 바꾼다.
-    # @param session_ttl 세션 수명(초).
+    # @param session_ttl 세션 수명(초). 열린 연결이 없게 된 시점부터 센다.
+    # @param session_max 세션 최대 수명(초). 발급 시점부터 센다.
     # @param heartbeat WebSocket 프로토콜 ping 간격(초).
     # @param clock 요청 접수 시각을 잡는 단조 시계. 게임 객체의 마감 판정과 같은 시계여야 한다.
     def __init__(
@@ -278,6 +305,7 @@ class ActivityServer:
         port=DEFAULT_PORT,
         discord_api_base=DISCORD_API_BASE,
         session_ttl=SESSION_TTL_SECONDS,
+        session_max=SESSION_MAX_SECONDS,
         heartbeat=HEARTBEAT_SECONDS,
         clock=time.monotonic,
     ):
@@ -288,6 +316,7 @@ class ActivityServer:
         self._port = port
         self._api_base = discord_api_base.rstrip("/")
         self._session_ttl = session_ttl
+        self._session_max = session_max
         self._heartbeat = heartbeat
         self.server_epoch = str(uuid.uuid4())  # 프로세스(서버 객체)마다 새로 만든다
         self._sessions = {}  # {세션 토큰: _Session}
@@ -376,7 +405,7 @@ class ActivityServer:
             return _error(500, "server_error")
         self._prune_sessions()
         token = secrets.token_urlsafe(32)
-        session = _Session(user, self._session_ttl)
+        session = _Session(user, self._session_ttl, self._session_max)
         self._sessions[token] = session
         log.info("[ACTIVITY] 세션 발급 (user=%s)", user["id"])
         return web.json_response(
@@ -436,8 +465,7 @@ class ActivityServer:
     ##
     # @brief 만료된 세션을 지운다.
     def _prune_sessions(self):
-        now = time.monotonic()
-        for token in [t for t, s in self._sessions.items() if s.expires_mono <= now]:
+        for token in [t for t, s in self._sessions.items() if s.expired()]:
             del self._sessions[token]
 
     ##
@@ -448,7 +476,7 @@ class ActivityServer:
         session = self._sessions.get(token) if token else None
         if session is None:
             return None
-        if session.expires_mono <= time.monotonic():
+        if session.expired():
             del self._sessions[token]
             return None
         return session
@@ -469,6 +497,7 @@ class ActivityServer:
             await ws.close(code=CLOSE_UNAUTHORIZED)
             return ws
         conn = _Connection(ws, session.user["id"])
+        session.connections += 1  # 연결이 열려 있는 동안 세션은 최대 수명 전까지 만료되지 않는다
         # 아래 세 줄 사이에 await가 없어 다른 상태 변경이 끼어들지 않는다
         self._connections.add(conn)
         conn.send(self._hello(session.user))
@@ -477,6 +506,8 @@ class ActivityServer:
         try:
             await self._receive_loop(conn, session)
         finally:
+            session.connections -= 1
+            session.touch()  # 끊긴 시점부터 수명을 센다. 그 안에 재접속하면 같은 세션으로 들어온다
             self._connections.discard(conn)
             # 정리를 별도 태스크로 떼어 shield로 기다린다. 클라이언트가 끊겨 이 핸들러가 취소돼도
             # (aiohttp handler cancellation) 퇴장 반영과 전송 태스크 정리는 끝까지 실행된다.
@@ -498,12 +529,12 @@ class ActivityServer:
         log.info("[ACTIVITY] WS 종료 (user=%s, code=%s)", conn.user_id, conn.ws.close_code)
 
     ##
-    # @brief 클라이언트 메시지를 받아 처리한다. 세션 만료·연속 위반·연결 종료 시 끝난다.
+    # @brief 클라이언트 메시지를 받아 처리한다. 세션 최대 수명·연속 위반·연결 종료 시 끝난다.
     # @param conn 연결.
-    # @param session 연결에 쓴 세션.
+    # @param session 연결에 쓴 세션. 연결 중에는 최대 수명만 본다.
     async def _receive_loop(self, conn, session):
         while True:
-            remaining = session.expires_mono - time.monotonic()
+            remaining = session.hard_expires_mono - time.monotonic()
             if remaining <= 0:
                 conn.request_close(CLOSE_UNAUTHORIZED)
                 return
