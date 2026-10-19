@@ -33,9 +33,9 @@
 - [x] `config.json`에서 `pick_mode`·`dev_pick_mode`와 embed 전용 키(`countdown_step_seconds`)를 정리한다. `load_config`의 기본값(`pick_mode: "embed"`)과 `game_core.py`의 `pick_mode()` 분기도 함께 정리한다. `auto_start_seconds`·`dev_auto_start_seconds`는 DEV_MODE가 아직 쓰므로 남긴다 (b13300e)
 - [x] embed 모드 전용 테스트를 정리한다 (b13300e). ~~`pick_logic.py` 테스트는 남긴다~~ → 사용자 결정으로 `pick_logic.py`도 지우고 액티비티에 필요한 두 단계만 game_core에 둠(9896c54)
 - [x] 문서를 정리한다: docs/INFRA.md의 "embed로 되돌리기" 안내, docs/ACTIVITY_PROTOCOL.md의 embed 언급, AGENTS.md, README.md, DEPLOY_MACMINI.md
-- [ ] Python 테스트, 스모크 테스트, DEV 봇으로 한 판을 돌려 확인한다
+- [x] Python 테스트, 스모크 테스트, DEV 봇으로 한 판을 돌려 확인한다
   - [x] Python 테스트 159개, 스트레스 도구 65케이스, 편집 파이프라인 스모크 점검 통과
-  - [ ] DEV 봇 한 판 (사용자)
+  - [x] DEV 봇 두 판 (2026-10-19, TEST2): 새 판·어드밴티지·픽마다 현황판 갱신, 이전 판 종료 표시와 버튼 비활성화, 결과 기록 확인. 같은 날 운영 `lol-bot`을 647d579로 재시작
 
 ## 3. `got_champe.py` 나누기
 
