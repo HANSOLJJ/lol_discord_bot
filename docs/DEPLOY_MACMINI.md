@@ -20,9 +20,9 @@ Cloudflare 터널, DNS 설정, 캐시 규칙, 디스코드 개발자 포털 설�
 
 `ecosystem.config.cjs`에 정의된 6개 앱입니다. 이름 규칙은 `lol-{bot|web}[-dev]`입니다(2026-09-29 `lol` → `lol-bot`, `lol-dev` → `lol-bot-dev`, `lol-dev-web` → `lol-web-dev`로 변경).
 
-- `lol-bot`: 운영 디스코드 봇 (`pick_mode: activity`, `DEV_MODE=false`). 운영 환경에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되면 포트 8790에서 `/pick-api` 액티비티 API 서버도 함께 시작합니다.
+- `lol-bot`: 운영 디스코드 봇 (`DEV_MODE=false`). 운영 환경에 `DISCORD_CLIENT_ID`와 `DISCORD_CLIENT_SECRET`이 주입되면 포트 8790에서 `/pick-api` 액티비티 API 서버도 함께 시작합니다.
 - `lol-web`: aiohttp 정적 웹 서버 (`WEB_PORT=8791`). 프론트엔드 빌드 결과물(`web/activity/dist/`)을 서빙하고 구 도메인 리다이렉트를 처리합니다.
-- `lol-bot-dev`: 개발 디스코드 봇 (`DEV_MODE=true`, `ACTIVITY_PORT=8792`, `dev_pick_mode: activity`, `dev_auto_start_seconds: 0`).
+- `lol-bot-dev`: 개발 디스코드 봇 (`DEV_MODE=true`, `ACTIVITY_PORT=8792`, `dev_auto_start_seconds: 0`).
 - `lol-web-dev`: 액티비티 Vite 개발 서버 (포트 5173, `ACTIVITY_PROXY_TARGET=http://127.0.0.1:8792`).
 - `lol-health`: 5분 간격 cron(`cron_restart: '*/5 * * * *'`)으로 실행되는 헬스체크 스크립트. `lol-web`과 `lol-tunnel` 상태를 점검하고 장애 시 디스코드 웹훅으로 알립니다.
 - `lol-tunnel`: Cloudflare 롤 전용 터널 데몬 (`cloudflared tunnel --config ~/.cloudflared/lol.yml run`).

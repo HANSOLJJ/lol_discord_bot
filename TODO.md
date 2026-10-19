@@ -23,20 +23,23 @@
 
 1번이 끝난 뒤에 한다. 삭제 전 기준점은 git 태그 `embed-mode-last`이다. 되살릴 일이 생기면 이 태그에서 꺼낸다.
 
-- [ ] `got_champe.py`에서 embed 모드 전용 코드를 지운다
+- [x] `got_champe.py`에서 embed 모드 전용 코드를 지운다 (2026-10-19, b13300e. TODO에 없던 `send_pick_complete`도 embed 경로 전용이라 함께 지움)
   - 카운트다운(`show_countdown_step`, `countdown_step_seconds`, `start_pick_timer`, `pick_timeout_handler`)
   - 자동 시작(`begin_champion_select`, `auto_start_handler`)과 문구(`turn_description`, `start_countdown_description`)
   - 챔피언 버튼(`ChampionView`, `ChampionButton`)과 `/게임시작`의 embed 분기
   - `flush_embed_updates` 안의 embed 분기. **편집 파이프라인 자체(`request_embed_update` → `flush_embed_updates` → `broadcast_embed_update` → `push_channel_embed`)는 activity 현황판도 쓴다**(`ActivityEffects.board_changed`). 지우지 말고, 편집이 판당 몇 번으로 줄어든 만큼 단순하게 줄일 수 있는지만 본다
+    - 판당 채널마다 7~8회라 채널당 0.5초 간격과 같은 화면 중복 방지를 지움(db941bd)
   - 정확한 범위는 삭제할 때 호출 관계를 따라가며 다시 확인한다. activity 모드도 쓰는 함수(예: `get_selection_status`, `close_champion_messages`)는 남긴다
-- [ ] `config.json`에서 `pick_mode`·`dev_pick_mode`와 embed 전용 키(`countdown_step_seconds`)를 정리한다. `load_config`의 기본값(`pick_mode: "embed"`)과 `game_core.py`의 `pick_mode()` 분기도 함께 정리한다. `auto_start_seconds`·`dev_auto_start_seconds`는 DEV_MODE가 아직 쓰므로 남긴다
-- [ ] embed 모드 전용 테스트를 정리한다. activity 모드와 함께 쓰는 판정 로직(`pick_logic.py`) 테스트는 남긴다
-- [ ] 문서를 정리한다: docs/INFRA.md의 "embed로 되돌리기" 안내, docs/ACTIVITY_PROTOCOL.md의 embed 언급, AGENTS.md, README.md
+- [x] `config.json`에서 `pick_mode`·`dev_pick_mode`와 embed 전용 키(`countdown_step_seconds`)를 정리한다. `load_config`의 기본값(`pick_mode: "embed"`)과 `game_core.py`의 `pick_mode()` 분기도 함께 정리한다. `auto_start_seconds`·`dev_auto_start_seconds`는 DEV_MODE가 아직 쓰므로 남긴다 (b13300e)
+- [x] embed 모드 전용 테스트를 정리한다 (b13300e). ~~`pick_logic.py` 테스트는 남긴다~~ → 사용자 결정으로 `pick_logic.py`도 지우고 액티비티에 필요한 두 단계만 game_core에 둠(9896c54)
+- [x] 문서를 정리한다: docs/INFRA.md의 "embed로 되돌리기" 안내, docs/ACTIVITY_PROTOCOL.md의 embed 언급, AGENTS.md, README.md, DEPLOY_MACMINI.md
 - [ ] Python 테스트, 스모크 테스트, DEV 봇으로 한 판을 돌려 확인한다
+  - [x] Python 테스트 159개, 스트레스 도구 65케이스, 편집 파이프라인 스모크 점검 통과
+  - [ ] DEV 봇 한 판 (사용자)
 
 ## 3. `got_champe.py` 나누기
 
-2번이 끝난 뒤에 한다(지울 코드를 먼저 지워야 나눌 양이 줄어든다). 지금 1,875줄이다.
+2번이 끝난 뒤에 한다(지울 코드를 먼저 지워야 나눌 양이 줄어든다). 2번 뒤 1,352줄이다(2번 전 1,885줄).
 
 - [ ] 2번 뒤 남은 구성을 다시 보고 나눌 단위를 정한다. 지금 보이는 후보는 다음과 같다
   - 설정·전적·챔피언 데이터 로드 (`load_config`, `load_wins`, `fetch_champion_data` 등)

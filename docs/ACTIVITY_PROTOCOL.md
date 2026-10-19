@@ -252,7 +252,7 @@ const remaining = Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000
 - `round`, `season`: 이 판이 기록될 라운드와 시즌이다. 판을 시작할 때 정해지고, 결과를 기록할 때 같은 값을 쓴다. `none`이면 `null`이다.
 - `turn_id`: 차례마다 새로 만드는 문자열이다. 픽이 확정되거나 자동 배정되면 바뀐다. 클라이언트는 같은지 비교만 한다.
 - `current_index`: `pick_order`에서 지금 고르는 사람의 위치(0~5)이다.
-- `deadline_ms`: 이 차례의 마감이다. 차례가 시작될 때 `pick_timeout`(현재 20초)으로 정하고, 차례 안에서 바뀌지 않는다. v1 봇의 embed 모드처럼 카운트 중 무한대로 두지 않는다.
+- `deadline_ms`: 이 차례의 마감이다. 차례가 시작될 때 `pick_timeout`(현재 20초)으로 정하고, 차례 안에서 바뀌지 않는다. 옛 채널 버튼 방식처럼 카운트 중 무한대로 두지 않는다.
 - `grace_ms`: 마감 뒤 서버가 늦게 도착한 픽을 더 받아 주는 시간이다(config `pick_grace_seconds`, 현재 2초). 화면은 마감에서 0을 보여 주고, 그 뒤에는 `마감 확인 중…`을 표시한다.
 - `ddragon_version`: 챔피언 초상화 경로에 쓰는 Data Dragon 버전이다. 액티비티는 `/ddragon/cdn/{ddragon_version}/img/champion/{champions[].id}.png`로 초상화를 불러온다. `none`이면 `null`이다.
 - `players`: 6명이다. 순서는 TEAM 1 세 명, TEAM 2 세 명이고 팀 안의 순서는 판을 시작할 때 나뉜 순서이다.
@@ -392,9 +392,8 @@ DEV_MODE에서는 권한이 넓어진다(11절). 클라이언트는 버튼 활�
 
 ## 12. 봇 쪽 동작 (규격 밖이지만 함께 바뀌는 것)
 
-- config에 `pick_mode`를 둔다. `"embed"`는 지금 방식(채널 버튼과 매초 편집)이고, `"activity"`는 액티비티 방식이다. 운영 전환 전까지 운영 봇은 `"embed"`, dev 봇은 `"activity"`로 둔다.
-- `"activity"`에서는 팀짜기 채널에 현황판 메시지 하나와 "픽 화면 열기" 버튼(LAUNCH_ACTIVITY, 응답 type 12)만 둔다. 챔피언 버튼과 매초 편집은 없다. 현황판은 시작·픽·자동 배정·완료 때만 고친다.
-- `"embed"`에서는 액티비티 서버가 항상 `none`을 보낸다. 두 방식을 한 판에 섞지 않는다.
+- 픽은 액티비티에서만 한다. 옛 채널 버튼 방식(config `pick_mode: embed`)은 2026-10-19에 지웠고 git 태그 `embed-mode-last`에 남아 있다.
+- 팀짜기 채널에는 현황판 메시지 하나와 "픽 화면 열기" 버튼(LAUNCH_ACTIVITY, 응답 type 12)만 둔다. 챔피언 버튼과 매초 편집은 없다. 현황판은 시작·어드밴티지·픽·자동 배정 때만 고친다.
 - 새 판 시작, 결과 기록, 번복은 디스코드 명령과 액티비티가 같은 함수를 부른다. `/게임시작`, `/승리`, `/번복`은 예비 경로로 남는다.
 - 새 판을 액티비티에서 시작해도 팀짜기 채널에는 현황판과 "픽 화면 열기" 버튼이 올라간다. 아직 액티비티를 열지 않은 사람이 이 버튼으로 들어온다.
 - 지금 `fetch_champion_data()`는 챔피언마다 한국어 이름과 이미지 주소만 남긴다. `champions[].id`와 `ddragon_version`을 보내려면 Data Dragon 영문 ID와 버전도 함께 보관해야 한다. 판 기록(`history_data.json`)에는 지금처럼 한국어 이름을 저장한다.
@@ -479,7 +478,6 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 
 - 이점이 확정된 판은 `history_data.json`의 판 기록에 `"advantage": {"kind": "ban", "team": "team1", "champion": "제드"}`처럼 한국어 이름으로 남긴다. 건너뛴 판과 이점 없는 판은 이 필드를 넣지 않는다.
 - 화면(13절)에 더할 것: `advantage` phase에는 이점 팀과 종류(밴·강제픽), 남은 시간, 후보 카드를 보여 주고 `me.can_advantage`일 때만 누를 수 있다. 확정된 뒤 `picking`에서는 밴된 카드에 "밴" 표시와 잠금을, 강제픽 카드에 "강제픽" 표시를 한다. 상대 팀의 마지막 차례에 강제픽이 남아 있으면 그 카드만 누를 수 있다.
-- 채널 버튼 방식(`pick_mode: embed`)에는 이 규칙을 넣지 않는다.
 
 ## 15. 입장 현황 · 전원 입장 시작 · 수동 일시정지 (protocol_version 4, 2026-09-29 확정)
 
@@ -553,7 +551,6 @@ DEV_MODE에서 누구나 대신 누를 때는 위 판정의 "보낸 사람의 �
 
 ### 15-6. 설정과 화면 (참고)
 
-- config에 `"ready_countdown_seconds": 5`를 둔다. 없으면 기본 5초이다. `auto_start_seconds`·`dev_auto_start_seconds`는 embed 모드와 DEV_MODE용으로 남긴다.
+- config에 `"ready_countdown_seconds": 5`를 둔다. 없으면 기본 5초이다. `auto_start_seconds`·`dev_auto_start_seconds`는 DEV_MODE용으로 남긴다.
 - 화면(13절)에 더할 것: 팀 칸 이름 옆 점(입장 초록, 미입장 회색)과 상단 "입장 n/6". `starting` 대기 중에는 "참가자 입장 대기 n/6"과 "지금 시작" 버튼(`me.can_start_now`), 카운트다운 중에는 5초 표시. 일시정지/재개 버튼(`me.can_pause`·`me.can_resume`)과 "⏸ X님이 일시정지함" 배너. 정지 중에는 카운트다운을 `paused.remaining_ms`로 고정한 초로 보여 준다. `remaining_ms`가 `null`이면 초를 표시하지 않고 "입장 대기 중 일시정지"로 보여 준다.
 - 이탈 알림: `starting`·`advantage`·`picking` 중에 참가자가 입장 → 미입장으로 바뀌면 "⚠ X님 연결 끊김 — 필요하면 일시정지하세요" 토스트를, 다시 들어오면 "X님 다시 입장" 토스트를 띄운다. 자동 일시정지는 하지 않는다.
-- 채널 버튼 방식(`pick_mode: embed`)에는 이 규칙을 넣지 않는다.
