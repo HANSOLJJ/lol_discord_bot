@@ -65,7 +65,7 @@ class NewGameAdvantageTest(unittest.IsolatedAsyncioTestCase):
         for seed in range(30):
             with self.subTest(seed=seed):
                 core = make_core(FakeStore(), dev_mode=False, seed=seed)
-                core.new_game(members(8), "activity")
+                core.new_game(members(8))
                 await core.close()
                 team_of = {m.id: key for key, team in core.teams.items() for m in team}
                 rank6, rank5 = core.pick_order[0], core.pick_order[1]
@@ -238,7 +238,7 @@ class AdvantagePhaseTest(AdvantageBase):
         await self.open_advantage()
         arrange(self.core, NO_ADVANTAGE)
         async with self.core.lock:
-            self.core.new_game(self.people, "activity")  # /게임시작
+            self.core.new_game(self.people)  # /게임시작
         self.assertIsNone(self.state()["advantage"])
         await self.begin()
         self.assertEqual(self.state()["phase"], "picking")
@@ -386,20 +386,6 @@ class DevModeAdvantageTest(AdvantageBase):
             self.assertEqual((await self.pick(user_id=tester, champion_id=champ))[0], "ok")
         self.assertEqual((await self.pick(user_id=tester, champion_id=others[5]))[0], "must_pick_forced")
         self.assertEqual((await self.pick(user_id=tester, champion_id=forced))[0], "ok")
-
-
-class EmbedModeAdvantageTest(AdvantageBase):
-    pick_mode = "embed"
-
-    async def test_embed_game_has_no_advantage(self):
-        async with self.core.lock:
-            self.core.new_game(self.people, "embed")  # /게임시작(embed), 배치는 BAN_TEAM1
-        self.assertIsNone(self.core.advantage)
-        self.assertIsNone(self.state()["advantage"])
-        self.core.game_started = True
-        for i in range(6):
-            self.assertIsNotNone(self.core.auto_assign(i))
-        self.assertEqual(len(self.core.selected_users), 6)
 
 
 class AdvantageRecordTest(AdvantageBase):

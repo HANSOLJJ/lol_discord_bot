@@ -42,7 +42,7 @@ class NativeBase(ActivityTestBase):
         await self.fake_discord.start_server()
         self.clock = FakeClock()
         self.people = [Member(900 + i, f"가상{i}") for i in range(6)]
-        self.game, self.store = make_game(self.clock, self.dev_mode, self.pick_mode, self.people)
+        self.game, self.store = make_game(self.clock, self.dev_mode, self.people)
         self.server = ActivityServer(game=self.game, client_id=CLIENT_ID, client_secret=CLIENT_SECRET,
                                      port=0, discord_api_base=str(self.fake_discord.make_url("")),
                                      heartbeat=self.heartbeat, clock=self.clock)
@@ -117,12 +117,11 @@ class Peer:
 
 
 class Harness:
-    def __init__(self, seed=0, dev=False, mode="activity", heartbeat=10, order=NO_ADVANTAGE, testserver=False):
+    def __init__(self, seed=0, dev=False, heartbeat=10, order=NO_ADVANTAGE, testserver=False):
         self.seed = seed
         self.rng = random.Random(seed)
         self.base = ActivityTestBase() if testserver else NativeBase()
         self.base.dev_mode = dev
-        self.base.pick_mode = mode
         self.base.heartbeat = heartbeat
         self.order = order
         self.peers = []
@@ -515,45 +514,30 @@ async def pending_presence_case(h):
     await h.finish()
 
 
-async def mode_case(h):
-    if h.base.pick_mode == "embed":
-        p = await h.connect(900)
-        await h.connect(901)
-        await h.connect(990)
-        async with h.game.lock:
-            require(h.game.new_game(h.base.people, "embed").ok, "embed creation failed")
-        await h.check()
-        before = (h.game.game_started, h.game.current_pick_index, h.game.start_at, h.game.deadline)
-        await h.request(p, "start", "not_allowed", guild_id="guild-1")
-        for kind in ("pause", "resume", "start_now"):
-            await h.request(p, kind, "wrong_phase")
-        await h.advance(30)
-        require(before == (h.game.game_started, h.game.current_pick_index, h.game.start_at, h.game.deadline), "activity mutated embed")
-        require(h.state()["phase"] == "none", "embed leaked to activity")
-    else:
-        h.game.config["dev_auto_start_seconds"] = 0 if h.seed == 0 else 15
-        tester = await h.connect(990)
-        await h.connect(991)
-        await h.request(tester, "start", "ok", guild_id="guild-1")
-        if h.seed:
-            require(h.state()["phase"] == "starting", "dev delay lost")
-            await h.request(tester, "pause", "ok")
-            await h.advance(50)
-            await h.request(tester, "resume", "ok")
-            await h.advance(15)
-        else:
-            await h.advance(0)
-        require(h.state()["phase"] == "picking", "dev zero start failed")
-        require(h.state()["present"] == [], "virtual presence not empty")
+async def dev_case(h):
+    h.game.config["dev_auto_start_seconds"] = 0 if h.seed == 0 else 15
+    tester = await h.connect(990)
+    await h.connect(991)
+    await h.request(tester, "start", "ok", guild_id="guild-1")
+    if h.seed:
+        require(h.state()["phase"] == "starting", "dev delay lost")
         await h.request(tester, "pause", "ok")
-        await h.advance(100)
+        await h.advance(50)
         await h.request(tester, "resume", "ok")
-        for _ in range(6):
-            s = h.state()
-            free = next(c["id"] for c in s["champions"] if c["id"] not in s["selections"].values())
-            await h.request(tester, "pick", "ok", turn_id=s["turn_id"], champion_id=free)
-        require(h.state()["phase"] == "awaiting_result", "dev picks did not finish")
-        h.stats["completed_games"] += 1
+        await h.advance(15)
+    else:
+        await h.advance(0)
+    require(h.state()["phase"] == "picking", "dev zero start failed")
+    require(h.state()["present"] == [], "virtual presence not empty")
+    await h.request(tester, "pause", "ok")
+    await h.advance(100)
+    await h.request(tester, "resume", "ok")
+    for _ in range(6):
+        s = h.state()
+        free = next(c["id"] for c in s["champions"] if c["id"] not in s["selections"].values())
+        await h.request(tester, "pick", "ok", turn_id=s["turn_id"], champion_id=free)
+    require(h.state()["phase"] == "awaiting_result", "dev picks did not finish")
+    h.stats["completed_games"] += 1
 
 
 async def random_case(h):
@@ -639,7 +623,7 @@ async def main(args):
         cases += [("heartbeat_default", heartbeat_case, {"heartbeat": 10})]
         cases += [("timer_race", timer_race_case, {"seed": s}) for s in range(4)]
         cases += [("pending_presence", pending_presence_case, {})]
-        cases += [("embed", mode_case, {"mode": "embed"}), ("dev_zero", mode_case, {"dev": True}), ("dev_delayed", mode_case, {"dev": True, "seed": 1})]
+        cases += [("dev_zero", dev_case, {"dev": True}), ("dev_delayed", dev_case, {"dev": True, "seed": 1})]
     cases += [("random", random_case, {"seed": s, "order": [NO_ADVANTAGE, BAN_TEAM1, FORCE_TEAM2][s % 3]}) for s in range(args.start_seed, args.start_seed + args.seeds)]
     if args.case:
         cases = [c for c in cases if c[0] == args.case]

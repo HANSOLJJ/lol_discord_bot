@@ -136,7 +136,7 @@ class GameCore:
         self.sleep = sleep
         self.rng = rng
 
-        self.config = {}  # 설정 (pick_timeout, champion_count, channels, pick_mode ...)
+        self.config = {}  # 설정 (pick_timeout, champion_count, channels ...)
         self.champion_list = []  # [{"id": 영문 ID, "name": 한국어 이름, "image": URL}, ...]
         self.ddragon_version = None  # 챔피언 데이터를 받은 Data Dragon 버전
         self.excluded = set()  # 세션 안에서 이미 나온 챔피언 이름
@@ -157,7 +157,6 @@ class GameCore:
         self.lock = asyncio.Lock()  # 게임 상태 변경 직렬화 (디스코드 명령·버튼·타이머·액티비티 요청 공통)
 
         # 판 단위 정보 (액티비티 state용). 승리 기록 뒤에도 다음 판까지 남는다
-        self.mode = None  # 이 판의 픽 방식 "embed" | "activity". 판이 없으면 None
         self.game_uid = None  # 재시작해도 다시 쓰지 않는 판 ID ("g-<유닉스 밀리초>")
         self.teams = {}  # 판을 시작할 때 나뉜 팀. current_teams와 달리 승리 기록 뒤에도 남는다
         self.game_round = None  # 이 판이 기록될 라운드
@@ -182,13 +181,6 @@ class GameCore:
         self.effects = None
 
     # === 설정 ===
-
-    ##
-    # @brief 이번 프로세스의 픽 방식. DEV_MODE면 dev_pick_mode를 읽는다.
-    # @return "embed" 또는 "activity".
-    def pick_mode(self):
-        key = "dev_pick_mode" if self.dev_mode else "pick_mode"
-        return self.config.get(key, "embed")
 
     ##
     # @brief 게임 시작 뒤 픽이 자동으로 시작되기까지의 시간(초). DEV_MODE면 dev_auto_start_seconds가 있을 때 그것을 쓴다.
@@ -269,12 +261,11 @@ class GameCore:
     ##
     # @brief 새 판을 만든다(/게임시작과 액티비티 start 공통). 락 안에서 부른다.
     # @details 세대를 올려 이전 판의 버튼·드롭다운·타이머를 무효화하고, 6명을 뽑아 픽 순서와 팀을 정하고,
-    #          후보 챔피언을 뽑는다. 풀이 소진되면 제외 목록을 한 번 비우고 다시 뽑는다. 디스코드 메시지와
-    #          embed 모드 카운트다운은 호출부가 맡는다.
+    #          후보 챔피언을 뽑는다. 풀이 소진되면 제외 목록을 한 번 비우고 다시 뽑는다. 디스코드 메시지는
+    #          호출부가 맡는다.
     # @param members 후보 멤버 리스트(MAX_PLAYERS명 이상). DEV_MODE면 앞의 6명을 쓴다.
-    # @param mode 이 판의 픽 방식 "embed" | "activity".
     # @return NewGame.
-    def new_game(self, members, mode):
+    def new_game(self, members):
         self.current_game_id += 1
         self._cancel_timer()
         self.selected_users.clear()
@@ -282,7 +273,6 @@ class GameCore:
         self.game_started = False
         self.victory_processed = False
         self.current_pick_index = 0
-        self.mode = None
         self.game_uid = None
         self.result = None
         self.start_at = None
@@ -323,7 +313,6 @@ class GameCore:
             return NewGame(ok=False, pool_reset=False, champ_count=champ_count)
 
         self.current_game_champions = picked
-        self.mode = mode
         self.game_uid = self._new_uid()
         self.game_round = self.round_counter
         try:
@@ -344,13 +333,10 @@ class GameCore:
         return f"g-{ms}"
 
     ##
-    # @brief new_game()이 판을 만든 직후 부른다. activity 모드면 어드밴티지를 정하고 입장 대기를 시작한다.
+    # @brief new_game()이 판을 만든 직후 부른다. 어드밴티지를 정하고 입장 대기를 시작한다.
     # @details 참가자 전원이 이미 입장해 있으면 바로 카운트다운을 건다. DEV_MODE는 참가자가 가상 유저라 입장이
-    #          성립하지 않으므로 예전처럼 auto_start_seconds 뒤 고정 자동 시작한다. embed 모드의 자동 시작
-    #          카운트다운은 got_champe가 채널 메시지로 센다. embed 모드에는 어드밴티지가 없다.
+    #          성립하지 않으므로 auto_start_seconds 뒤 고정 자동 시작한다.
     def _on_new_game(self):
-        if self.mode != "activity":
-            return
         advantage = advantage_of(self.pick_order, self.teams)
         if advantage is not None:
             self.advantage = {**advantage, "status": "pending", "champion": None}
@@ -433,7 +419,7 @@ class GameCore:
 
     ##
     # @brief 지금 차례가 비어 있으면 남은 후보에서 무작위로 배정하고 다음 차례로 넘긴다. 락 안에서 부른다.
-    # @details embed 모드 타이머와 activity 모드 타이머가 같이 쓴다. 배정한 사람은 선택 현황에
+    # @details 차례 시간 초과 타이머(_expire_turn)가 쓴다. 배정한 사람은 선택 현황에
     #          "자동 배정"으로 남도록 auto_assigned_users에 넣는다. 어드밴티지가 있으면 픽과 같은 규칙
     #          (_advantage_violation)으로 후보를 거른다.
     # @param picker_index 배정할 차례의 인덱스(현재 차례여야 한다).
@@ -813,9 +799,9 @@ class GameCore:
     # === activity 모드: 화면에 보이는 상태 ===
 
     ##
-    # @brief 액티비티가 볼 수 있는 판인가. embed 모드 판은 액티비티에 보이지 않는다(phase none).
+    # @brief 액티비티가 볼 수 있는 판인가. 판이 없으면 phase none이다.
     def _visible(self):
-        return self.game_uid is not None and self.mode == "activity"
+        return self.game_uid is not None
 
     ##
     # @brief 액티비티에 보이는 판 ID. 보이는 판이 없으면 None.
@@ -960,7 +946,7 @@ class GameCore:
             "id": user_id,
             "role": "player" if player is not None else "spectator",
             "team": player["team"] if player is not None else None,
-            "can_start": self.pick_mode() == "activity" and phase in START_PHASES,
+            "can_start": phase in START_PHASES,
             "can_start_now": phase == "starting"
             and snapshot["start_at_ms"] is None
             and not paused
@@ -990,8 +976,6 @@ class GameCore:
     # @param guild_id SDK의 guildId(없으면 None).
     # @return (code, message).
     async def activity_start(self, user_id, game_id, guild_id):
-        if self.pick_mode() != "activity":
-            return "not_allowed", "지금은 채널 버튼 방식이라 액티비티에서 시작할 수 없습니다."
         async with self.lock:
             if game_id != self.visible_game_id():
                 return "stale_game", "다른 사람이 먼저 새 판을 시작했습니다."
@@ -1006,7 +990,7 @@ class GameCore:
                     "not_enough_players",
                     f"온라인인 사람이 {MAX_PLAYERS}명 필요합니다. (현재 {len(members)}명)",
                 )
-            result = self.new_game(members, "activity")
+            result = self.new_game(members)
             if not result.ok:
                 return "server_error", "챔피언 데이터가 부족해 판을 만들지 못했습니다."
             log.info("[GAME] 액티비티에서 새 판 (game=%s, by=%s)", self.game_uid, user_id)

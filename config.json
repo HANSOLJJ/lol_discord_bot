@@ -4,9 +4,6 @@
   "dev_auto_start_seconds": 0,
   "ready_countdown_seconds": 5,
   "pick_grace_seconds": 2,
-  "countdown_step_seconds": 1.2,
   "champion_count": 8,
-  "pick_mode": "activity",
-  "dev_pick_mode": "activity",
   "channels": ["팀짜기"]
 }

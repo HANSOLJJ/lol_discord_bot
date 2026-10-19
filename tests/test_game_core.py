@@ -1,4 +1,4 @@
-# 공통 게임 함수(판 만들기·자동 배정·승리 기록·번복)가 예전 embed 모드와 같은 동작을 하는지 확인하는 회귀 테스트
+# 공통 게임 함수(판 만들기·자동 배정·승리 기록·번복)가 예전 봇과 같은 동작을 하는지 확인하는 회귀 테스트
 ##
 # @file test_game_core.py
 # @brief game_core.GameCore의 공통 함수가 예전 got_champe.py(/게임시작, 자동 배정, VictorySelect.callback,
@@ -99,7 +99,7 @@ def make_core(store, dev_mode=True, seed=1):
         wall_ms=lambda: 1790000000000,
         rng=random.Random(seed),
     )
-    core.config = {"champion_count": 8, "pick_mode": "embed"}
+    core.config = {"champion_count": 8}
     core.champion_list = list(CHAMPIONS)
     return core
 
@@ -109,15 +109,23 @@ def members(n=6, start=101):
 
 
 ##
-# @brief 판을 만들고 모두 고른 상태로 만든다(embed 픽 흐름과 같은 상태 변화).
+# @brief 판을 만들고 모두 고른 상태로 만든다(픽 흐름 없이 상태만 채운다).
 def play_until_all_picked(core, people):
-    core.new_game(people, "embed")
+    core.new_game(people)
     core.game_started = True
     for member in list(core.pick_order):
         champ = next(c["name"] for c in core.current_game_champions if c["name"] not in core.excluded)
         core.selected_users[member.id] = champ
         core.excluded.add(champ)
         core.current_pick_index += 1
+
+
+##
+# @brief new_game()이 판 타이머(asyncio 태스크)를 걸 수 있어서 이벤트 루프 안에서 돌리고, 끝나면 타이머를 정리한다.
+class CoreTestCase(unittest.IsolatedAsyncioTestCase):
+
+    async def asyncTearDown(self):
+        await self.core.close()
 
 
 class AutoStartSecondsTest(unittest.TestCase):
@@ -137,16 +145,16 @@ class AutoStartSecondsTest(unittest.TestCase):
         self.assertEqual(dev.auto_start_seconds(), 15)
 
 
-class NewGameTest(unittest.TestCase):
+class NewGameTest(CoreTestCase):
 
-    def setUp(self):
+    async def asyncSetUp(self):
         self.store = FakeStore()
         self.core = make_core(self.store)
 
-    def test_dev_mode_uses_first_six_and_orders_by_wins(self):
+    async def test_dev_mode_uses_first_six_and_orders_by_wins(self):
         people = members(8)
         self.core.wins_data = {"total_rounds": 5, "101": {"name": "a", "wins": 3}, "102": {"name": "b", "wins": 1}}
-        result = self.core.new_game(people, "embed")
+        result = self.core.new_game(people)
         self.assertTrue(result.ok)
         self.assertFalse(result.pool_reset)
         chosen = {m.id for m in self.core.pick_order}
@@ -161,17 +169,17 @@ class NewGameTest(unittest.TestCase):
         )
         self.assertEqual(len(self.core.current_game_champions), 8)
 
-    def test_prod_mode_samples_six_of_online(self):
+    async def test_prod_mode_samples_six_of_online(self):
         core = make_core(self.store, dev_mode=False)
-        core.new_game(members(10), "embed")
+        core.new_game(members(10))
         self.assertEqual(len(core.pick_order), MAX_PLAYERS)
         self.assertEqual(len({m.id for m in core.pick_order}), MAX_PLAYERS)
 
-    def test_resets_previous_game_state(self):
+    async def test_resets_previous_game_state(self):
         play_until_all_picked(self.core, members())
         self.core.victory_processed = True
         old_id = self.core.current_game_id
-        self.core.new_game(members(), "embed")
+        self.core.new_game(members())
         self.assertEqual(self.core.current_game_id, old_id + 1)
         self.assertEqual(self.core.selected_users, {})
         self.assertEqual(self.core.auto_assigned_users, set())
@@ -179,36 +187,36 @@ class NewGameTest(unittest.TestCase):
         self.assertFalse(self.core.victory_processed)
         self.assertEqual(self.core.current_pick_index, 0)
 
-    def test_candidates_skip_excluded_and_reset_pool_when_exhausted(self):
+    async def test_candidates_skip_excluded_and_reset_pool_when_exhausted(self):
         self.core.excluded = {c["name"] for c in CHAMPIONS[:13]}  # 남은 챔피언 7개 < 8
-        result = self.core.new_game(members(), "embed")
+        result = self.core.new_game(members())
         self.assertTrue(result.ok)
         self.assertTrue(result.pool_reset)
         self.assertEqual(self.core.excluded, set())
 
-    def test_not_enough_champions_fails(self):
+    async def test_not_enough_champions_fails(self):
         self.core.champion_list = CHAMPIONS[:5]
-        result = self.core.new_game(members(), "embed")
+        result = self.core.new_game(members())
         self.assertFalse(result.ok)
         self.assertEqual(result.champ_count, 8)
         self.assertIsNone(self.core.game_uid)
 
-    def test_pick_random_champions_filters_by_name(self):
+    async def test_pick_random_champions_filters_by_name(self):
         picked = pick_random_champions(CHAMPIONS, {"챔피언0"}, 19, random.Random(3))
         self.assertEqual(len(picked), 19)
         self.assertNotIn("챔피언0", [c["name"] for c in picked])
         self.assertEqual(pick_random_champions(CHAMPIONS, {"챔피언0"}, 20), [])
 
 
-class AutoAssignTest(unittest.TestCase):
+class AutoAssignTest(CoreTestCase):
 
-    def setUp(self):
+    async def asyncSetUp(self):
         self.store = FakeStore()
         self.core = make_core(self.store)
-        self.core.new_game(members(), "embed")
+        self.core.new_game(members())
         self.core.game_started = True
 
-    def test_assigns_remaining_candidate_and_advances(self):
+    async def test_assigns_remaining_candidate_and_advances(self):
         first = self.core.pick_order[0]
         taken = self.core.current_game_champions[0]["name"]
         self.core.excluded.add(taken)
@@ -221,7 +229,7 @@ class AutoAssignTest(unittest.TestCase):
         self.assertEqual(self.core.auto_assigned_users, {first.id})
         self.assertEqual(self.core.current_pick_index, 1)
 
-    def test_does_nothing_when_already_picked(self):
+    async def test_does_nothing_when_already_picked(self):
         first = self.core.pick_order[0]
         self.core.selected_users[first.id] = "챔피언X"
         self.assertIsNone(self.core.auto_assign(0))
@@ -229,10 +237,10 @@ class AutoAssignTest(unittest.TestCase):
         self.assertEqual(self.core.auto_assigned_users, set())
 
 
-class RecordResultTest(unittest.TestCase):
+class RecordResultTest(CoreTestCase):
     """예전 VictorySelect.callback과 같은 문구·저장 순서·원복을 확인한다."""
 
-    def setUp(self):
+    async def asyncSetUp(self):
         self.store = FakeStore()
         self.core = make_core(self.store)
         self.core.wins_data = {"total_rounds": 86, "101": {"name": "선수0", "wins": 10}}
@@ -241,14 +249,14 @@ class RecordResultTest(unittest.TestCase):
         self.changes = []
         self.core.add_listener(lambda: self.changes.append(1))
 
-    def test_rejects_without_game(self):
+    async def test_rejects_without_game(self):
         outcome = self.core.record_result_locked("team1")
         self.assertEqual(outcome.code, "no_game")
         self.assertEqual(outcome.message, "⚠️ 먼저 `/게임시작`으로 팀을 구성해주세요!")
         self.assertEqual(self.store.calls, [])
 
-    def test_rejects_when_someone_has_not_picked(self):
-        self.core.new_game(self.people, "embed")
+    async def test_rejects_when_someone_has_not_picked(self):
+        self.core.new_game(self.people)
         outcome = self.core.record_result_locked("team1")
         first = self.core.current_teams["team1"][0]
         self.assertEqual(outcome.code, "not_picked")
@@ -256,7 +264,7 @@ class RecordResultTest(unittest.TestCase):
         self.assertFalse(self.core.victory_processed)
         self.assertEqual(self.store.calls, [])
 
-    def test_success_saves_wins_then_records_game(self):
+    async def test_success_saves_wins_then_records_game(self):
         play_until_all_picked(self.core, self.people)
         team1 = list(self.core.current_teams["team1"])
         team2 = list(self.core.current_teams["team2"])
@@ -292,7 +300,7 @@ class RecordResultTest(unittest.TestCase):
         self.assertEqual(game["names"][str(team1[0].id)], team1[0].display_name)
         self.assertTrue(self.changes)
 
-    def test_second_record_is_rejected(self):
+    async def test_second_record_is_rejected(self):
         play_until_all_picked(self.core, self.people)
         self.core.record_result_locked("team2")
         outcome = self.core.record_result_locked("team1")
@@ -300,7 +308,7 @@ class RecordResultTest(unittest.TestCase):
         self.assertEqual(outcome.message, "⚠️ 이미 승리 처리가 완료되었습니다!")
         self.assertEqual(self.core.round_counter, 88)
 
-    def test_save_failure_changes_nothing_and_can_retry(self):
+    async def test_save_failure_changes_nothing_and_can_retry(self):
         play_until_all_picked(self.core, self.people)
         before = dict(self.core.wins_data)
         self.store.fail_save = True
@@ -318,7 +326,7 @@ class RecordResultTest(unittest.TestCase):
         self.store.fail_save = False
         self.assertEqual(self.core.record_result_locked("team1").code, "ok")
 
-    def test_season_mismatch_warns_but_keeps_victory(self):
+    async def test_season_mismatch_warns_but_keeps_victory(self):
         play_until_all_picked(self.core, self.people)
         self.store.record_error = SeasonMismatchError("라운드 회귀")
         outcome = self.core.record_result_locked("team2")
@@ -327,7 +335,7 @@ class RecordResultTest(unittest.TestCase):
         self.assertTrue(self.core.victory_processed)
         self.assertFalse(self.core.result["history_recorded"])
 
-    def test_other_record_error_is_ignored(self):
+    async def test_other_record_error_is_ignored(self):
         play_until_all_picked(self.core, self.people)
         self.store.record_error = ValueError("깨진 파일")
         outcome = self.core.record_result_locked("team2")
@@ -335,10 +343,10 @@ class RecordResultTest(unittest.TestCase):
         self.assertIsNone(outcome.season_warning)
 
 
-class ReverseTest(unittest.TestCase):
+class ReverseTest(CoreTestCase):
     """예전 ReverseConfirmView.confirm과 같은 저장 순서·원복을 확인한다."""
 
-    def setUp(self):
+    async def asyncSetUp(self):
         self.store = FakeStore()
         self.core = make_core(self.store)
         self.core.wins_data = {"total_rounds": 0}
@@ -350,7 +358,7 @@ class ReverseTest(unittest.TestCase):
         self.team1_ids = [p["id"] for p in self.record["team1"]]
         self.team2_ids = [p["id"] for p in self.record["team2"]]
 
-    def test_flips_history_then_wins_and_today_results(self):
+    async def test_flips_history_then_wins_and_today_results(self):
         wins_before = {uid: self.core.wins_of(uid) for uid in self.team1_ids + self.team2_ids}
         result = self.core.reverse_locked(self.record)
         self.assertEqual(result, (1, "team1", "team2"))
@@ -368,7 +376,7 @@ class ReverseTest(unittest.TestCase):
         self.assertEqual(self.core.result["winner"], "team2")
         self.assertEqual(self.core.result["corrected"], {"from": "team1", "at_ms": 1790000000000})
 
-    def test_save_failure_restores_history_and_keeps_wins(self):
+    async def test_save_failure_restores_history_and_keeps_wins(self):
         wins_before = dict(self.core.wins_data)
         self.store.fail_save = True
         with self.assertRaises(OSError):
@@ -382,7 +390,7 @@ class ReverseTest(unittest.TestCase):
         self.assertEqual(self.core.result["winner"], "team1")
         self.assertIsNone(self.core.result["corrected"])
 
-    def test_changed_record_is_rejected(self):
+    async def test_changed_record_is_rejected(self):
         self.store.set_game_winner(1, "team2", True)  # 미리보기 뒤에 다른 번복이 먼저 뒤집음
         self.store.calls.clear()
         with self.assertRaises(RuntimeError) as ctx:
@@ -390,7 +398,7 @@ class ReverseTest(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "R1 기록이 미리보기와 달라져 중단했습니다. 다시 실행해주세요.")
         self.assertEqual(self.store.calls, [])
 
-    def test_other_round_does_not_touch_displayed_result(self):
+    async def test_other_round_does_not_touch_displayed_result(self):
         self.core.game_round = 99  # 화면에 떠 있는 판이 아닌 판을 번복
         self.core.reverse_locked(self.record)
         self.assertEqual(self.core.result["winner"], "team1")

@@ -102,10 +102,9 @@ class FakeEffects:
 
 
 ##
-# @brief activity 모드 GameCore와 가짜 시계·저장소·effects를 준비하는 테스트 기반.
+# @brief GameCore와 가짜 시계·저장소·effects를 준비하는 테스트 기반.
 class RulesBase(unittest.IsolatedAsyncioTestCase):
     dev_mode = False
-    pick_mode = "activity"
 
     async def asyncSetUp(self):
         self.clock = FakeClock()
@@ -129,9 +128,6 @@ class RulesBase(unittest.IsolatedAsyncioTestCase):
             "ready_countdown_seconds": 5,
             "pick_grace_seconds": 2,
             "champion_count": 8,
-            "pick_mode": "embed",
-            "dev_pick_mode": "embed",
-            ("dev_pick_mode" if self.dev_mode else "pick_mode"): self.pick_mode,
         }
         self.core.champion_list = list(CHAMPIONS)
         self.core.ddragon_version = "15.19.1"
@@ -296,7 +292,7 @@ class StartTest(RulesBase):
         await self.enter_all()
         await self.clock.advance(3)
         async with self.core.lock:
-            self.core.new_game(self.people, "activity")  # /게임시작이 다시 실행됨
+            self.core.new_game(self.people)  # /게임시작이 다시 실행됨
         # 같은 6명이 이미 입장해 있어 새 판은 바로 카운트다운을 건다
         s = self.state()
         self.assertEqual(s["start_at_ms"] - s["server_ms"], 5000)
@@ -541,7 +537,7 @@ class PauseTest(RulesBase):
         await self.start_picking()
         await self.pause(self.picker_id())
         async with self.core.lock:
-            self.core.new_game(self.people, "activity")  # /게임시작
+            self.core.new_game(self.people)  # /게임시작
         self.assertIsNone(self.state()["paused"])
 
 
@@ -582,29 +578,6 @@ class ChampionPoolResetTest(RulesBase):
         picked = set(self.state()["selections"].values())
         await self.start(game_id=self.state()["game_id"])
         self.assertFalse(picked & {c["id"] for c in self.state()["champions"]})
-
-
-class EmbedModeTest(RulesBase):
-    pick_mode = "embed"
-
-    async def test_presence_does_not_touch_embed_game(self):
-        async with self.core.lock:
-            self.core.new_game(self.people, "embed")
-        await self.core.set_present([str(m.id) for m in self.people])
-        self.assertIsNone(self.core.start_at)
-        self.assertIsNone(self.core._timer)
-        self.assertEqual(self.state()["present"], [])
-
-    async def test_embed_mode_is_always_none_and_cannot_start(self):
-        code, _ = await self.start()
-        self.assertEqual(code, "not_allowed")
-        async with self.core.lock:
-            self.core.new_game(self.people, "embed")  # /게임시작(embed)
-        s = self.state()
-        self.assertEqual((s["phase"], s["game_id"], s["players"]), ("none", None, []))
-        me = self.me("101")
-        self.assertFalse(any(me[k] for k in ("can_start", "can_pick", "can_report", "can_reverse")))
-        self.assertEqual((await self.core.activity_pick("101", None, None, "Champ0", 0))[0], "wrong_phase")
 
 
 class PickTest(RulesBase):

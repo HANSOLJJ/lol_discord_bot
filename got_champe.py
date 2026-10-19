@@ -4,9 +4,10 @@
 # @details 온라인 유저(또는 DEV_MODE의 가상 유저) 중 6명을 뽑아 두 팀으로 나누고, 승수 낮은
 #          순으로 픽 순서를 정해 순차적으로 랜덤 챔피언을 고르게 한다. 승리 팀을 선택하면
 #          wins.json(개인 누적 승수)을 갱신하고 game_recorder.record_game()으로 판을 기록한다.
-#          팀짜기/TEAM1/TEAM2 3채널에 결과 embed을 동시 전송한다. DEV_MODE면 wins_dev.json으로
-#          테스트를 분리한다. 게임 상태와 공통 게임 함수는 game_core.py에 있고, config의 pick_mode가
-#          "activity"면 픽을 디스코드 액티비티(activity_server.py)에서 하고 채널에는 현황판만 둔다.
+#          config의 channels에 결과 embed을 동시 전송한다. DEV_MODE면 wins_dev.json으로 테스트를
+#          분리한다. 게임 상태와 공통 게임 함수는 game_core.py에 있고, 픽은 디스코드 액티비티
+#          (activity_server.py)에서 하며 채널에는 현황판만 둔다. 옛 채널 버튼 방식은 2026-10-19에
+#          지웠고 git 태그 embed-mode-last에 남아 있다.
 import discord
 import requests
 import os
@@ -15,7 +16,7 @@ import asyncio
 import functools
 import shutil
 import time
-from discord.ui import View, Button, button
+from discord.ui import View, button
 from discord import Interaction, Embed, SelectOption
 from discord.ui import Select
 from discord.http import Route
@@ -23,7 +24,6 @@ from dotenv import load_dotenv
 import json
 import unicodedata
 import paths
-from pick_logic import process_pick
 from game_recorder import (
     get_current_season,
     start_new_season,
@@ -76,21 +76,11 @@ class MockUser:
 # 게임 상태(팀·픽·승수·라운드 등)와 게임 락은 game_core.GameCore가 소유한다. 디스코드 명령·버튼과
 # 액티비티 서버가 같은 객체를 쓴다. 저장 함수 save_wins는 아래에서 정의된다.
 game = GameCore(dev_mode=DEV_MODE, save_wins=lambda data: save_wins(data))
-# 카운트다운은 시계가 아니라 횟수로 센다(show_countdown_step). 한 칸 = 숫자를 1 줄여 그리고, 편집 응답을
-# 기다린 뒤, 박자가 찰 때까지(최소 COUNTDOWN_MIN_REST_SECONDS) 쉰다.
-# 2026-09-16 실측(게이트웨이 + 웹 클라이언트 DOM 관찰): 디스코드는 1.0초 간격 편집도 하나도 합치지 않고
-# 전부 그린다. 숫자가 "빠진 것처럼" 보이는 진짜 원인은 서버가 편집 하나를 가끔 1초 넘게 붙잡았다가 풀어
-# 주는 것으로, 시계대로만 보내면 그 직후 다음 편집이 바로 적용돼 앞 숫자가 0.4초만 떠 있다가 넘어간다.
-# 그래서 다음 숫자는 직전 편집 응답을 받고 최소 휴식이 지난 뒤에만 보낸다(V1이 문제없던 이유).
-DEFAULT_COUNTDOWN_STEP_SECONDS = 1.2  # config.json에 countdown_step_seconds가 없을 때 쓰는 폴백(초)
-COUNTDOWN_MIN_REST_SECONDS = 0.8  # 편집 응답을 받은 뒤 다음 숫자까지 최소 휴식(초) = 숫자가 화면에 떠 있는 최소 시간
-COUNTDOWN_EDIT_WAIT_SECONDS = 1  # 한 칸에서 편집 응답을 기다리는 최대 시간(초). 느린 채널 하나가 전체를 끝없이 늘리지 않게
 # 채널당 편집 최소 간격(초). 틱 사이에 픽 갱신이 끼어도 편집이 몰려 버킷이 바닥나지 않게 한다
 # (편집이 끝나자마자 다시 보내 채널당 초당 2~3회가 되면 4초씩 멈췄다, 실측)
 CHANNEL_EDIT_MIN_GAP_SECONDS = 0.5
-current_timer_task = None  # 현재 실행 중인 타이머 Task
-champion_messages = {}  # {channel_id: message} - 여러 채널의 챔피언 선택 메시지(activity 모드는 현황판)
-champion_views = {}  # {channel_id: view} - 여러 채널의 View
+champion_messages = {}  # {channel_id: message} - 채널별 현황판 메시지
+champion_views = {}  # {channel_id: view} - 채널별 현황판 View("픽 화면 열기" 버튼)
 current_game_channels = []  # 현재 게임에 사용 중인 채널 리스트
 victory_messages = []  # [(message, view)] - 띄워둔 승리 드롭다운(처리 후 비활성화용)
 embed_update_pending = False  # 아직 화면에 못 민 변경이 있는지
@@ -99,10 +89,6 @@ channel_update_latest = {}  # {channel_id: (message, selection_status, descripti
 channel_update_tasks = {}  # {channel_id: task} - 채널별 embed 편집 태스크
 channel_update_last_at = {}  # {channel_id: 시각} - 채널별 마지막 편집 시작 시각
 channel_update_last_sent = {}  # {channel_id: (message, selection_status, description)} - 채널별 마지막으로 보낸 내용
-current_pick_deadline = 0  # 현재 차례 마감 시각(유닉스 초). 카운트 중엔 inf, 0에 닿은 순간의 시각으로 확정
-current_pick_remaining = 0  # 현재 차례 카운트다운에 표시할 남은 칸(초)
-start_remaining = 0  # 자동 시작 카운트다운에 표시할 남은 칸(초). 0이면 카운트다운 중이 아니다
-auto_start_task = None  # 자동 시작 카운트다운 태스크
 
 
 # === 설정 로드 ===
@@ -121,10 +107,7 @@ def load_config():
             "pick_timeout": DEFAULT_PICK_TIMEOUT,
             "auto_start_seconds": DEFAULT_AUTO_START_SECONDS,
             "pick_grace_seconds": DEFAULT_PICK_GRACE_SECONDS,
-            "countdown_step_seconds": DEFAULT_COUNTDOWN_STEP_SECONDS,
             "champion_count": 8,
-            "pick_mode": "embed",  # 운영 봇 픽 방식: "embed"(채널 버튼) | "activity"
-            "dev_pick_mode": "activity",  # DEV_MODE 봇 픽 방식
             "channels": ["팀짜기", "TEAM1", "TEAM2"],
         }
 
@@ -290,36 +273,6 @@ def get_selection_status():
 
 
 ##
-# @brief 현재 차례 안내 문구를 만든다(남은 칸은 봇이 센 숫자를 텍스트로 박는다).
-# @details 디스코드 상대 시각 `<t:...:R>`을 쓰지 않는다. 그건 보는 사람의 PC 시계로
-#          렌더링되어 시계가 틀어진 사람은 60초부터 시작하거나 3초 남았는데 초과되는 식으로
-#          사람마다 다른 값을 봤다(2026-08-29 실전, docs/COUNTDOWN_ANALYSIS.md).
-#          봇이 그리면 전원이 같은 값을 본다. 숫자는 pick_timeout_handler가 한 칸씩 센다.
-# @param picker 현재 차례인 멤버.
-# @param remaining 표시할 남은 칸(초).
-# @return embed description 문자열.
-def turn_description(picker, remaining):
-    return (
-        f"## 현재 차례 - {picker.mention} 님의 차례입니다!\n\n"
-        f"## ⏰ 남은 시간: **{remaining}초**"
-    )
-
-
-##
-# @brief 자동 시작까지 남은 칸을 안내하는 문구를 만든다.
-# @details /게임시작이 처음 그릴 때와 이후 auto_start_handler의 갱신이 같은 함수를 쓰므로
-#          첫 화면과 카운트다운이 어긋나지 않는다.
-# @param remaining 표시할 남은 칸(초).
-# @return embed description 문자열.
-def start_countdown_description(remaining):
-    return (
-        f"## 🚀 준비 완료!\n"
-        f"**{game.pick_order[0].mention} 님부터 시작합니다.**\n\n"
-        f"## ⏰ {remaining}초 후 자동 시작"
-    )
-
-
-##
 # @brief activity 모드 현황판에 넣을 5·6위 어드밴티지 한 줄(예: "TEAM 2 어드밴티지: 밴(제드)").
 # @return 줄바꿈으로 끝나는 문자열. 어드밴티지가 없는 판이면 빈 문자열.
 def advantage_board_line():
@@ -446,8 +399,8 @@ def request_embed_update():
 
 ##
 # @brief 예약된 embed 갱신을 밀어낸다. 미는 동안 새 요청이 오면 최신 상태로 한 번 더 민다.
-# @details 전송 간격은 채널별 편집 태스크(push_channel_embed)와 카운트다운 박자(show_countdown_step)가
-#          맡는다. 여기서는 현재 상태로 내용을 만들어 넘기기만 한다.
+# @details 전송 간격은 채널별 편집 태스크(push_channel_embed)가 맡는다. 여기서는 현재 상태로
+#          내용을 만들어 넘기기만 한다.
 # @return 없음.
 async def flush_embed_updates():
     global embed_update_pending
@@ -455,180 +408,8 @@ async def flush_embed_updates():
     while embed_update_pending:
         embed_update_pending = False
 
-        if game.mode == "activity":
-            # activity 모드 현황판. 카운트다운 숫자는 액티비티가 그리므로 넣지 않는다
-            description = activity_board_description()
-        elif not game.game_started and start_remaining:
-            # 아직 시작 전. 이 분기가 없으면 current_pick_deadline이 0이라 아래 마감 검사에
-            # 걸려서 "시간 종료"로 잘못 그려진다
-            description = start_countdown_description(start_remaining)
-        elif not game.pick_order or game.current_pick_index >= len(game.pick_order):
-            description = "## ✅ 모든 선택 완료!"
-        elif time.time() >= current_pick_deadline:
-            # 0 도달, 유예 중. 이 사이 들어온 클릭도 인정되므로 자동 배정이라고 단정하지 않는다
-            # (단정하면 빠른 채널에서는 "자동 배정 중"을 보다가 정상 선택으로 끝나 헷갈린다)
-            description = "## ⏰ 시간 종료 - 마지막 선택 확인 중..."
-        else:
-            description = turn_description(
-                game.pick_order[game.current_pick_index], current_pick_remaining
-            )
-
-        await broadcast_embed_update(get_selection_status(), description)
-
-
-##
-# @brief 전원 픽 완료 메시지와 승리 팀 선택 View를 모든 게임 채널에 보낸다.
-# @details 띄운 드롭다운은 victory_messages에 담아 승리 처리 후 일괄 비활성화할 수 있게 한다.
-# @return 없음.
-async def send_pick_complete():
-    msg = f"{MAX_PLAYERS}명 모두 선택 완료!\n"
-    for member in game.pick_order:
-        msg += f"- {member.mention}: **{game.selected_users.get(member.id, '❓')}**\n"
-
-    # @brief 완료 메시지와 승리 선택 View를 단일 채널에 전송한다.
-    async def send_one(channel):
-        try:
-            await channel.send(msg)
-            victory_view = VictoryView()
-            victory_msg = await channel.send(
-                "🎯 승리한 팀을 선택해주세요:", view=victory_view
-            )
-            victory_messages.append((victory_msg, victory_view))
-        except:
-            pass
-
-    await asyncio.gather(
-        *[send_one(ch) for ch in current_game_channels], return_exceptions=True
-    )
-
-
-# === 카운트다운 ===
-##
-# @brief 카운트다운 한 칸을 그리고, 편집 응답을 기다린 뒤, 박자가 찰 때까지 쉰다.
-# @details 평소(왕복 0.3초)에는 한 칸이 정확히 박자(countdown_step_seconds)가 된다. 서버가 편집을
-#          붙잡아 응답이 늦으면 그 칸만 늘어나되, 응답 뒤 최소 휴식(COUNTDOWN_MIN_REST_SECONDS)은
-#          지켜서 어느 숫자도 화면에 너무 짧게 떠 있지 않게 한다. 응답 대기는 최대
-#          COUNTDOWN_EDIT_WAIT_SECONDS까지만 - 한 채널이 2초 넘게 걸려도 전체가 끝없이 멈추지 않는다.
-# @return 없음.
-async def show_countdown_step():
-    step_started = time.time()
-    request_embed_update()
-    # await task가 아니라 wait로 기다린다 - 픽으로 타이머가 취소될 때 화면 갱신 태스크까지 취소되면 안 된다
-    await asyncio.wait([embed_update_task])
-    editing = [task for task in channel_update_tasks.values() if not task.done()]
-    if editing:
-        await asyncio.wait(editing, timeout=COUNTDOWN_EDIT_WAIT_SECONDS)
-    await asyncio.sleep(
-        max(step_started + countdown_step_seconds() - time.time(), COUNTDOWN_MIN_REST_SECONDS)
-    )
-
-
-##
-# @brief 카운트다운 한 칸의 길이(초)를 config에서 읽는다.
-# @return countdown_step_seconds 값. 없으면 DEFAULT_COUNTDOWN_STEP_SECONDS.
-def countdown_step_seconds():
-    return game.config.get("countdown_step_seconds", DEFAULT_COUNTDOWN_STEP_SECONDS)
-
-
-##
-# @brief 한 차례의 선택 타이머를 시작한다. pick_lock 안에서 호출한다.
-# @details 마감(inf)과 남은 칸을 태스크보다 먼저 동기적으로 설정한다. 태스크가 돌기 전에 화면 갱신이
-#          나가도 이전 차례 값이나 0으로 그려지지 않게 하기 위해서다(시작 직후 시간 초과 오표시, 7567c64).
-# @param picker_index 선택할 플레이어의 인덱스.
-# @param game_id 현재 게임의 세대 번호.
-# @return 없음.
-def start_pick_timer(picker_index, game_id):
-    global current_pick_deadline, current_pick_remaining, current_timer_task
-
-    current_pick_deadline = float("inf")  # 카운트가 0에 닿기 전에는 시간 때문에 거절하지 않는다
-    current_pick_remaining = game.config.get("pick_timeout", DEFAULT_PICK_TIMEOUT)
-    current_timer_task = asyncio.create_task(pick_timeout_handler(picker_index, game_id))
-
-
-# === 개인별 선택 타이머 ===
-##
-# @brief 개인별 챔피언 선택 타이머를 관리한다.
-# @details pick_timeout부터 한 칸씩 세어 내려가고, 0에 닿은 순간을 마감으로 확정한다. 유예 뒤에도
-#          선택이 없으면 현재 게임 챔피언 중 랜덤으로 자동 배정한다. 다른 플레이어가 선택을 끝내면
-#          취소되거나 index 검증으로 종료된다.
-# @param picker_index 현재 선택할 플레이어의 인덱스.
-# @param game_id 이 타이머를 건 게임의 세대 번호. 현재 세대와 달라지면(=새 게임 시작) 종료한다.
-async def pick_timeout_handler(picker_index, game_id):
-    global current_pick_deadline, current_pick_remaining
-
-    try:
-        # 1단계: 한 칸씩 세어 내려간다. 칸마다 차례·세대를 확인해, 끝난 차례의 타이머가 다음 차례 숫자를 덮지 않게 한다
-        for remaining in range(
-            game.config.get("pick_timeout", DEFAULT_PICK_TIMEOUT), 0, -1
-        ):
-            if picker_index != game.current_pick_index or game_id != game.current_game_id:
-                return
-            current_pick_remaining = remaining
-            await show_countdown_step()
-        if picker_index != game.current_pick_index or game_id != game.current_game_id:
-            return
-        # 0에 닿은 순간이 마감이다. flush가 "시간 종료 - 마지막 선택 확인 중..."으로 바꿔 그린다
-        current_pick_deadline = time.time()
-        request_embed_update()
-        # 2단계: 유예. 늦게 반영된 화면을 보고 누른 클릭과 배달이 늦은 클릭을 기다린다
-        await asyncio.sleep(
-            game.config.get("pick_grace_seconds", DEFAULT_PICK_GRACE_SECONDS)
-        )
-    except asyncio.CancelledError:
-        # 타이머 취소됨 (정상 선택)
-        return
-
-    # 타임아웃 후에도 선택 안했으면 자동 배정.
-    # 픽 버튼과 같은 락으로 상태 변경만 직렬화하고, 통신은 락 밖에서 한다.
-    assigned = False  # 자동 배정이 실제로 일어났는지
-    all_picked = False
-
-    async with game.lock:
-        # 락을 기다리는 사이 사람이 이미 골랐을 수 있으므로 재확인한다
-        if picker_index != game.current_pick_index or game_id != game.current_game_id:
-            return
-
-        # 현재 게임의 챔피언 중 남은 챔피언에서 랜덤 선택 (game_core 공통 함수).
-        # 선택 현황에 "(자동 배정)"으로 남는다
-        current_picker = game.pick_order[picker_index]
-        champ_name = game.auto_assign(picker_index)
-        if champ_name is not None:
-            # 팀별 버튼 스타일 및 이모지
-            team = get_member_team(current_picker)
-            team_emoji = "🔵" if team == "team1" else "🔴"
-            button_style = (
-                discord.ButtonStyle.primary
-                if team == "team1"
-                else discord.ButtonStyle.danger
-            )
-
-            # 모든 채널의 챔피언 버튼 스타일 변경
-            for view in champion_views.values():
-                for item in view.children:
-                    if (
-                        isinstance(item, ChampionButton)
-                        and item.champ_name == champ_name
-                    ):
-                        item.label = f"{team_emoji} {champ_name}"
-                        item.style = button_style
-                        break
-
-            assigned = True
-            all_picked = len(game.selected_users) >= MAX_PLAYERS
-
-            if not all_picked:
-                start_pick_timer(game.current_pick_index, game_id)  # 다음 차례 시작
-
-    if not assigned:
-        return
-
-    # === 락 밖: 화면 갱신 ===
-    # 자동 배정 알림을 채널 메시지로 따로 보내지 않는다 - 메시지가 쌓이면 챔피언 UI가 위로 밀려난다.
-    # 선택 현황의 "--완료(자동 배정)" 표시가 게임 끝까지 남는다
-    request_embed_update()
-
-    if all_picked:
-        await send_pick_complete()
+        # 카운트다운 숫자는 액티비티가 그리므로 현황판에는 넣지 않는다
+        await broadcast_embed_update(get_selection_status(), activity_board_description())
 
 
 # === 상호작용 공통 가드 ===
@@ -712,197 +493,6 @@ async def disable_victory_views():
         except Exception:
             pass
     victory_messages.clear()
-
-
-# === 챔피언 선택 자동 시작 ===
-##
-# @brief 챔피언 선택을 시작한다(알림 방송 + 첫 플레이어 타이머).
-# @details 예전엔 시작 버튼 콜백이 하던 일이다. 버튼은 아무나 누를 수 있어서 팀·챔프 카드를
-#          보기도 전에 픽이 시작되는 일이 있었고, 지금은 카운트다운이 끝나면 여기로 들어온다.
-#          래치와 세대 검증을 락 안에서 함께 해, 카운트다운 중 /게임시작이 다시 실행됐으면
-#          낡은 카운트다운이 새 게임을 시작시키지 못한다.
-# @param game_id 이 시작을 예약한 게임의 세대 번호.
-# @return 없음.
-async def begin_champion_select(game_id):
-    global start_remaining
-
-    # 임계 구역: 시작 여부·세대 확인과 설정만 (두 번 시작되는 것을 막는다)
-    async with game.lock:
-        if game.game_started or game_id != game.current_game_id:
-            return
-        game.game_started = True
-        start_remaining = 0
-        # 첫 번째 유저 타이머 시작. 시작 플래그와 함께 설정해야 한다 - 아래 알림 전송을 기다리는
-        # 사이 화면 갱신이 나가면 마감이 0이라 "시간 종료" 문구로 잘못 그려진다
-        start_pick_timer(0, game_id)
-
-    await asyncio.gather(
-        *[ch.send("🚀 **챔피언 선택을 시작합니다!**") for ch in current_game_channels],
-        return_exceptions=True,
-    )
-    request_embed_update()
-
-
-##
-# @brief 자동 시작까지 남은 칸을 한 칸씩 세다가, 끝나면 챔피언 선택을 시작한다.
-# @details pick_timeout_handler와 같은 박자(show_countdown_step)로 센다. 첫 숫자는 /게임시작 메시지에
-#          이미 그려져 있으므로 쉬는 것부터 시작한다.
-# @param game_id 이 카운트다운을 건 게임의 세대 번호.
-# @param seconds 카운트다운 칸 수. /게임시작 메시지에 처음 그린 숫자와 같다.
-# @return 없음.
-async def auto_start_handler(game_id, seconds):
-    global start_remaining
-
-    try:
-        await asyncio.sleep(countdown_step_seconds())
-        for remaining in range(seconds - 1, 0, -1):
-            if game_id != game.current_game_id:
-                return
-            start_remaining = remaining
-            await show_countdown_step()
-    except asyncio.CancelledError:
-        return  # 새 게임이 시작돼 취소됨
-
-    await begin_champion_select(game_id)
-
-
-# === 챔피언 선택 View 클래스 ===
-##
-# @brief 챔피언 선택 메시지 전용 View. 버튼 상태는 봇이 가진 값을 원본으로 유지한다.
-# @details py-cord 2.8은 메시지 편집 응답이 오면 버튼 상태를 응답값(편집을 보낸 시점의 상태)으로
-#          덮어쓴다. 카운트다운 편집이 진행 중일 때 픽이 버튼 색을 바꾸면 회색으로 되돌려지므로 막는다.
-#          챔피언 버튼의 라벨·색은 봇만 바꾸기 때문에 디스코드 응답으로 덮어쓸 이유가 없다.
-class ChampionView(View):
-
-    ##
-    # @brief 편집 응답으로 버튼 상태를 덮어쓰지 않는다.
-    # @param components 디스코드가 돌려준 컴포넌트 목록 (사용하지 않음).
-    # @return 없음.
-    def _refresh(self, components):
-        pass
-
-
-# === 챔피언 선택 버튼 클래스 ===
-##
-# @brief 챔피언 선택 버튼. 챔피언마다 하나씩 생성된다.
-# @details 자기 차례에만 선택 가능하며(DEV_MODE 제외), 선택 시 팀별 색상(🔵 team1 파랑, 🔴 team2 빨강)을
-#          적용한다. 본인이 고른 챔피언을 재클릭하면 선택이 취소된다.
-class ChampionButton(Button):
-
-    ##
-    # @brief 챔피언 이름으로 버튼을 초기화하고 생성 시점의 게임 세대를 기억한다.
-    # @param champ_name 이 버튼이 나타내는 챔피언 이름.
-    def __init__(self, champ_name):
-        super().__init__(label=champ_name, style=discord.ButtonStyle.secondary)
-        self.champ_name = champ_name
-        self.game_id = game.current_game_id
-
-    ##
-    # @brief 모든 채널 View에서 이 챔피언 버튼의 라벨·색을 바꾼다.
-    # @param label 새 라벨.
-    # @param style 새 버튼 스타일.
-    # @return 없음.
-    def restyle_everywhere(self, label, style):
-        for view in champion_views.values():
-            for item in view.children:
-                if (
-                    isinstance(item, ChampionButton)
-                    and item.champ_name == self.champ_name
-                ):
-                    item.label = label
-                    item.style = style
-                    break
-
-    ##
-    # @brief 챔피언 버튼 클릭 처리. 턴 검증 후 선택/취소하고 다음 차례로 넘긴다.
-    # @details 상태 판단·변경만 pick_lock 안에서 하고 디스코드 통신은 락 밖에서 한다.
-    #          통신까지 락에 넣으면 연타 시 클릭들이 API 왕복만큼 줄줄이 밀린다.
-    #          락이 판단과 기록을 직렬화하므로 늦게 들어온 클릭은 앞선 클릭이 반영된
-    #          상태를 보고 정확히 거절된다(직렬화 전에는 첫 클릭이 응답을 기다리는 사이
-    #          두 번째 클릭이 끼어들어 챔피언 기록 없이 차례만 넘어갔다).
-    # @param interaction 버튼 클릭 상호작용 객체.
-    @interaction_guard()
-    async def callback(self, interaction: Interaction):
-        global current_timer_task
-
-        result = None  # None=거절 / "cancel"=선택 취소 / "pick"=선택 확정
-        all_picked = False
-
-        # 마감 전에 누른 클릭인지는 "디스코드가 인터랙션을 접수한 시각"으로 판단한다.
-        # 봇이 처리한 시각으로 보면 게이트웨이 배달 지연과 락 대기가 전부 유저 탓이 된다.
-        # (인터랙션 ID는 스노플레이크라 접수 시각이 들어 있고, 클라이언트가 못 위조한다)
-        clicked_at = discord.utils.snowflake_time(interaction.id).timestamp()
-
-        # === 임계 구역: 상태 판단과 변경만 (디스코드 통신 없음) ===
-        async with game.lock:
-            current_picker = (
-                game.pick_order[game.current_pick_index]
-                if 0 <= game.current_pick_index < len(game.pick_order)
-                else None
-            )
-            team = get_member_team(current_picker) if current_picker else None
-            team_emoji = "🔵" if team == "team1" else "🔴"
-            picker_mention = current_picker.mention if current_picker else ""
-
-            pick_res = process_pick(
-                game_started=game.game_started,
-                pick_order=game.pick_order,
-                current_pick_index=game.current_pick_index,
-                selected_users=game.selected_users,
-                excluded=game.excluded,
-                auto_assigned_users=game.auto_assigned_users,
-                user_id=interaction.user.id,
-                champ_name=self.champ_name,
-                clicked_at=clicked_at,
-                current_pick_deadline=current_pick_deadline,
-                pick_grace_seconds=game.config.get(
-                    "pick_grace_seconds", DEFAULT_PICK_GRACE_SECONDS
-                ),
-                dev_mode=DEV_MODE,
-                max_players=MAX_PLAYERS,
-                team_emoji=team_emoji,
-                picker_mention=picker_mention,
-            )
-
-            game.current_pick_index = pick_res.current_pick_index
-            all_picked = pick_res.all_picked
-            reply = pick_res.message
-
-            if pick_res.kind == "cancel":
-                result = "cancel"
-                self.restyle_everywhere(
-                    self.champ_name, discord.ButtonStyle.secondary
-                )
-            elif pick_res.kind == "pick":
-                result = "pick"
-                if current_timer_task and not current_timer_task.done():
-                    current_timer_task.cancel()
-
-                self.restyle_everywhere(
-                    f"{team_emoji} {self.champ_name}",
-                    (
-                        discord.ButtonStyle.primary
-                        if team == "team1"
-                        else discord.ButtonStyle.danger
-                    ),
-                )
-
-                if not all_picked:
-                    # 다음 차례 시작 (이전 타이머는 위에서 취소했고, index 체크로도 스스로 종료)
-                    start_pick_timer(game.current_pick_index, self.game_id)
-            elif pick_res.reason == "not_turn" and current_picker:
-                reply = f"⚠️ 지금은 **{current_picker.mention}** 님의 차례입니다!"
-
-        # === 락 밖: 응답과 화면 갱신 (클릭끼리 서로 기다리지 않는다) ===
-        await interaction.response.send_message(reply, ephemeral=True)
-
-        if result is None:
-            return
-
-        request_embed_update()
-
-        if all_picked:
-            await send_pick_complete()
 
 
 # === activity 모드: 현황판과 픽 화면 열기 ===
@@ -1077,20 +667,10 @@ def online_members(guild):
 
 ##
 # @brief 새 판이 만들어진 직후 이전 판의 디스코드 쪽 흔적을 정리한다.
-# @details 살아있는 embed 타이머를 끊고(취소하지 않으면 이전 게임 타이머가 새 게임에 자동 배정을 쏠 수
-#          있다), 승리 드롭다운을 비활성화하고, 이전 챔피언 선택 메시지(activity 모드는 현황판)를 종료
-#          표시로 바꾼다. 메시지 정리는 백그라운드로 한다(새 게임 시작을 지연시키지 않는다).
+# @details 승리 드롭다운을 비활성화하고, 이전 현황판을 종료 표시로 바꾼다. 메시지 정리는 백그라운드로
+#          한다(새 게임 시작을 지연시키지 않는다). 픽 타이머는 game_core가 새 판에서 정리한다.
 # @return 없음.
 async def reset_discord_game():
-    global current_timer_task, auto_start_task, start_remaining
-
-    if current_timer_task and not current_timer_task.done():
-        current_timer_task.cancel()
-    current_timer_task = None
-    if auto_start_task and not auto_start_task.done():
-        auto_start_task.cancel()
-    auto_start_task = None
-    start_remaining = 0
     await disable_victory_views()
 
     old_items = [
@@ -1106,12 +686,11 @@ async def reset_discord_game():
 ##
 # @brief /게임시작 슬래시 커맨드. 팀을 나누고 랜덤 챔피언 픽을 준비한다.
 # @details 온라인 유저(또는 DEV_MODE의 가상 유저) 중 6명을 뽑아 두 팀으로 나누고, 승수 기반
-#          픽 순서를 계산한 뒤 각 채널에 팀 구성 embed과 챔피언 선택 View를 전송한다.
-#          픽은 auto_start_seconds 카운트다운이 끝나면 자동으로 시작된다.
+#          픽 순서를 계산한 뒤 각 채널에 현황판과 "픽 화면 열기" 버튼을 보낸다. 픽은 액티비티에서 한다.
 # @param ctx 슬래시 커맨드 상호작용 컨텍스트.
 @bot.slash_command(name="게임시작", description="팀을 나누고 랜덤 챔피언을 보여줍니다.")
 async def 게임시작(ctx):
-    global current_game_channels, start_remaining, auto_start_task
+    global current_game_channels
 
     # 봇 시계 진단: 디스코드가 이 커맨드를 접수한 시각과 봇 시계의 차이. 카운트다운과
     # 마감 판정이 봇 시계 기준이므로, 시계가 틀어지면 여기서 먼저 드러난다.
@@ -1148,10 +727,9 @@ async def 게임시작(ctx):
             return
 
     # 게임 상태 초기화와 새 판 만들기 (game_core 공통 함수: 6명 선정, 픽 순서, 팀 분할, 후보 챔피언).
-    # 세대를 올려 이전 게임의 버튼·드롭다운·타이머를 무효화한다. 픽 방식은 판을 시작할 때 고정한다
-    pick_mode = game.pick_mode()
+    # 세대를 올려 이전 게임의 버튼·드롭다운·타이머를 무효화한다
     async with game.lock:
-        new_game = game.new_game(members, pick_mode)
+        new_game = game.new_game(members)
     await reset_discord_game()
 
     # 게임에 사용할 채널들 먼저 확보 (명령 실행 채널 + config 채널들)
@@ -1162,105 +740,16 @@ async def 게임시작(ctx):
         )
         return
 
-    if pick_mode == "activity":
-        # 채널에는 현황판 하나와 "픽 화면 열기" 버튼만 둔다. 자동 시작과 마감은 game_core 타이머가 맡는다
-        if not new_game.ok:
-            await ctx.respond(
-                f"⚠️ 챔피언 데이터가 부족합니다 (필요 {new_game.champ_count}명). "
-                "봇을 재시작하거나 config.json의 champion_count를 확인해주세요!"
-            )
-            return
-        if new_game.pool_reset:
-            print("[INFO] 챔피언 풀이 소진되어 제외 목록을 초기화했습니다.")
-        await send_activity_board(current_game_channels, ctx)
-        return
-
-    embed = Embed(title=f"🔀 ROUND {game.round_counter}: 팀 구성", color=0xFFD700)
-    for key in ["team1", "team2"]:
-        team_emoji = "🔵" if key == "team1" else "🔴"
-        embed.add_field(
-            name=f"{team_emoji} {key.upper()}",
-            value="\n".join([m.mention for m in game.current_teams[key]]),
-            inline=True,
-        )
-    # 명령 채널(channels[0])은 respond로, 나머지 채널은 send로 전파
-    await ctx.respond(embed=embed)
-
-    async def send_team_embed(channel):
-        try:
-            await channel.send(embed=embed)
-        except Exception as e:
-            print(f"[ERROR] 팀 구성 embed 전송 실패 ({channel.name}): {e}")
-
-    await asyncio.gather(
-        *[send_team_embed(ch) for ch in current_game_channels[1:]],
-        return_exceptions=True,
-    )
-
-    # 챔피언 추천은 new_game()이 이미 했다. 풀 소진 안내와 실패 안내만 여기서 보낸다
-    champ_count = new_game.champ_count
-    if new_game.pool_reset:
-        await asyncio.gather(
-            *[
-                ch.send("♻️ 챔피언 풀이 소진되어 제외 목록을 초기화했습니다.")
-                for ch in current_game_channels
-            ],
-            return_exceptions=True,
-        )
-
+    # 채널에는 현황판 하나와 "픽 화면 열기" 버튼만 둔다. 자동 시작과 마감은 game_core 타이머가 맡는다
     if not new_game.ok:
-        # 챔피언 목록 자체가 부족(Data Dragon 로드 실패 등) - 버튼 0개로 진행하지 않는다
-        await ctx.channel.send(
-            f"⚠️ 챔피언 데이터가 부족합니다 (필요 {champ_count}명). "
+        await ctx.respond(
+            f"⚠️ 챔피언 데이터가 부족합니다 (필요 {new_game.champ_count}명). "
             "봇을 재시작하거나 config.json의 champion_count를 확인해주세요!"
         )
         return
-
-    champ_names = [champ["name"] for champ in game.current_game_champions]
-
-    # Embed 생성 - description에 자동 시작 카운트다운
-    start_remaining = game.auto_start_seconds()
-    embed2 = Embed(title=f"무작위 챔피언 {champ_count}명", color=0x00CCFF)
-    embed2.description = start_countdown_description(start_remaining)
-
-    # Field 0: 선택 현황 및 픽순
-    embed2.add_field(
-        name="선택 현황 및 픽순",
-        value=get_selection_status(),
-        inline=False,
-    )
-
-    # 각 채널에 챔피언 선택 메시지 전송
-    for channel in current_game_channels:
-        try:
-            # View 생성 - 챔피언 버튼들 (각 채널마다 독립적인 View 필요)
-            view = ChampionView(timeout=None)
-            for champ in champ_names:
-                view.add_item(ChampionButton(champ))
-
-            # 메시지 전송
-            message = await channel.send(embed=embed2, view=view)
-
-            # 저장
-            champion_messages[channel.id] = message
-            champion_views[channel.id] = view
-        except Exception as e:
-            print(f"[ERROR] Failed to send message to channel {channel.name}: {e}")
-
-    if not champion_messages:
-        # 버튼이 한 채널에도 안 떴다(권한 없음 등). 자동 시작을 걸면 아무도 못 보는 게임이
-        # 혼자 진행되므로 여기서 멈춘다.
-        start_remaining = 0
-        await ctx.channel.send(
-            "⚠️ 챔피언 선택 메시지를 어느 채널에도 보내지 못했습니다. "
-            "봇의 채널 권한을 확인해주세요!"
-        )
-        return
-
-    # 카운트다운이 끝나면 자동으로 챔피언 선택 시작
-    auto_start_task = asyncio.create_task(
-        auto_start_handler(game.current_game_id, start_remaining)
-    )
+    if new_game.pool_reset:
+        print("[INFO] 챔피언 풀이 소진되어 제외 목록을 초기화했습니다.")
+    await send_activity_board(current_game_channels, ctx)
 
 
 # === 결과 알림 ===
@@ -1829,7 +1318,6 @@ async def on_ready():
     print(f"[ROUNDS] Starting from Round {game.round_counter}")
     print(
         f"[CONFIG] pick_timeout={game.config.get('pick_timeout')}s, champion_count={game.config.get('champion_count')}"
-        f", pick_mode={game.pick_mode()}"
     )
 
 

@@ -37,10 +37,9 @@ RECEIVE_TIMEOUT = 5  # 메시지 하나를 기다리는 최대 시간(초)
 # @brief 테스트용 GameCore를 만든다(가짜 저장소·시계, 길드 "guild-1"에 가상 6명).
 # @param clock FakeClock.
 # @param dev_mode DEV_MODE 여부.
-# @param pick_mode 이 프로세스의 픽 방식.
 # @param people 길드 온라인 멤버.
 # @return (GameCore, FakeStore).
-def make_game(clock, dev_mode, pick_mode, people):
+def make_game(clock, dev_mode, people):
     store = FakeStore()
     game = GameCore(
         dev_mode=dev_mode,
@@ -58,7 +57,6 @@ def make_game(clock, dev_mode, pick_mode, people):
         "auto_start_seconds": 15,
         "pick_grace_seconds": 2,
         "champion_count": 8,
-        ("dev_pick_mode" if dev_mode else "pick_mode"): pick_mode,
     }
     game.champion_list = list(CHAMPIONS)
     game.ddragon_version = "15.19.1"
@@ -73,7 +71,6 @@ def make_game(clock, dev_mode, pick_mode, people):
 # @brief 가짜 Discord API와 액티비티 서버를 띄우는 공통 테스트 기반.
 class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
     dev_mode = True
-    pick_mode = "activity"
     session_ttl = activity_server.SESSION_TTL_SECONDS
     session_max = activity_server.SESSION_MAX_SECONDS
     heartbeat = activity_server.HEARTBEAT_SECONDS
@@ -92,7 +89,7 @@ class ActivityTestBase(unittest.IsolatedAsyncioTestCase):
 
         self.clock = FakeClock()
         self.people = [Member(900 + i, f"가상{i}") for i in range(6)]
-        self.game, self.store = make_game(self.clock, self.dev_mode, self.pick_mode, self.people)
+        self.game, self.store = make_game(self.clock, self.dev_mode, self.people)
         self.server = ActivityServer(
             game=self.game,
             client_id=CLIENT_ID,
@@ -697,7 +694,7 @@ class IdempotencyTest(GameSocketBase):
         await self.recv_type(ws, "reply")
         self.assertEqual(len(self.server._replies), 1)
         async with self.game.lock:
-            self.game.new_game(self.people, "activity")  # /게임시작
+            self.game.new_game(self.people)  # /게임시작
         await self.recv_type(ws, "state")
         self.assertEqual(self.server._replies, {})
 
@@ -857,23 +854,6 @@ class HeartbeatTest(GameSocketBase):
             pass
 
 
-class EmbedModeSocketTest(GameSocketBase):
-    pick_mode = "embed"
-
-    async def test_start_not_allowed_and_state_none(self):
-        ws = await self.connect()
-        await self.recv_type(ws, "hello")
-        state = await self.recv_type(ws, "state")
-        self.assertFalse(state["me"]["can_start"])
-        await self.send(ws, {"t": "start", "id": "g-1", "game_id": None, "guild_id": "guild-1"})
-        reply = await self.recv_type(ws, "reply")
-        self.assertEqual((reply["ok"], reply["code"]), (False, "not_allowed"))
-        async with self.game.lock:
-            self.game.new_game(self.people, "embed")  # 디스코드 /게임시작(embed)
-        state = await self.recv_type(ws, "state")
-        self.assertEqual((state["phase"], state["game_id"]), ("none", None))
-
-
 ##
 # @brief 송신 작업 단위 테스트용 가짜 WebSocket. send_str은 gate가 열릴 때까지 멈춘다.
 class FakeWebSocket:
@@ -944,7 +924,7 @@ class RealServerLoggingTest(unittest.IsolatedAsyncioTestCase):
         await self.fake_discord.close()
 
     async def test_logs_have_no_secrets_or_query(self):
-        game, _ = make_game(FakeClock(), True, "activity", [])
+        game, _ = make_game(FakeClock(), True, [])
         server = ActivityServer(
             game=game,
             client_id=CLIENT_ID,
