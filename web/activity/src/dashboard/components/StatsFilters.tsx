@@ -77,7 +77,7 @@ export function StatsFilters({
           </select>
         </div>
 
-        {/* 인원 선택 칩 (최대 선택 수 제한 적용) */}
+        {/* 인원 선택 칩 (최대 선택 수 제한 적용. 1명 탭은 누르면 바로 바뀌므로 막지 않는다) */}
         <div className={styles.chipsRow} role="group" aria-label="인원 선택">
           <span className={styles.label}>인원 선택</span>
           <div className={styles.chipsList}>
@@ -85,7 +85,7 @@ export function StatsFilters({
               const isSelected = selectedPlayerIds.includes(id)
               const isDisabled =
                 maxSelection === 0 ||
-                (selectedPlayerIds.length >= maxSelection && !isSelected)
+                (maxSelection !== 1 && selectedPlayerIds.length >= maxSelection && !isSelected)
               return (
                 <button
                   key={id}
