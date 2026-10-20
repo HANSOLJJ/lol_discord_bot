@@ -203,4 +203,48 @@ describe('stats.ts 단위 테스트', () => {
       assert.equal(matchups.length, 0)
     })
   })
+
+  describe('calculateChampStats 인원 선택 (챔피언 탭)', () => {
+    // 2판째: p2가 아리로 지고, p1은 상대 팀에서 이긴다.
+    const secondGame: Game = {
+      round: 2,
+      season: 1,
+      time: '2026-06-26T21:30:00Z',
+      winner: 'team2',
+      team1: [
+        { id: 'p2', champ: '아리' },
+        { id: 'p3', champ: '가렌' },
+        { id: 'p4', champ: '럭스' },
+      ],
+      team2: [
+        { id: 'p1', champ: '야스오' },
+        { id: 'p5', champ: '리신' },
+        { id: 'p6', champ: '징크스' },
+      ],
+    }
+    const games = [sampleGame, secondGame]
+    const pickedBy = (ids: string[]) => (slot: { id: string }) => ids.includes(slot.id)
+
+    it('고른 사람들의 픽을 판이 달라도 챔피언별로 합쳐 센다', () => {
+      const rows = calculateChampStats(games, 1, pickedBy(['p1', 'p2']))
+      const ari = rows.find((r) => r.champ === '아리')!
+      // 1판 p1 아리 승 + 2판 p2 아리 패
+      assert.equal(ari.n, 2)
+      assert.equal(ari.w, 1)
+      // 1판 p2 가렌 승, 2판 p1 야스오 승
+      assert.deepEqual(
+        rows.map((r) => r.champ).sort(),
+        ['가렌', '아리', '야스오'].sort(),
+      )
+    })
+
+    it('고르지 않은 사람이 같은 챔피언을 한 판은 세지 않는다', () => {
+      const rows = calculateChampStats(games, 1, pickedBy(['p1']))
+      const yasuo = rows.find((r) => r.champ === '야스오')!
+      // 1판 p4의 야스오(패)는 빠지고 2판 p1의 야스오(승)만 남는다.
+      assert.equal(yasuo.n, 1)
+      assert.equal(yasuo.w, 1)
+      assert.equal(rows.length, 2)
+    })
+  })
 })

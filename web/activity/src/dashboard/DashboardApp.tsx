@@ -20,26 +20,27 @@ import type { SortOrder } from './lib/types.ts'
 
 /**
  * 탭마다 고를 수 있는 플레이어 수. 대전 기록은 같은 팀 필터 3명, 개인·매치업은 1명,
- * 시너지는 조합 크기만큼 고른다. 챔피언 탭은 인원 선택을 쓰지 않는다(0).
+ * 시너지는 조합 크기만큼, 챔피언은 픽을 모아 셀 사람을 전원(6명)까지 고른다.
  */
 const SEL_MAX: Record<string, number> = {
   history: 3,
   player: 1,
   pair: 2,
   trio: 3,
-  champ: 0,
+  champ: 6,
   matchup: 1,
 }
 
 /**
- * 탭마다 처음 보일 최소 판수. 시너지는 판 수 적은 조합이 승률 맨 위·아래를 차지하지 않게 5,
- * 챔피언은 3으로 시작한다. 개인 상세(한 사람의 챔피언별)와 매치업은 행이 적어서 1로 둔다.
+ * 탭마다 처음 보일 최소 판수. 시너지는 판 수 적은 조합이 승률 맨 위·아래를 차지하지 않게 5로 시작한다.
+ * 개인 상세·챔피언(사람을 고르면 그 사람의 챔피언별)은 한 사람이 같은 챔피언을 여러 번 한 일이 드물어서 1로 둔다.
+ * 매치업도 행이 적어서 1이다.
  */
 const MIN_GAMES_DEFAULT: Record<string, number> = {
   player: 1,
   pair: 5,
   trio: 5,
-  champ: 3,
+  champ: 1,
   matchup: 1,
 }
 
@@ -350,13 +351,14 @@ export function DashboardApp() {
                 selectedPlayerIds={selectedPlayerIds}
                 onTogglePlayer={handleTogglePlayer}
                 onClearPlayer={() => setSelectedPlayerIds([])}
-                maxSelection={0}
+                maxSelection={6}
                 minGames={minGames}
                 onMinGamesChange={setMinGames}
               />
               <ChampStatsView
                 games={periodGames}
                 championPortraits={championPortraits}
+                selectedPlayerIds={selectedPlayerIds}
                 minGames={minGames}
               />
             </>

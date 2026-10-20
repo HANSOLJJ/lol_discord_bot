@@ -12,20 +12,29 @@ import styles from './StatsTable.module.css'
 export interface ChampStatsViewProps {
   games: Game[]
   championPortraits: Record<string, string>
+  /** 고른 인원. 비어 있으면 전원의 픽을, 있으면 그 사람들의 픽만 센다. */
+  selectedPlayerIds: string[]
   minGames: number
 }
 
-/** 챔피언 탭. 기간 안의 챔피언별 픽 수와 승률 표. 인원 선택은 쓰지 않고, 머리글을 눌러 정렬한다. */
+/** 챔피언 탭. 기간 안의 챔피언별 픽 수와 승률 표. 인원을 고르면 그 사람들의 픽만 모아 세고, 머리글을 눌러 정렬한다. */
 export function ChampStatsView({
   games,
   championPortraits,
+  selectedPlayerIds,
   minGames,
 }: ChampStatsViewProps) {
   // 기본 정렬: 픽(col 1) 내림차순
   const [sortCol, setSortCol] = useState<number>(1)
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
-  const rows = calculateChampStats(games, minGames)
+  const rows = calculateChampStats(
+    games,
+    minGames,
+    selectedPlayerIds.length > 0
+      ? (slot) => selectedPlayerIds.includes(slot.id)
+      : undefined,
+  )
 
   const sortedRows = sortStatsRows(
     rows,
@@ -144,7 +153,9 @@ export function ChampStatsView({
         </div>
       </div>
 
-      <div className={styles.note}>챔프별 전체 픽 수·승률 (인원 선택 사용 안 함).</div>
+      <div className={styles.note}>
+        챔프별 픽 수·승률. 인원을 고르지 않으면 전원, 고르면 그 사람들이 고른 픽만 모아 셉니다.
+      </div>
     </>
   )
 }
