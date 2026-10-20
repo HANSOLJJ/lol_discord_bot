@@ -158,9 +158,9 @@
 }
 
 .chipButton.active {
-  background: var(--team1-tint);
+  background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent);
+  color: #ffffff;
   font-weight: 600;
 }
 
