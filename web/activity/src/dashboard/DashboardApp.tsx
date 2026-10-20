@@ -31,6 +31,18 @@ const SEL_MAX: Record<string, number> = {
   matchup: 1,
 }
 
+/**
+ * 탭마다 처음 보일 최소 판수. 시너지는 판 수 적은 조합이 승률 맨 위·아래를 차지하지 않게 5,
+ * 챔피언은 3으로 시작한다. 개인 상세(한 사람의 챔피언별)와 매치업은 행이 적어서 1로 둔다.
+ */
+const MIN_GAMES_DEFAULT: Record<string, number> = {
+  player: 1,
+  pair: 5,
+  trio: 5,
+  champ: 3,
+  matchup: 1,
+}
+
 /** 주소의 #해시로 열 탭을 정한다. #personal은 #player의 별칭이고, 모르는 값은 대전 기록으로 본다. */
 function getTabFromHash(): string {
   if (typeof window === 'undefined') return 'history'
@@ -51,9 +63,12 @@ export function DashboardApp() {
   const { data, loading, error, lastUpdated, refresh } = useHistoryData()
   const championPortraits = useChampionPortraits()
 
-  // 탭 및 최소 판수 상태
+  // 탭 및 최소 판수 상태. 최소 판수는 탭마다 따로 기억하고, 지금 탭의 값만 꺼내 쓴다.
   const [activeTab, setActiveTab] = useState<string>(getTabFromHash)
-  const [minGames, setMinGames] = useState<number>(1)
+  const [minGamesByTab, setMinGamesByTab] = useState<Record<string, number>>(MIN_GAMES_DEFAULT)
+  const minGames = minGamesByTab[activeTab] ?? 1
+  const setMinGames = (n: number) =>
+    setMinGamesByTab((prev) => ({ ...prev, [activeTab]: n }))
 
   // 공통 및 대전 기록 전용 필터 상태
   const [period, setPeriod] = useState<string | null>(null)
