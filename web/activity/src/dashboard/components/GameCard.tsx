@@ -1,4 +1,4 @@
-// 단일 경기 결과 카드(팀 대진, 승리 강조, 번복 배지) 렌더링 컴포넌트
+// 단일 경기 결과 카드(팀 대진, 승리 팀 칸 강조, 번복 배지) 렌더링 컴포넌트
 import { formatCorrectedInfo } from '../lib/corrected.ts'
 import { isRowHighlighted } from '../lib/filter.ts'
 import { formatKoreanDate } from '../lib/time.ts'
@@ -18,8 +18,8 @@ export interface GameCardProps {
 }
 
 /**
- * 한 판의 결과 카드. 머리줄에 시즌·라운드·시각과 승리 팀(번복됐으면 번복 배지와 요약)을,
- * 본문에 두 팀의 플레이어·챔피언을 보인다. 두 팀 칸은 같은 구조이고 승패 스타일만 다르다.
+ * 한 판의 결과 카드. 머리줄에 시즌·라운드·시각(번복됐으면 번복 배지와 요약)을,
+ * 본문에 두 팀의 플레이어·챔피언을 보인다. 두 팀 칸은 같은 구조이고, 승리 팀은 칸의 테두리와 "승리" 표시로 드러낸다.
  */
 export function GameCard({
   game,
@@ -54,11 +54,6 @@ export function GameCard({
               <span className={styles.correctedDetail}>({correctedInfo.summary})</span>
             </div>
           )}
-          <span
-            className={`${styles.winBadge} ${isTeam1Winner ? styles.team1 : styles.team2}`}
-          >
-            {isTeam1Winner ? 'TEAM 1 승리' : 'TEAM 2 승리'}
-          </span>
         </div>
       </div>
 

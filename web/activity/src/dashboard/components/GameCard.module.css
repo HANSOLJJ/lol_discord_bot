@@ -69,28 +69,6 @@
   color: var(--warning);
 }
 
-.winBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-}
-
-.winBadge.team1 {
-  background: var(--team1-tint);
-  color: var(--team1);
-  border: 1px solid var(--team1-border);
-}
-
-.winBadge.team2 {
-  background: var(--team2-tint);
-  color: var(--team2);
-  border: 1px solid var(--team2-border);
-}
-
 .body {
   display: grid;
   grid-template-columns: 1fr 1fr;
