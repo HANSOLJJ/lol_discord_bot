@@ -15,6 +15,7 @@ import { useChampionPortraits } from './hooks/useChampionPortraits.ts'
 import { useHistoryData } from './hooks/useHistoryData.ts'
 import { calculateTeamRecord, filterByPeriod, filterGames } from './lib/filter.ts'
 import { buildPeriodOptions, getDefaultPeriod, splitSessions } from './lib/session.ts'
+import { getKstDateString } from './lib/time.ts'
 import type { SortOrder } from './lib/types.ts'
 
 /**
@@ -133,9 +134,10 @@ export function DashboardApp() {
     } else if (activePeriod.startsWith('s')) {
       label = selectedOpt ? selectedOpt.label.split(' ')[0] + ' 세션' : '세션'
     }
-    const d0 = periodGames.length ? periodGames[0].time.slice(0, 10) : '-'
+    // time은 UTC라서 앞 10글자를 자르면 한국 시간 자정~오전 9시에 한 판이 하루 전 날짜가 된다.
+    const d0 = periodGames.length ? getKstDateString(periodGames[0].time) : '-'
     const d1 = periodGames.length
-      ? periodGames[periodGames.length - 1].time.slice(0, 10)
+      ? getKstDateString(periodGames[periodGames.length - 1].time)
       : '-'
     const dateRange = d0 === d1 ? d0 : `${d0} ~ ${d1}`
     return { label, dateRange }
